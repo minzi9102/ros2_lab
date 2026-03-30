@@ -1,0 +1,25 @@
+# ROS 2 / colcon workspace artifacts
+workspaces/**/build/
+workspaces/**/install/
+workspaces/**/log/
+
+# Temporary downloads
+downloads/*
+!downloads/.gitkeep
+
+# Python caches and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.*
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
