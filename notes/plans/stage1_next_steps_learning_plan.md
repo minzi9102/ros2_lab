@@ -24,7 +24,17 @@
 - [ ] 任务 4G：forward_command_controller 对比
 - [ ] 任务 4H：阶段 1 验收复盘
 
-## 4. 每个任务的文档交付路径
+## 4. 每个任务的规划文档目录
+1. 4A -> `notes/plans/tasks/task4A_plan.md`
+2. 4B -> `notes/plans/tasks/task4B_plan.md`
+3. 4C -> `notes/plans/tasks/task4C_plan.md`
+4. 4D -> `notes/plans/tasks/task4D_plan.md`
+5. 4E -> `notes/plans/tasks/task4E_plan.md`
+6. 4F -> `notes/plans/tasks/task4F_plan.md`
+7. 4G -> `notes/plans/tasks/task4G_plan.md`
+8. 4H -> `notes/plans/tasks/task4H_plan.md`
+
+## 5. 每个任务的文档交付路径
 1. 4A -> `notes/labs/task4A_service_vs_topic_action.md`
 2. 4B -> `notes/labs/task4B_qos_experiment.md`
 3. 4C -> `notes/labs/task4C_tf2_lookup.md`
@@ -34,12 +44,12 @@
 7. 4G -> `notes/labs/task4G_controller_comparison.md`
 8. 4H -> `notes/reports/stage1_review.md`
 
-## 5. 执行约束
+## 6. 执行约束
 - 每次只做一个功能，完成后再进入下一项。
 - 每完成一个任务，同步更新对应文档模板。
 - 文档优先记录：目标、步骤、日志、结论、风险与下一步。
 
-## 6. 阶段验收标准
+## 7. 阶段验收标准
 - 能独立创建并构建一个 ROS 2 package（Python 与 C++ 各至少一个）。
 - 能清楚解释为何轨迹执行通常使用 Action 而非 Topic/Service。
 - 能阅读并说明一套机械臂 description 包的结构与参数入口。
