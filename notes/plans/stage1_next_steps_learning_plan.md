@@ -9,15 +9,20 @@
 - 已完成：最小 JointState 发布（Python）、FollowJointTrajectory Action Client（Python）、状态监控节点（C++）、简化 URDF + RViz 联动。
 - 待补齐：Service 实战、QoS 对比实验、tf2 主动查询、ros2_control 最小控制链、控制器对比总结。
 
-## 3. 任务拆分与文档落盘
-1. 任务 4A：Service 最小闭环
-2. 任务 4B：QoS 对比实验
-3. 任务 4C：tf2 主动查询
-4. 任务 4D：URDF 升级 xacro 参数化
-5. 任务 4E：ros2_control 最小链路
-6. 任务 4F：joint_trajectory_controller 联调
-7. 任务 4G：forward_command_controller 对比
-8. 任务 4H：阶段 1 验收复盘
+## 3. 任务拆分与进度跟踪
+
+### 3.1 进度统计
+- 已完成：`0 / 8`
+
+### 3.2 可勾选任务清单
+- [ ] 任务 4A：Service 最小闭环
+- [ ] 任务 4B：QoS 对比实验
+- [ ] 任务 4C：tf2 主动查询
+- [ ] 任务 4D：URDF 升级 xacro 参数化
+- [ ] 任务 4E：ros2_control 最小链路
+- [ ] 任务 4F：joint_trajectory_controller 联调
+- [ ] 任务 4G：forward_command_controller 对比
+- [ ] 任务 4H：阶段 1 验收复盘
 
 ## 4. 每个任务的文档交付路径
 1. 4A -> `notes/labs/task4A_service_vs_topic_action.md`
@@ -38,4 +43,3 @@
 - 能独立创建并构建一个 ROS 2 package（Python 与 C++ 各至少一个）。
 - 能清楚解释为何轨迹执行通常使用 Action 而非 Topic/Service。
 - 能阅读并说明一套机械臂 description 包的结构与参数入口。
-
