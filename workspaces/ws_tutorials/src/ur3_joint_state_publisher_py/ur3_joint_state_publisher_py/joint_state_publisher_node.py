@@ -1,3 +1,4 @@
+import math
 from typing import List
 
 import rclpy
@@ -34,6 +35,9 @@ class Ur3JointStatePublisherNode(Node):
         if self.max_abs_position_rad <= 0.0:
             self.get_logger().warn("max_abs_position_rad <= 0.0, fallback to 1.2 rad")
             self.max_abs_position_rad = 1.2
+        if self.base_frequency_hz <= 0.0:
+            self.get_logger().warn("base_frequency_hz <= 0.0, fallback to 0.1 Hz")
+            self.base_frequency_hz = 0.1
 
         self.publisher = self.create_publisher(JointState, self.publish_topic, 10)
         self.start_time = self.get_clock().now()
@@ -49,14 +53,21 @@ class Ur3JointStatePublisherNode(Node):
 
     def compute_joint_positions(self, elapsed_sec: float) -> List[float]:
         """Compute one position vector in joint_names order."""
-        # TODO(human): 请实现 6 轴关节位置生成逻辑（建议使用正弦函数 + 不同相位偏移）。
+        # 已实现 6 轴关节位置生成逻辑（建议使用正弦函数 + 不同相位偏移）。
         # 要求：
         # 1) 返回长度必须等于 len(self.joint_names)
         # 2) 每个关节位置都要被限制在 [-self.max_abs_position_rad, self.max_abs_position_rad]
         # 3) 曲线应随时间连续变化，便于后续在 RViz/plot 中观察
-        raise NotImplementedError(
-            "TODO(human): implement compute_joint_positions(elapsed_sec) for learning exercise"
-        )
+
+        positions = []
+        for i in range(len(self.joint_names)):
+            phase_offset = i * math.pi / 3
+            pos = self.max_abs_position_rad * math.sin(
+                2 * math.pi * self.base_frequency_hz * elapsed_sec + phase_offset
+            )
+            positions.append(pos)
+
+        return positions
 
     def on_timer(self) -> None:
         elapsed_sec = (self.get_clock().now() - self.start_time).nanoseconds * 1e-9
