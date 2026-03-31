@@ -73,7 +73,17 @@ private:
     }
 
     constexpr double kRadToDeg = 180.0 / M_PI;
+    constexpr double kWarningVelocityThresholdRadS = 0.50;
+    constexpr double kCriticalVelocityThresholdRadS = 1.00;
+    constexpr double kWarningPositionThresholdRad = 2.50;
+    constexpr double kCriticalPositionThresholdRad = 2.90;
+
+    double max_abs_position = 0.0;
     double max_abs_velocity = 0.0;
+    bool has_warning_alarm = false;
+    bool has_critical_alarm = false;
+    std::string first_warning_reason;
+    std::string first_critical_reason;
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(3);
     oss << "[UR3 monitor] age="
@@ -93,23 +103,59 @@ private:
 
       oss << " | " << joint << ":";
       if (has_pos) {
-        oss << " pos=" << last_msg_->position[idx] << "rad("
-            << (last_msg_->position[idx] * kRadToDeg) << "deg)";
+        const double pos = last_msg_->position[idx];
+        const double abs_pos = std::abs(pos);
+        max_abs_position = std::max(max_abs_position, abs_pos);
+        oss << " pos=" << pos << "rad("
+            << (pos * kRadToDeg) << "deg)";
+        if (abs_pos >= kCriticalPositionThresholdRad) {
+          has_critical_alarm = true;
+          if (first_critical_reason.empty()) {
+            first_critical_reason = joint + " pos=" + std::to_string(pos) + "rad";
+          }
+        } else if (abs_pos >= kWarningPositionThresholdRad) {
+          has_warning_alarm = true;
+          if (first_warning_reason.empty()) {
+            first_warning_reason = joint + " pos=" + std::to_string(pos) + "rad";
+          }
+        }
       } else {
         oss << " pos=N/A";
       }
 
       if (has_vel) {
         const double vel = last_msg_->velocity[idx];
-        max_abs_velocity = std::max(max_abs_velocity, std::abs(vel));
+        const double abs_vel = std::abs(vel);
+        max_abs_velocity = std::max(max_abs_velocity, abs_vel);
         oss << " vel=" << vel;
+        if (abs_vel >= kCriticalVelocityThresholdRadS) {
+          has_critical_alarm = true;
+          if (first_critical_reason.empty()) {
+            first_critical_reason = joint + " vel=" + std::to_string(vel) + "rad/s";
+          }
+        } else if (abs_vel >= kWarningVelocityThresholdRadS) {
+          has_warning_alarm = true;
+          if (first_warning_reason.empty()) {
+            first_warning_reason = joint + " vel=" + std::to_string(vel) + "rad/s";
+          }
+        }
       } else {
         oss << " vel=N/A";
       }
     }
 
-    // TODO(human): 根据手术场景定义速度/位姿等报警阈值，并在这里加入告警逻辑。
+    oss << " | max_abs_position=" << max_abs_position << " rad";
     oss << " | max_abs_velocity=" << max_abs_velocity << " rad/s";
+    if (has_critical_alarm) {
+      oss << " | alarm=CRITICAL(" << first_critical_reason << ")";
+      RCLCPP_ERROR(this->get_logger(), "%s", oss.str().c_str());
+      return;
+    }
+    if (has_warning_alarm) {
+      oss << " | alarm=WARNING(" << first_warning_reason << ")";
+      RCLCPP_WARN(this->get_logger(), "%s", oss.str().c_str());
+      return;
+    }
     RCLCPP_INFO(this->get_logger(), "%s", oss.str().c_str());
   }
 
@@ -130,4 +176,3 @@ int main(int argc, char * argv[])
   rclcpp::shutdown();
   return 0;
 }
-
