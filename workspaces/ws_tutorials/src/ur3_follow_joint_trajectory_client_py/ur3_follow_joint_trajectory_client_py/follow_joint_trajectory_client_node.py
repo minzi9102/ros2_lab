@@ -62,9 +62,25 @@ class Ur3FollowJointTrajectoryClientNode(Node):
         # p1.time_from_start = Duration(sec=2, nanosec=0)
         # points.append(p1)
         # trajectory.points = points
-        raise NotImplementedError(
-            "TODO(human): implement trajectory.points in build_demo_goal()"
-        )
+        p1 = JointTrajectoryPoint()
+        p1.positions = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        p1.velocities = [0.0] * len(self.joint_names)
+        p1.time_from_start = Duration(sec=2, nanosec=0)
+        points.append(p1)
+
+        p2 = JointTrajectoryPoint()
+        p2.positions = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+        p2.velocities = [0.0] * len(self.joint_names)
+        p2.time_from_start = Duration(sec=4, nanosec=0)
+        points.append(p2)
+
+        p3 = JointTrajectoryPoint()
+        p3.positions = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        p3.velocities = [0.0] * len(self.joint_names)
+        p3.time_from_start = Duration(sec=6, nanosec=0)
+        points.append(p3)
+        trajectory.points = points
+        self._validate_trajectory_points(trajectory.points)
 
         goal.trajectory = trajectory
         goal.goal_time_tolerance = Duration(sec=1, nanosec=0)
@@ -91,6 +107,10 @@ class Ur3FollowJointTrajectoryClientNode(Node):
         except NotImplementedError as exc:
             self.get_logger().error(str(exc))
             self._request_shutdown("Demo goal not implemented yet")
+            return
+        except ValueError as exc:
+            self.get_logger().error(f"Invalid goal trajectory: {exc}")
+            self._request_shutdown("Invalid trajectory data")
             return
 
         self.get_logger().info("Sending FollowJointTrajectory goal...")
@@ -133,6 +153,31 @@ class Ur3FollowJointTrajectoryClientNode(Node):
         self._shutdown_requested = True
         self.get_logger().info(f"Shutting down node: {reason}")
         rclpy.shutdown()
+
+    def _validate_trajectory_points(self, points: list[JointTrajectoryPoint]) -> None:
+        if not points:
+            raise ValueError("trajectory.points is empty")
+
+        expected_len = len(self.joint_names)
+        prev_time_ns = -1
+
+        for idx, point in enumerate(points):
+            if len(point.positions) != expected_len:
+                raise ValueError(
+                    f"point[{idx}] positions length={len(point.positions)} expected={expected_len}"
+                )
+
+            if point.velocities and len(point.velocities) != expected_len:
+                raise ValueError(
+                    f"point[{idx}] velocities length={len(point.velocities)} expected={expected_len}"
+                )
+
+            time_ns = point.time_from_start.sec * 1_000_000_000 + point.time_from_start.nanosec
+            if time_ns <= prev_time_ns:
+                raise ValueError(
+                    f"point[{idx}] time_from_start={time_ns}ns is not strictly increasing"
+                )
+            prev_time_ns = time_ns
 
 
 def main(args=None) -> None:
