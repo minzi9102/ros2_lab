@@ -8,10 +8,10 @@
 ---
 
 ## 0. 基本信息
-- 日期：`TODO(human): 填写日期`
-- 机器人型号：`TODO(human): ur3 或 ur3e`
+- 日期：`2026.03.30/31`
+- 机器人型号：`ur3`
 - 软件栈：Ubuntu 24.04 + ROS 2 Jazzy + MoveIt 2 + UR ROS 2 Driver
-- 本次验证环境：`TODO(human): URSim / 真机`
+- 本次验证环境：`URSim`
 
 ---
 
@@ -21,14 +21,14 @@
 
 | 组件 | 它的职责（1-2 句） | 它接收什么 | 它输出什么 |
 |---|---|---|---|
-| robot_description | `TODO(human)` | `TODO(human)` | `TODO(human)` |
-| ros2_control | `TODO(human)` | `TODO(human)` | `TODO(human)` |
-| ur_robot_driver | `TODO(human)` | `TODO(human)` | `TODO(human)` |
-| controllers | `TODO(human)` | `TODO(human)` | `TODO(human)` |
-| MoveIt 2 | `TODO(human)` | `TODO(human)` | `TODO(human)` |
-| 自定义控制节点 | `TODO(human)` | `TODO(human)` | `TODO(human)` |
+| robot_description | `描述机器人的本体信息（几何结构信息以及模型信息、部件之间的相对位置姿态关系、物理与动力学信息）` | `机器人描述文件本身。即URDF / Xacro 源文件中定义的机器人模型信息，包括几何结构、质量、惯量等信息;` | `在/robot_description 话题中发布机器人结构信息，本质上是一段 XML 字符串，最标准的答案是：它输出的是统一的机器人描述参数。它的输出可以供 TF、RViz、MoveIt 2、ros2_control 等模块解析和使用` |
+| ros2_control | `作为ROS与机器人交流过程中处于ROS端的唯一大门，读取所有硬件状态，告知控制软件，同时接收软件层controller的指令，再写入硬件中` | `接收“配置与定义”（包括机器人硬件定义，controller配置，即有哪些controller）；运行期输入（来自底层硬件的状态，来自上层controller的控制指令，来自管理接口的控制请求，即针对controller的控制指令）` | `输出到底层硬件的命令，输出给上层系统的状态` |
+| ur_robot_driver | `作为ROS与机器人交流过程中处于机器人硬件端的唯一大门` | `接收启动时配置信息，用于连接机器人硬件；接收运行期信息，包括来自上层controller的控制指令、来自下层硬件的状态信息` | `向上输出机器人状态信息与硬件接口，向下输出发给UR控制器的实际指令` |
+| controllers | `负责根据上层目标和下层状态计算并发送控制指令` | `接收上层的控制目标，下层硬件状态，不同类型的controller有不同的接收，大部分都会接收硬件信息，但是接收的控制目标有不同` | `输出计算后的适配于硬件控制接口的指令，不同的controller会向不同的目标发布不同的信息` |
+| MoveIt 2 | `根据机器人模型、当前状态、目标和环境约束，计算并组织一条安全可执行的运动轨迹。` | `机器人当前状态、环境信息、约束、目标位姿` | `规划好的关节轨迹、运动执行状态/结果信息、场景与可视化模型信息` |
+| 自定义控制节点 | `连接机器人的其他系统（视觉、感知等），制定高层次任务级决策` | `机器人各个系统的状态、约束信息；任务目标信息；人机交互指令信息` | `向moveit2发送规划/执行请求；向controller发送直接的执行命令；向系统其他模块发送控制命令；向人类发送任务状态信息或错误警告信息` |
 
-`TODO(human): 用 3-5 句话总结“谁负责规划、谁负责执行、谁负责反馈状态”。`
+`用 3-5 句话总结“谁负责规划、谁负责执行、谁负责反馈状态”：1、自定义控制节点负责接收来自操作员或其他系统的任务指令；2、自定义节点向moveit2发送路径规划/执行请求，或向controller发送直接的执行指令；3、moveit2根据路径规划请求，结合机器人状态和环境约束信息规划运动路径，并根据执行请求向controller发送执行指令；4、controller在ros2_control框架下向ur_robot_driver暴露的硬件控制接口发送执行指令；5、ur_robot_driver读取机器人硬件状态信息，并根据执行指令向机器人硬件发送最终的硬件运动控制指令`
 
 ---
 
@@ -36,26 +36,35 @@
 
 请用“谁 -> 谁 -> 用什么接口”的格式填写。
 
-1. `TODO(human): 例如 RViz/MoveIt 发起规划请求给 move_group`
-2. `TODO(human)`
-3. `TODO(human)`
-4. `TODO(human)`
-5. `TODO(human)`
-6. `TODO(human): 最终到 UR3 执行`
+1. 人类 / 其他系统 -> 自定义控制节点 -> 软件交互接口
+   - topic / service / action / GUI / 网络 API
 
-`TODO(human): 在这里补一句“follow_joint_trajectory 在命令流中的作用”。`
+2. 自定义控制节点 -> move_group -> MoveIt 2 规划请求接口
+   - MoveGroupInterface
+   - moveit_msgs/action/MoveGroup
+   - （仅执行已有轨迹时可用 moveit_msgs/action/ExecuteTrajectory）
+
+3. move_group -> /scaled_joint_trajectory_controller/follow_joint_trajectory -> control_msgs/action/FollowJointTrajectory
+
+4. scaled_joint_trajectory_controller -> ur_robot_driver -> ros2_control 硬件命令接口
+   - command interfaces / state interfaces
+   - 控制循环：read -> update -> write
+
+5. ur_robot_driver -> UR 机器人控制器 / UR3 本体 -> UR 实时通信与机器人执行接口
+
+`follow_joint_trajectory 通常指的是 ROS / ROS 2 里一个非常常见的 Action 接口，它的消息类型是 control_msgs/action/FollowJointTrajectory。它用来告诉控制器：“按这条关节轨迹去运动。”`
 
 ---
 
 ## 3. 状态流（从机器人回到上层）
 
-1. `TODO(human): 机器人状态如何被 driver 采集`
-2. `TODO(human): joint_state_broadcaster 做了什么`
-3. `TODO(human): /joint_states 被哪些模块消费`
-4. `TODO(human): MoveIt 如何用状态更新规划场景`
-5. `TODO(human): RViz 如何体现状态变化`
+1. `driver读取硬件状态接口，接收机器人状态信息`
+2. `joint_state_broadcaster 接收driver返回的机器人状态信息，并在话题/joint_states广播当前机器人的状态信息，供其他节点读取`
+3. `/joint_states 被其他controller、moveit2、rviz等显示模块消费`
+4. `MoveIt接收到状态信息后更新机器人当前位姿，并与其他场景约束信息交互计算，更新场景信息`
+5. `Rviz根据最新的机器人状态信息和场景信息，更新图形界面`
 
-`TODO(human): 对比命令流与状态流，写出两者的方向和耦合点。`
+`对比命令流与状态流，写出两者的方向和耦合点。：命令流方向是上层控制软件到机器人硬件，状态流方向是机器人硬件到上层软件，双方的耦合点是命令流需要得到机器人的状态信息来更新指令，状态流会随着命令的改变而改变`
 
 ---
 
@@ -64,68 +73,72 @@
 - 当前激活控制器：`scaled_joint_trajectory_controller`
 - 备选控制器：`joint_trajectory_controller` / `passthrough_trajectory_controller`
 
-`TODO(human): 解释为什么当前实验默认使用 scaled_joint_trajectory_controller。`
+`解释为什么当前实验默认使用 scaled_joint_trajectory_controller。当前实验默认使用 scaled_joint_trajectory_controller，主要因为 UR 真机在实际运行中经常存在速度缩放：例如示教器速度滑条、控制器内部限速或安全机制，都会使机器人实际执行速度低于轨迹原始时间参数。scaled_joint_trajectory_controller 会读取 UR 上报的 speed scaling 信息，并同步调整控制器内部的轨迹推进进度，从而减少“控制器以为机器人已经走到某处，但真机实际上还没走到”的偏差。这样在真机实验中，轨迹跟踪通常更稳定，也更符合 UR 设备的实际执行节奏。`
 
-`TODO(human): 写出如果换成 joint_trajectory_controller，行为上可能有什么不同。`
+` 写出如果换成 joint_trajectory_controller，行为上可能有什么不同。如果换成普通 joint_trajectory_controller，最主要的差异在于它的行为更接近标准通用轨迹控制器：它按收到的轨迹时间参数来执行。对于存在 UR 速度缩放、示教器速度滑条调整或安全限速的真机环境，如果没有正确配置并同步 speed scaling，控制器内部的轨迹时间进度可能快于机器人真实执行进度，进而带来更大的跟踪误差、路径偏差，甚至更容易触发容差相关问题。相比之下，scaled_joint_trajectory_controller 在 UR 真机上更容易与真实运动保持一致。`
 
 ---
 
 ## 5. 故障复盘（本次至少 2 个）
 
 ### 问题 A
-- 现象：`TODO(human)`
-- 日志关键信息：`TODO(human)`
-- 根因判断：`TODO(human)`
-- 修复动作：`TODO(human)`
-- 如何预防复发：`TODO(human)`
+- 现象：`错误报告ROS2意外停止`
+- 日志关键信息：`关键报错链：SafetySetup has not been confirmed yet -> Could not get configuration package within timeout -> ros2_control_node 崩溃。`
+- 根因判断：`ur_robot_driver 在初始化硬件时，没及时从 URSim 拿到配置包（通常是 URSim 刚启动还没完全就绪/安全确认未完成导致）。`
+- 修复动作：`重启 URSim`
+- 如何预防复发：`确保URSim 完全启动就绪`
 
 ### 问题 B
-- 现象：`TODO(human)`
-- 日志关键信息：`TODO(human)`
-- 根因判断：`TODO(human)`
-- 修复动作：`TODO(human)`
-- 如何预防复发：`TODO(human)`
+- 现象：`错误报告ROS2意外停止`
+- 日志关键信息：`找不到命令 “rg”，但可以通过以下软件包安装它：
+sudo snap install ripgrep  # version 12.1.0, or
+sudo apt  install ripgrep  # version 14.0.3-1`
+- 根因判断：`没有安装rg`
+- 修复动作：`安装rg`
+- 如何预防复发：`安装rg`
 
 ---
 
 ## 6. 面向手术机器人开发的 3 个可靠性关注点
 
-1. `TODO(human): 关注点 1（例如延迟/抖动/实时性）`
-原因：`TODO(human)`
-当前栈里可落地点：`TODO(human)`
+1. **延迟、抖动与控制链路实时性**
+   原因：手术机器人不是普通演示型机械臂系统。只要控制链路中出现明显延迟、周期抖动或执行时间不可预测，就会导致末端响应变慢、轨迹跟随误差增大，严重时还会让“感知—规划—执行”闭环失去稳定性。对于精细操作、接触操作和人机协同场景，这类时间不确定性会直接影响操作安全与手感一致性。
+   当前栈里可落地点：优先明确 `MoveIt 2 -> FollowJointTrajectory -> controller -> ur_robot_driver` 这条执行链的责任边界，尽量避免在自定义控制节点中堆积耗时逻辑；在控制执行层优先使用稳定的轨迹控制器并测量控制周期抖动、轨迹下发延迟和状态回传延迟；将视觉推理、日志落盘、界面刷新等非实时任务与控制主链解耦，避免阻塞控制线程。
 
-2. `TODO(human): 关注点 2（例如安全边界/故障安全）`
-原因：`TODO(human)`
-当前栈里可落地点：`TODO(human)`
+2. **安全边界、异常处理与故障安全**
+   原因：手术机器人面对的是高风险实体环境，不能只关注“能不能动”，还必须关注“失控时能否安全停下来”。一旦出现目标越界、规划失败、通信中断、传感器异常、末端接触异常或操作者中止请求，系统必须进入可预期、可验证的安全状态，而不是继续沿用旧命令运行。
+   当前栈里可落地点：在自定义控制节点层增加明确的任务前检查、执行中监测和异常退出逻辑，例如目标位姿合法性检查、工作空间边界检查、速度与加速度上限检查、执行超时处理、失败后回安全位或停止输出；在 controller 与 driver 层明确急停、保护停、控制器失活、轨迹取消等状态的处理语义；在系统设计上预留“人工接管优先”和“任何阶段可中止”的控制入口。
 
-3. `TODO(human): 关注点 3（例如状态一致性/可观测性）`
-原因：`TODO(human)`
-当前栈里可落地点：`TODO(human)`
+3. **状态一致性、可观测性与可追溯性**
+   原因：手术机器人开发中，很多问题不是“完全失效”，而是“系统各模块对当前状态的理解不一致”。例如控制器认为轨迹在执行，任务节点认为已经到位，视觉模块却仍在使用旧坐标，或者机器人真实减速了但上层仍按原节奏推进流程。这类状态不一致会带来误判、重复动作和隐蔽风险。与此同时，如果系统缺少可观测性，后期几乎无法定位问题来源。
+   当前栈里可落地点：统一定义关键状态量的来源和语义，例如当前关节状态、末端位姿、控制器激活状态、轨迹执行状态、故障状态和任务阶段状态；在自定义控制节点中建立清晰的状态机，而不是靠分散回调隐式驱动流程；对关键链路增加日志、事件时间戳、动作结果码和告警信息，保证一次任务执行结束后能够回放“收到什么输入、何时规划、何时开始执行、何时结束、为何失败”；在 UR 真机实验中重点关注 speed scaling、控制器状态和真机反馈之间的一致性。
+
 
 ---
 
 ## 7. 60-90 秒口述稿（验收用）
 
-`TODO(human): 用一段自然语言口述完整链路，要求包含：`
 - 从 MoveIt 到控制器再到 UR3 的命令路径
 - 从 UR3 回到 /joint_states 再回到 MoveIt 的状态路径
 - 你认为最容易出错的一环和原因
+moveit接收到路径规划请求后，它会根据当前的规划配置、机器人状态、环境信息以及约束信息，计算可行的运动轨迹，如果计算成功，那么moveit将会把这条轨迹发送给下游controller,由controller在ros2_control框架内根据当前机器人状态和下一拍的目标状态计算直接的运动指令，向ur_robot_driver发送运动执行指令，由ur_robot_driver负责向机器人硬件写入控制指令，最后机器人根据直接控制指令执行运动。
+UR3 状态由 ur_robot_driver 通过 ros2_control 的 state interfaces 回传，joint_state_broadcaster 发布到 /joint_states，MoveIt 与 RViz 订阅后更新规划场景与可视化状态。
+
+最容易出错的一环是“moveit接收到路径规划请求后，它会根据当前的规划配置、机器人状态、环境信息以及约束信息，计算可行的运动轨迹“，因为这一环里很有可能计算失败或因为配置信息与实际机器人错配导致计算出错
 
 ---
 
 ## 8. 验收清单
 
-- [ ] 我能在不看命令的情况下说出完整链路。
-- [ ] 我能解释 `scaled_joint_trajectory_controller` 的作用。
-- [ ] 我能根据日志区分“驱动问题”与“工具链命令问题”（如管道命令）。
-- [ ] 我能说出至少 3 个面向手术机器人的可靠性关注点。
-- [ ] 我的命令流和状态流都写到了 5 步以上。
+- [x] 我能在不看命令的情况下说出完整链路。
+- [x] 我能解释 `scaled_joint_trajectory_controller` 的作用。
+- [x] 我能根据日志区分“驱动问题”与“工具链命令问题”（如管道命令）。
+- [x] 我能说出至少 3 个面向手术机器人的可靠性关注点。
+- [x] 我的命令流和状态流都写到了 5 步以上。
 
 ---
 
 ## 9. 下一步（任务 4 入口）
 
-`TODO(human): 我希望先做哪个方向的最小控制节点？`
+`我希望先做哪个方向的最小控制节点？`
 - 选项 A：只订阅状态并打印关键指标
-- 选项 B：发送简单关节轨迹（最小可执行）
-- 选项 C：做一个“状态监测 + 安全停止”雏形
