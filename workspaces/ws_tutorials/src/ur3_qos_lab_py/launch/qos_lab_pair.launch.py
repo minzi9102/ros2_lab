@@ -22,7 +22,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("topic_name", default_value="/ur3/qos_lab"),
-            DeclareLaunchArgument("publish_rate_hz", default_value="100.0"),
+            DeclareLaunchArgument("publish_rate_hz", default_value="500.0"),
             DeclareLaunchArgument("payload_size_bytes", default_value="64"),
             DeclareLaunchArgument("pub_reliability", default_value="reliable"),
             DeclareLaunchArgument("pub_history", default_value="keep_last"),
