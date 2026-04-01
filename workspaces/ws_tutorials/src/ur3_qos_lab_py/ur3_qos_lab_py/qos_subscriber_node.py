@@ -1,6 +1,7 @@
 from collections import deque
 from typing import Optional
 
+import numpy
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -36,6 +37,15 @@ class QosSubscriberNode(Node):
         self.latest_latency_ms: Optional[float] = None
         self.latency_window_ms = deque(maxlen=2000)
 
+        self.expected_count = 0
+        self.lost_count = 0
+        self.lost_rate_percent = 0.0
+
+        self.latency_p50_ms = 0.0
+        self.latency_p95_ms = 0.0
+        self.latency_max_ms = 0.0
+
+
         self.report_timer = self.create_timer(self.report_period_sec, self.on_report)
 
         self.get_logger().info(
@@ -64,18 +74,48 @@ class QosSubscriberNode(Node):
 
         # TODO(human): implement packet-loss estimation using seq continuity.
         # Suggested output: expected_count, lost_count, loss_rate_percent.
+        if self.last_seq is not None:
+            delta = seq - self.last_seq
+
+            if delta > 0:
+                self.expected_count += delta
+                if delta > 1:
+                    self.lost_count += (delta - 1)
+            elif delta < 0:
+                self.get_logger().warn(
+                    f"Detected non-monotonic seq: last_seq={self.last_seq}, seq={seq}. "
+                    "Skip loss update for this sample."
+                )
+
+            if self.expected_count > 0:
+                self.lost_rate_percent = (self.lost_count / self.expected_count) * 100.0
+            else:
+                self.lost_rate_percent = 0.0
+
+
         self.last_seq = seq
+
 
         # TODO(human): implement windowed latency statistics (p50/p95/max).
         # Keep the same time window across experiment groups for fair comparison.
+        self.latency_p50_ms = numpy.percentile(self.latency_window_ms, 50.0) if self.latency_window_ms else 0.0
+        self.latency_p95_ms = numpy.percentile(self.latency_window_ms, 95.0) if self.latency_window_ms else 0.0
+        self.latency_max_ms = max(self.latency_window_ms) if self.latency_window_ms else 0.0
+
 
     def on_report(self) -> None:
         summary = (
-            "rx_count=%d parse_fail=%d latest_latency_ms=%s"
+            "rx_count=%d parse_fail=%d latest_latency_ms=%s expected_count=%d lost_count=%d loss_rate_percent=%.2f%% latency_p50_ms=%.3f latency_p95_ms=%.3f latency_max_ms=%.3f"
             % (
                 self.rx_count,
                 self.parse_fail_count,
                 f"{self.latest_latency_ms:.3f}" if self.latest_latency_ms is not None else "N/A",
+                self.expected_count,
+                self.lost_count,
+                self.lost_rate_percent,
+                self.latency_p50_ms,
+                self.latency_p95_ms,
+                self.latency_max_ms
             )
         )
         self.get_logger().info(summary)
