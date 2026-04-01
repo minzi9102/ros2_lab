@@ -6,17 +6,17 @@
 - 对齐阶段验收目标：独立建包、解释 action 适配性、读懂机械臂 description 包结构。
 
 ## 2. 当前基线（来自仓库现状）
-- 已完成：最小 JointState 发布（Python）、FollowJointTrajectory Action Client（Python）、状态监控节点（C++）、简化 URDF + RViz 联动。
-- 待补齐：Service 实战、QoS 对比实验、tf2 主动查询、ros2_control 最小控制链、控制器对比总结。
+- 已完成：最小 JointState 发布（Python）、FollowJointTrajectory Action Client（Python）、状态监控节点（C++）、简化 URDF + RViz 联动、Service 实战、QoS 对比实验。
+- 待补齐：tf2 主动查询、ros2_control 最小控制链、控制器对比总结。
 
 ## 3. 任务拆分与进度跟踪
 
 ### 3.1 进度统计
-- 已完成：`1 / 8`
+- 已完成：`2 / 8`
 
 ### 3.2 可勾选任务清单
 - [x] 任务 4A：Service 最小闭环
-- [ ] 任务 4B：QoS 对比实验
+- [x] 任务 4B：QoS 对比实验
 - [ ] 任务 4C：tf2 主动查询
 - [ ] 任务 4D：URDF 升级 xacro 参数化
 - [ ] 任务 4E：ros2_control 最小链路
