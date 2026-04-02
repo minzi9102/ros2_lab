@@ -1,25 +1,44 @@
+# ros2_lab
+
+当前仓库目录结构（按现状更新）：
+
+```text
 ~/ros2_lab/
-├── workspaces/                # 放多个 ROS 2 工作区
-│   ├── ws_tutorials/          # 教程练习工作区
-│   ├── ws_experiments/        # 小实验、小测试
-│   ├── ws_projects/           # 正式项目工作区
-│   └── ws_robot/              # 面向真实机器人/硬件的工作区
-│
-├── notes/                     # 学习笔记
-│   ├── daily/                 # 每日学习记录
-│   ├── concepts/              # 概念笔记，如 topic/service/action
-│   └── troubleshooting/       # 问题排查记录
-│
-├── docs/                      # 资料文档
-│   ├── setup/                 # 环境搭建文档
-│   ├── commands/              # 常用命令清单
-│   └── references/            # 参考资料整理
-│
-├── scripts/                   # 常用脚本
-│   ├── enter_ws_tutorials.sh
-│   ├── enter_ws_projects.sh
-│   └── build_all.sh
-│
-├── downloads/                 # 临时下载的包、示例、资料
-│
-└── archive/                   # 废弃或归档内容
+├── AGENTS.md                   # 协作约定（learn mode）
+├── README.md
+├── archive/                    # 归档内容
+├── docs/                       # 资料文档
+├── downloads/                  # 临时下载内容
+├── notes/                      # 学习笔记与计划
+│   ├── concepts/               # 概念笔记
+│   ├── labs/                   # 实验记录（Task 4A/4B/4C/4G 等）
+│   ├── plans/                  # 学习计划与任务拆解
+│   │   ├── stage1_next_steps_learning_plan.md
+│   │   └── tasks/
+│   │       ├── task4A_plan.md
+│   │       ├── task4B_plan.md
+│   │       ├── task4C_plan.md
+│   │       ├── task4D_plan.md
+│   │       ├── task4E_plan.md
+│   │       ├── task4F_plan.md
+│   │       ├── task4G_plan.md
+│   │       └── task4H_plan.md
+│   ├── reports/                # 阶段性复盘
+│   ├── runbooks/               # 调试操作手册
+│   └── ur3_control_chain_task3.md
+├── scripts/                    # 辅助脚本
+├── workspaces/
+│   └── ws_tutorials/           # 当前主要 ROS 2 工作区
+│       ├── src/                # ROS 2 包源码
+│       │   ├── ur3_follow_joint_trajectory_client_py/
+│       │   ├── ur3_joint_state_publisher_py/
+│       │   ├── ur3_mode_service_py/
+│       │   ├── ur3_qos_lab_py/
+│       │   └── ur3_state_monitor_cpp/
+│       ├── build/              # colcon 构建产物
+│       ├── install/            # colcon 安装产物
+│       └── log/                # 工作区构建/测试日志
+└── log/                        # 仓库级 colcon 日志
+```
+
+说明：`build/`、`install/`、`log/` 为构建与运行过程中生成的目录，会随实验推进持续变化。
