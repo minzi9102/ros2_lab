@@ -4,7 +4,14 @@ import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import (
+    Buffer,
+    ConnectivityException,
+    ExtrapolationException,
+    LookupException,
+    TransformException,
+    TransformListener,
+)
 
 
 class Ur3TfLookupNode(Node):
@@ -27,11 +34,11 @@ class Ur3TfLookupNode(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.lookup_timeout = Duration(seconds=self.timeout_sec)
 
         self.lookup_ok_count = 0
         self.lookup_fail_count = 0
         self.last_error: Optional[str] = None
-        self._todo_reminder_printed = False
 
         self.timer = self.create_timer(1.0 / self.query_rate_hz, self.on_timer)
 
@@ -47,37 +54,83 @@ class Ur3TfLookupNode(Node):
         )
 
     def on_timer(self) -> None:
-        # TODO(human): implement the lookup strategy and exception handling.
-        # Suggested milestones:
-        # 1. Query transform with explicit timeout.
-        # 2. Catch Lookup/Connectivity/Extrapolation related exceptions.
-        # 3. Decide retry behavior and log level for each exception category.
-        # 4. Print stable pose fields (translation + quaternion, optional RPY).
-        #
-        # Starting point API hint (do not copy blindly):
-        # transform = self.tf_buffer.lookup_transform(
-        #     self.source_frame,
-        #     self.target_frame,
-        #     Time(),
-        #     timeout=Duration(seconds=self.timeout_sec),
-        # )
         try:
-            _ = self.tf_buffer.can_transform(
+            transform = self.tf_buffer.lookup_transform(
                 self.source_frame,
                 self.target_frame,
                 Time(),
-                timeout=Duration(seconds=self.timeout_sec),
+                timeout=self.lookup_timeout,
             )
+        except ExtrapolationException as exc:
+            self.lookup_fail_count += 1
+            current_error = f"extrapolation: {exc}"
+            if self.last_error != current_error or self.lookup_fail_count % 20 == 0:
+                self.get_logger().debug(
+                    "tf lookup extrapolation (%s <- %s): %s"
+                    % (self.source_frame, self.target_frame, exc)
+                )
+            self.last_error = current_error
+            return
+        except ConnectivityException as exc:
+            self.lookup_fail_count += 1
+            current_error = f"connectivity: {exc}"
+            if self.last_error != current_error or self.lookup_fail_count % 10 == 0:
+                self.get_logger().warn(
+                    "tf lookup connectivity issue (%s <- %s): %s"
+                    % (self.source_frame, self.target_frame, exc)
+                )
+            self.last_error = current_error
+            return
+        except LookupException as exc:
+            self.lookup_fail_count += 1
+            current_error = f"lookup: {exc}"
+            if self.last_error != current_error or self.lookup_fail_count % 10 == 0:
+                self.get_logger().warn(
+                    "tf lookup frame missing (%s <- %s): %s"
+                    % (self.source_frame, self.target_frame, exc)
+                )
+            self.last_error = current_error
+            return
         except TransformException as exc:
             self.lookup_fail_count += 1
-            self.last_error = str(exc)
+            current_error = f"transform: {exc}"
+            if self.last_error != current_error or self.lookup_fail_count % 5 == 0:
+                self.get_logger().error(
+                    "tf lookup failed (%s <- %s): %s"
+                    % (self.source_frame, self.target_frame, exc)
+                )
+            self.last_error = current_error
             return
+        self.lookup_ok_count += 1
 
-        if not self._todo_reminder_printed:
-            self.get_logger().warn(
-                "TODO(human): complete lookup_transform + exception branches in on_timer()."
+        if self.last_error is not None:
+            self.get_logger().info(
+                "tf lookup recovered: source=%s target=%s ok=%d fail=%d"
+                % (
+                    self.source_frame,
+                    self.target_frame,
+                    self.lookup_ok_count,
+                    self.lookup_fail_count,
+                )
             )
-            self._todo_reminder_printed = True
+            self.last_error = None
+
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        self.get_logger().info(
+            "tf pose source=%s target=%s xyz=(%.4f, %.4f, %.4f) quat=(%.4f, %.4f, %.4f, %.4f)"
+            % (
+                self.source_frame,
+                self.target_frame,
+                translation.x,
+                translation.y,
+                translation.z,
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w,
+            )
+        )
 
 
 
