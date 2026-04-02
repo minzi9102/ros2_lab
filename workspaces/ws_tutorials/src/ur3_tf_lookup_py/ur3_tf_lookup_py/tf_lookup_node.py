@@ -22,6 +22,9 @@ class Ur3TfLookupNode(Node):
         self.target_frame = str(self.declare_parameter("target_frame", "tool0").value)
         self.query_rate_hz = float(self.declare_parameter("query_rate_hz", 5.0).value)
         self.timeout_sec = float(self.declare_parameter("timeout_sec", 0.2).value)
+        self.query_time_offset_sec = float(
+            self.declare_parameter("query_time_offset_sec", 0.0).value
+        )
         self.use_sim_time = bool(self.get_parameter("use_sim_time").value)
 
         if self.query_rate_hz <= 0.0:
@@ -39,35 +42,51 @@ class Ur3TfLookupNode(Node):
         self.lookup_ok_count = 0
         self.lookup_fail_count = 0
         self.last_error: Optional[str] = None
+        self.query_time_offset_ns = int(self.query_time_offset_sec * 1_000_000_000)
 
         self.timer = self.create_timer(1.0 / self.query_rate_hz, self.on_timer)
 
         self.get_logger().info(
-            "tf lookup skeleton started: source=%s target=%s query_rate_hz=%.2f timeout_sec=%.3f use_sim_time=%s"
+            "tf lookup skeleton started: source=%s target=%s query_rate_hz=%.2f timeout_sec=%.3f query_time_offset_sec=%.3f use_sim_time=%s"
             % (
                 self.source_frame,
                 self.target_frame,
                 self.query_rate_hz,
                 self.timeout_sec,
+                self.query_time_offset_sec,
                 self.use_sim_time,
             )
         )
 
     def on_timer(self) -> None:
+        lookup_time = Time()
+        if self.query_time_offset_ns != 0:
+            now = self.get_clock().now()
+            query_ns = now.nanoseconds + self.query_time_offset_ns
+            lookup_time = Time(
+                nanoseconds=max(0, query_ns),
+                clock_type=now.clock_type,
+            )
+
         try:
             transform = self.tf_buffer.lookup_transform(
-                self.source_frame,
                 self.target_frame,
-                Time(),
+                self.source_frame,
+                lookup_time,
                 timeout=self.lookup_timeout,
             )
         except ExtrapolationException as exc:
             self.lookup_fail_count += 1
             current_error = f"extrapolation: {exc}"
             if self.last_error != current_error or self.lookup_fail_count % 20 == 0:
-                self.get_logger().debug(
-                    "tf lookup extrapolation (%s <- %s): %s"
-                    % (self.source_frame, self.target_frame, exc)
+                self.get_logger().warn(
+                    "tf lookup extrapolation (%s <- %s, query_time_offset_sec=%.3f): %s"
+                    % (
+                        self.source_frame,
+                        self.target_frame,
+                        self.query_time_offset_sec,
+                        exc,
+                    )
                 )
             self.last_error = current_error
             return
