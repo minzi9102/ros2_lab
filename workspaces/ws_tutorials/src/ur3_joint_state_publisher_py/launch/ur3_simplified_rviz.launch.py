@@ -4,17 +4,15 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
     package_share = get_package_share_directory("ur3_joint_state_publisher_py")
-    urdf_path = os.path.join(package_share, "urdf", "ur3_simplified.urdf")
+    xacro_path = os.path.join(package_share, "urdf", "ur3_simplified.urdf.xacro")
     rviz_config_path = os.path.join(package_share, "rviz", "ur3_simplified.rviz")
-
-    with open(urdf_path, "r", encoding="utf-8") as urdf_file:
-        robot_description = urdf_file.read()
 
     joint_state_topic = LaunchConfiguration("joint_state_topic")
     robot_description_topic = LaunchConfiguration("robot_description_topic")
@@ -23,7 +21,30 @@ def generate_launch_description() -> LaunchDescription:
     publish_rate_hz = LaunchConfiguration("publish_rate_hz")
     max_abs_position_rad = LaunchConfiguration("max_abs_position_rad")
     base_frequency_hz = LaunchConfiguration("base_frequency_hz")
+    link_2_length = LaunchConfiguration("link_2_length")
+    tool0_offset_z = LaunchConfiguration("tool0_offset_z")
+    joint_limit_scale = LaunchConfiguration("joint_limit_scale")
     use_rviz = LaunchConfiguration("use_rviz")
+
+    robot_description = ParameterValue(
+        Command(
+            [
+                FindExecutable(name="xacro"),
+                " ",
+                xacro_path,
+                " ",
+                "link_2_length:=",
+                link_2_length,
+                " ",
+                "tool0_offset_z:=",
+                tool0_offset_z,
+                " ",
+                "joint_limit_scale:=",
+                joint_limit_scale,
+            ]
+        ),
+        value_type=str,
+    )
 
     return LaunchDescription(
         [
@@ -61,6 +82,21 @@ def generate_launch_description() -> LaunchDescription:
                 "base_frequency_hz",
                 default_value="0.1",
                 description="Base frequency for sinusoidal joint motion.",
+            ),
+            DeclareLaunchArgument(
+                "link_2_length",
+                default_value="0.34",
+                description="Length of link_2 cylinder in xacro model.",
+            ),
+            DeclareLaunchArgument(
+                "tool0_offset_z",
+                default_value="0.12",
+                description="Fixed-joint Z offset from link_6 to tool0.",
+            ),
+            DeclareLaunchArgument(
+                "joint_limit_scale",
+                default_value="1.0",
+                description="Scale factor applied to symmetric +/- joint limits.",
             ),
             DeclareLaunchArgument(
                 "use_rviz",

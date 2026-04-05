@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<robot name="ur3_simplified" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="link_2_length" default="0.34"/>
+  <xacro:arg name="tool0_offset_z" default="0.12"/>
+  <xacro:arg name="joint_limit_scale" default="1.0"/>
+
+  <xacro:include filename="$(find ur3_joint_state_publisher_py)/urdf/ur3_simplified_macro.xacro"/>
+
+  <xacro:ur3_simplified_chain
+    link_2_length="$(arg link_2_length)"
+    tool0_offset_z="$(arg tool0_offset_z)"
+    joint_limit_scale="$(arg joint_limit_scale)"/>
+</robot>
