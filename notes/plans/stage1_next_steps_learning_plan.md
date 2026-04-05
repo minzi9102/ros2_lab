@@ -17,7 +17,7 @@
 ### 3.2 可勾选任务清单
 - [x] 任务 4A：Service 最小闭环
 - [x] 任务 4B：QoS 对比实验
-- [ ] 任务 4C：tf2 主动查询
+- [x] 任务 4C：tf2 主动查询
 - [ ] 任务 4D：URDF 升级 xacro 参数化
 - [ ] 任务 4E：ros2_control 最小链路
 - [ ] 任务 4F：joint_trajectory_controller 联调
