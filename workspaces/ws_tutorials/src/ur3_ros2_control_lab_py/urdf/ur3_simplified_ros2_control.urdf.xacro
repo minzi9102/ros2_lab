@@ -13,7 +13,6 @@
     upper_joint_limit_scale="$(arg upper_joint_limit_scale)"
     lower_joint_limit_scale="$(arg lower_joint_limit_scale)"/>
 
-  <!-- TODO(human): Decide whether to keep GenericSystem or switch to a custom hardware interface in later stages. -->
   <ros2_control name="UR3MockSystem" type="system">
     <hardware>
       <plugin>mock_components/GenericSystem</plugin>
