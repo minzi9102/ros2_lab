@@ -23,7 +23,8 @@ def generate_launch_description() -> LaunchDescription:
     base_frequency_hz = LaunchConfiguration("base_frequency_hz")
     link_2_length = LaunchConfiguration("link_2_length")
     tool0_offset_z = LaunchConfiguration("tool0_offset_z")
-    joint_limit_scale = LaunchConfiguration("joint_limit_scale")
+    upper_joint_limit_scale = LaunchConfiguration("upper_joint_limit_scale")
+    lower_joint_limit_scale = LaunchConfiguration("lower_joint_limit_scale")
     use_rviz = LaunchConfiguration("use_rviz")
 
     robot_description = ParameterValue(
@@ -39,8 +40,11 @@ def generate_launch_description() -> LaunchDescription:
                 "tool0_offset_z:=",
                 tool0_offset_z,
                 " ",
-                "joint_limit_scale:=",
-                joint_limit_scale,
+                "upper_joint_limit_scale:=",
+                upper_joint_limit_scale,
+                " ",
+                "lower_joint_limit_scale:=",
+                lower_joint_limit_scale,
             ]
         ),
         value_type=str,
@@ -75,7 +79,7 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "max_abs_position_rad",
-                default_value="1.2",
+                default_value="3.14",
                 description="Absolute bound for generated joint position.",
             ),
             DeclareLaunchArgument(
@@ -94,7 +98,12 @@ def generate_launch_description() -> LaunchDescription:
                 description="Fixed-joint Z offset from link_6 to tool0.",
             ),
             DeclareLaunchArgument(
-                "joint_limit_scale",
+                "upper_joint_limit_scale",
+                default_value="1.0",
+                description="Scale factor applied to symmetric +/- joint limits.",
+            ),
+            DeclareLaunchArgument(
+                "lower_joint_limit_scale",
                 default_value="1.0",
                 description="Scale factor applied to symmetric +/- joint limits.",
             ),

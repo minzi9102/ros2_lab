@@ -65,6 +65,7 @@ class Ur3JointStatePublisherNode(Node):
             pos = self.max_abs_position_rad * math.sin(
                 2 * math.pi * self.base_frequency_hz * elapsed_sec + phase_offset
             )
+            # 原理：每个关节的相位偏移为 60 度（π/3），确保它们的运动不同步，形成连续变化的曲线。
             positions.append(pos)
 
         return positions
