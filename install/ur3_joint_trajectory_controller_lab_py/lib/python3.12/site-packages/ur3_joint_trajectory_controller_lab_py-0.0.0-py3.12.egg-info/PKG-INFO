@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: ur3-joint-trajectory-controller-lab-py
+Version: 0.0.0
+Summary: Task 4F: joint_trajectory_controller integration and testing
+Maintainer: minzi
+Maintainer-email: chenmj75@mail2.sysu.edu.cn
+License: MIT
+Provides-Extra: test

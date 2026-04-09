@@ -1,0 +1,40 @@
+running egg_info
+creating ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info
+writing ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/PKG-INFO
+writing dependency_links to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/dependency_links.txt
+writing entry points to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/entry_points.txt
+writing requirements to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/requires.txt
+writing top-level names to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/top_level.txt
+writing manifest file '../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/SOURCES.txt'
+reading manifest file '../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/SOURCES.txt'
+writing manifest file '../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build
+creating /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib
+creating /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib/ur3_joint_trajectory_controller_lab_py
+copying ur3_joint_trajectory_controller_lab_py/__init__.py -> /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib/ur3_joint_trajectory_controller_lab_py
+running install
+running install_lib
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py
+copying /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib/ur3_joint_trajectory_controller_lab_py/__init__.py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py
+byte-compiling /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py/__init__.py to __init__.cpython-312.pyc
+running install_data
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index/packages
+copying resource/ur3_joint_trajectory_controller_lab_py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index/packages
+copying package.xml -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/launch
+copying launch/ur3_joint_trajectory_controller.launch.py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/launch
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/config
+copying config/ur3_controllers_with_trajectory.yaml -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/config
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/urdf
+copying urdf/ur3_simplified_ros2_control.urdf.xacro -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/urdf
+creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/scripts
+copying scripts/test_trajectory_client.py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/scripts
+running install_egg_info
+Copying ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info to /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info
+running install_scripts
+Installing test_trajectory_client script to /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/ur3_joint_trajectory_controller_lab_py
+writing list of installed files to '/home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/install.log'

@@ -1,0 +1,16 @@
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py/__init__.py
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py/__pycache__/__init__.cpython-312.pyc
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index/packages/ur3_joint_trajectory_controller_lab_py
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/package.xml
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/launch/ur3_joint_trajectory_controller.launch.py
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/config/ur3_controllers_with_trajectory.yaml
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/urdf/ur3_simplified_ros2_control.urdf.xacro
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/scripts/test_trajectory_client.py
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/top_level.txt
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/entry_points.txt
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/zip-safe
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/PKG-INFO
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/SOURCES.txt
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/dependency_links.txt
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info/requires.txt
+/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/ur3_joint_trajectory_controller_lab_py/test_trajectory_client

@@ -1,0 +1,2 @@
+[console_scripts]
+test_trajectory_client = ur3_joint_trajectory_controller_lab_py.test_trajectory_client:main

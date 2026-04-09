@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<robot name="ur3_simplified" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="link_2_length" default="0.34"/>
+  <xacro:arg name="tool0_offset_z" default="0.12"/>
+  <xacro:arg name="upper_joint_limit_scale" default="1.0"/>
+  <xacro:arg name="lower_joint_limit_scale" default="1.0"/>
+
+  <xacro:include filename="$(find ur3_joint_state_publisher_py)/urdf/ur3_simplified_macro.xacro"/>
+
+  <xacro:ur3_simplified_chain
+    link_2_length="$(arg link_2_length)"
+    tool0_offset_z="$(arg tool0_offset_z)"
+    upper_joint_limit_scale="$(arg upper_joint_limit_scale)"
+    lower_joint_limit_scale="$(arg lower_joint_limit_scale)"/>
+
+  <ros2_control name="UR3MockSystem" type="system">
+    <hardware>
+      <plugin>mock_components/GenericSystem</plugin>
+    </hardware>
+
+    <joint name="shoulder_pan_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="shoulder_lift_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="elbow_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="wrist_1_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="wrist_2_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="wrist_3_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+</robot>

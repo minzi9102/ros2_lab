@@ -1,0 +1,42 @@
+[0.756s] Invoking command in '/home/minzi/ros2_lab/workspaces/ws_tutorials/src/ur3_joint_trajectory_controller_lab_py': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../../../build/ur3_joint_trajectory_controller_lab_py build --build-base /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build install --record /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/install.log --single-version-externally-managed install_data
+[1.000s] running egg_info
+[1.000s] creating ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info
+[1.021s] writing ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/PKG-INFO
+[1.022s] writing dependency_links to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/dependency_links.txt
+[1.022s] writing entry points to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/entry_points.txt
+[1.022s] writing requirements to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/requires.txt
+[1.022s] writing top-level names to ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/top_level.txt
+[1.022s] writing manifest file '../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/SOURCES.txt'
+[1.064s] reading manifest file '../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/SOURCES.txt'
+[1.065s] writing manifest file '../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info/SOURCES.txt'
+[1.065s] running build
+[1.065s] running build_py
+[1.065s] creating /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build
+[1.065s] creating /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib
+[1.065s] creating /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib/ur3_joint_trajectory_controller_lab_py
+[1.066s] copying ur3_joint_trajectory_controller_lab_py/__init__.py -> /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib/ur3_joint_trajectory_controller_lab_py
+[1.066s] running install
+[1.071s] running install_lib
+[1.091s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py
+[1.091s] copying /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build/lib/ur3_joint_trajectory_controller_lab_py/__init__.py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py
+[1.092s] byte-compiling /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py/__init__.py to __init__.cpython-312.pyc
+[1.092s] running install_data
+[1.092s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index
+[1.092s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index
+[1.092s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index/packages
+[1.092s] copying resource/ur3_joint_trajectory_controller_lab_py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ament_index/resource_index/packages
+[1.093s] copying package.xml -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py
+[1.093s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/launch
+[1.093s] copying launch/ur3_joint_trajectory_controller.launch.py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/launch
+[1.093s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/config
+[1.093s] copying config/ur3_controllers_with_trajectory.yaml -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/config
+[1.093s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/urdf
+[1.093s] copying urdf/ur3_simplified_ros2_control.urdf.xacro -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/urdf
+[1.093s] creating /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/scripts
+[1.093s] copying scripts/test_trajectory_client.py -> /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/share/ur3_joint_trajectory_controller_lab_py/scripts
+[1.093s] running install_egg_info
+[1.114s] Copying ../../../../build/ur3_joint_trajectory_controller_lab_py/ur3_joint_trajectory_controller_lab_py.egg-info to /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages/ur3_joint_trajectory_controller_lab_py-0.0.0-py3.12.egg-info
+[1.115s] running install_scripts
+[1.240s] Installing test_trajectory_client script to /home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/ur3_joint_trajectory_controller_lab_py
+[1.241s] writing list of installed files to '/home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/install.log'
+[1.263s] Invoked command in '/home/minzi/ros2_lab/workspaces/ws_tutorials/src/ur3_joint_trajectory_controller_lab_py' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/minzi/ros2_lab/install/ur3_joint_trajectory_controller_lab_py/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../../../build/ur3_joint_trajectory_controller_lab_py build --build-base /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/build install --record /home/minzi/ros2_lab/build/ur3_joint_trajectory_controller_lab_py/install.log --single-version-externally-managed install_data
