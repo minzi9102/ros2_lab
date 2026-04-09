@@ -2,11 +2,11 @@
 
 ## 1. 本次学习目标（用自己的话）
 - 目标清单（完成后勾选）：
-  - [ ] 我能解释 `joint_trajectory_controller` 与 `action interface` 的职责边界
-  - [ ] 我能说清 `FollowJointTrajectory` action 的 goal/feedback/result 结构
-  - [ ] 我能独立完成 action 接口对齐与关节名校验
-  - [ ] 我能发送单点与多点轨迹目标并观测 feedback/result
-  - [ ] 我能复现 1 个常见失败并定位到根因
+  - [X] 我能解释 `joint_trajectory_controller` 与 `action interface` 的职责边界： `joint_trajectory_controller` 负责硬件接口读和写，它实现了 `FollowJointTrajectory` action server，能够接收目标轨迹中离散的轨迹点并插值成为一条平滑的轨迹曲线（包括位置、速度、力矩），从硬件接口读取当前状态，计算误差并写入控制指令；`FollowJointTrajectory` action 是通信协议，定义了 goal/feedback/result 的数据结构，让外部客户端能够发送轨迹目标、监听执行进度、获取最终结果。
+  - [X] 我能说清 `FollowJointTrajectory` action 的 goal/feedback/result 结构：GOAL中包括TRAJECTORY（一系列有序离散的轨迹点，每个点包括关节的位置，速度，加速度以及到达该点的时间戳），MULTI_DOF_TRAJECTORY（不能用关节表示的机器人，如无人机等，可以用这个字段来填入位置，方向等类型的轨迹点）；TOLERANCE（包括在路径中运行时的容差，在终点的容差，以及时间上的容差）FEEDBACK中包括HEADER（当前的时间戳和轨迹的参考坐标系），JOINT_NAMES关节名称列表，DESIRED（预期当前机器人应该在的位置），ACTUAL（实际状态），ERROR（误差状态）；RESULT中包括ERROR_CODE（状态码，0代表成功），ERROR_STRING(错误的具体描述)
+  - [X] 我能独立完成 action 接口对齐与关节名校验
+  - [X] 我能发送单点与多点轨迹目标并观测 feedback/result
+  - [X] 我能复现 1 个常见失败并定位到根因
 
 ## 2. 实验环境
 
@@ -28,7 +28,7 @@
 - 运行时数据流（建议按下面格式补全）：
   - `hardware state_interface -> joint_state_broadcaster -> /joint_states`
   - `/joint_states + robot_description -> robot_state_publisher -> /tf + /tf_static`
-  - `action client -> /follow_joint_trajectory (action) -> joint_trajectory_controller -> hardware command_interface`
+  - `action client -> /joint_trajectory_controller/follow_joint_trajectory (action) -> joint_trajectory_controller -> hardware command_interface`
 
 ## 4. 文件结构与作用梳理（4F 相关）
 - 应用包目录：`workspaces/ws_tutorials/src/ur3_joint_trajectory_controller_lab_py`
@@ -75,7 +75,7 @@ ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory contr
 | A 基线 | 启动 manager，激活两个控制器 | 两个控制器均为 active | `joint_trajectory_controller joint_trajectory_controller/JointTrajectoryController  active joint_state_broadcaster     joint_state_broadcaster/JointStateBroadcaster          active` | `成功启动joint_state_broadcaster和joint_trajectory_controller两个controller` |
 | B 单点 | 发送单点轨迹目标 | goal 被接受，result 返回成功 | `日志提示goal accepted且finished` | `可以成功执行` |
 | C 多点 | 发送 3 点平滑轨迹 | goal 被接受，feedback 持续更新，result 返回成功 | `goal 被接受，feedback 持续更新，result 返回成功` | `可成功执行` |
-| D 异常 | 人为改错关节名或时间参数 | action 返回失败或超时 | `待执行` | `待执行` |
+| D 异常 | 人为改错关节名或时间参数 | action 返回失败或超时 | `ur3_joint_trajectory_controller.launch.py不能启动，what():  Joint 'shoulder_pen_joint' not found in URDF` | `无法启动控制器` |
 
 ## 7. 故障排查记录（至少写 1 条）
 
@@ -93,10 +93,10 @@ ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory contr
 ## 8. 关键命令与日志证据（贴你自己的）
 - 命令片段：
 ```bash
-# 在此粘贴你最有代表性的 3-5 条命令
 ros2 control list_controllers
 ros2 action list
-ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory ...
+ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory \
+  "{trajectory: {joint_names: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint], points: [{positions: [0.5, -0.5, 0.5, 0.0, 0.0, 0.0], velocities: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], time_from_start: {sec: 2, nanosec: 0}}]}}"
 ```
 - 关键日志片段（C组）：
 ```text
@@ -161,10 +161,10 @@ Goal finished with status: SUCCEEDED
 ```
 
 ## 9. 结论（面向 4F 验收）
-- 本次联调是否通过：`待执行`
-- 我能解释的职责边界（3-5 句）：`待执行`
-- 本次最大的收获：`待执行`
-- 当前仍存在的风险：`待执行`
+- 本次联调是否通过：`通过`
+- 我能解释的职责边界（3-5 句）：`JTC负责接收TRAJECTORY,即一系列离散的轨迹点，并能够将他们插值成为一条平滑的轨迹，每个轨迹点包含包括关节位置，速度，加速度等信息，读取硬件接口，接收机器人当前状态，并根据机器人当前状态和目标状态计算运动控制指令，写入硬件控制接口，指示机器人进行运动`
+- 本次最大的收获：`了解了ACTION从发出到执行的流程`
+- 当前仍存在的风险：`不知道ACTION信息内部具体的内容`
 
 ## 10. 下一步（衔接 4G）
 - 进入 4G 前需要准备：
@@ -173,6 +173,6 @@ Goal finished with status: SUCCEEDED
   - [ ] 确认两个控制器的并行加载策略
 
 ## 11. 完成记录
-- 状态：`[ ] 未开始` `[#] 进行中` `[x] 已完成`
-- 日期：
-- 备注：
+- 状态：`[x] 已完成`
+- 日期：2026.4.9
+- 备注：无
