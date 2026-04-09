@@ -12,15 +12,15 @@
 ## 3. 任务拆分与进度跟踪
 
 ### 3.1 进度统计
-- 已完成：`4 / 8`
+- 已完成：`6 / 8`
 
 ### 3.2 可勾选任务清单
 - [x] 任务 4A：Service 最小闭环
 - [x] 任务 4B：QoS 对比实验
 - [x] 任务 4C：tf2 主动查询
 - [x] 任务 4D：URDF 升级 xacro 参数化
-- [ ] 任务 4E：ros2_control 最小链路
-- [ ] 任务 4F：joint_trajectory_controller 联调
+- [X] 任务 4E：ros2_control 最小链路
+- [X] 任务 4F：joint_trajectory_controller 联调
 - [ ] 任务 4G：forward_command_controller 对比
 - [ ] 任务 4H：阶段 1 验收复盘
 
