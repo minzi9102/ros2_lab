@@ -35,7 +35,9 @@ ROS 2 Jazzy 机械臂开发学习仓库，以 UR3 为目标平台，按阶段推
 │       └── stage1_review.md
 ├── scripts/                    # 辅助脚本
 ├── workspaces/
-│   └── ws_tutorials/           # 当前主要 ROS 2 工作区
+│   ├── ws_tutorials/           # 阶段 1 主要 ROS 2 工作区
+│   └── ws_stage2/              # 阶段 2 工作区（UR3 仿真控制）
+│       └── src/                # 阶段 2 ROS 2 包源码
 │       ├── src/                # ROS 2 包源码
 │       │   ├── ur3_follow_joint_trajectory_client_py/   # 4E/4F：轨迹 Action Client
 │       │   ├── ur3_forward_command_controller_lab_py/   # 4G：forward_command_controller 对比
