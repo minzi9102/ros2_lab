@@ -58,10 +58,11 @@ fake hardware 模式：驱动层用软件模拟硬件接口，其余层与真机
    ```bash
    ros2 launch ur_robot_driver ur_control.launch.py \
      ur_type:=ur3 \
-     robot_ip:=yyy.yyy.yyy.yyy \
-     use_fake_hardware:=true \
+     robot_ip:=192.168.56.101 \
+     use_mock_hardware:=true \
      launch_rviz:=true
    ```
+   > ⚠️ v3.7.0 已将 `use_fake_hardware` 重命名为 `use_mock_hardware`；`robot_ip` 需填合法 IP。
 4. 验证 joint states：
    ```bash
    ros2 topic echo /joint_states --once
@@ -120,6 +121,6 @@ ros2 run tf2_tools view_frames
   - 回退：先确认 `robot_state_publisher` 是否运行，再检查 URDF 是否正确加载。
 
 ## 11. 完成记录
-- 状态：`[ ] 未开始` `[#] 进行中` `[x] 已完成`
+- 状态：`[ ] 未开始` `[ ] 进行中` `[x] 已完成`
 - 日期：2026-04-11
-- 备注：ws_stage2 工作区已建立，ur_robot_driver v3.7.0 已确认安装，学习文档模板已创建，等待执行验证步骤
+- 备注：三项验证指标全部通过。关键排错经验：v3.7.0 将 `use_fake_hardware` 更名为 `use_mock_hardware`，且 `robot_ip` 须填合法 IP 格式
