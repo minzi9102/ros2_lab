@@ -45,9 +45,9 @@ fake hardware 模式：驱动层用软件模拟硬件接口，其余层与真机
 ## 6. 实施步骤（2 天节奏）
 
 ### Day 1：安装与首次启动
-1. 确认 ROS 2 Humble 环境，安装 `ur_robot_driver`：
+1. 确认 ROS 2 Jazzy 环境，安装 `ur_robot_driver`：
    ```bash
-   sudo apt install ros-humble-ur
+   sudo apt install ros-jazzy-ur
    ```
 2. 查阅官方 launch 文件入口：
    ```bash
@@ -87,7 +87,7 @@ fake hardware 模式：驱动层用软件模拟硬件接口，其余层与真机
 ## 7. 关键命令（执行阶段使用）
 ```bash
 # 安装驱动
-sudo apt install ros-humble-ur
+sudo apt install ros-jazzy-ur
 
 # 启动 fake hardware
 ros2 launch ur_robot_driver ur_control.launch.py \
@@ -112,8 +112,8 @@ ros2 run tf2_tools view_frames
 - 能口头解释 fake hardware 模式与真机模式的本质区别。
 
 ## 10. 风险与回退
-- 风险 1：`ur_robot_driver` 版本与 ROS 2 Humble 不兼容。
-  - 回退：检查 `apt-cache policy ros-humble-ur`，确认版本；必要时从源码构建。
+- 风险 1：`ur_robot_driver` 版本与 ROS 2 Jazzy 不兼容。
+  - 回退：检查 `apt-cache policy ros-jazzy-ur`，确认版本；必要时从源码构建。
 - 风险 2：`robot_ip` 参数在 fake hardware 模式下仍被校验导致启动失败。
   - 回退：查阅官方文档确认 fake hardware 模式是否需要真实 IP；尝试 `robot_ip:=192.168.56.101`（URSim 默认地址）。
 - 风险 3：RViz 启动后 TF 树显示断链。
