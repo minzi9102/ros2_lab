@@ -128,12 +128,12 @@ class Ur3JointTrajectorySender(Node):
         return goal
 
     def plan_demo_points(self, current_positions: list[float]) -> list[JointTrajectoryPoint]:
-        # 从当前位姿出发，轻微调整前三个关节，再回到起点，便于观察反馈与状态收敛。
+        # 从当前位姿出发，调整前三个关节约 1 rad，再回到起点，便于观察反馈与状态收敛。
         start = self._make_point(current_positions, 1)
         middle_positions = list(current_positions)
-        middle_positions[0] += 0.2
-        middle_positions[1] += 0.1
-        middle_positions[2] -= 0.1
+        middle_positions[0] += 1.0
+        middle_positions[1] += 1.0
+        middle_positions[2] -= 1.0
         middle = self._make_point(middle_positions, 3)
         end = self._make_point(current_positions, 5)
         return [start, middle, end]

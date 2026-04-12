@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已补写轨迹点，待在 mock hardware 下做联调验证`
+- 当前状态：`[#] Action 发送验证已通过，待补 joint_states 收敛记录后收口`
 
 ---
 
@@ -74,14 +74,19 @@ ros2 run ur3_minimal_control_lab_py joint_trajectory_sender
 - 当前关节角：
 
 ### 发送后记录
-- goal 是否 accepted：
-- result 的 `error_code`：
-- `/joint_states` 是否收敛到目标附近：
+- goal 是否 accepted：是
+- result 的 `error_code`：`0`
+- Action 最终结果：
+  ```text
+  [INFO] [1775986024.842056233] [ur3_joint_trajectory_sender]: Goal accepted, waiting for result...
+  [INFO] [1775986029.892510865] [ur3_joint_trajectory_sender]: Result received: status=4 error_code=0 error_string='Goal successfully reached!'
+  ```
+- `/joint_states` 是否收敛到目标附近：待补充观察记录
 
 ### 结论
-- 这次轨迹是如何经过控制器被执行的：
-- fake hardware 下为什么仍能验证控制闭环：
-- 如果改发给 `joint_trajectory_controller`，你预计会有什么区别：
+- 这次轨迹是如何经过控制器被执行的：已验证 `joint_trajectory_sender -> /scaled_joint_trajectory_controller/follow_joint_trajectory -> 控制器执行 -> Action result 返回成功` 这条链路可用。
+- fake hardware 下为什么仍能验证控制闭环：mock hardware 会模拟 hardware interface 的状态读写，因此即使没有真实 RTDE 硬件链路，也能验证控制器是否接受并执行轨迹。
+- 如果改发给 `joint_trajectory_controller`，你预计会有什么区别：在 mock hardware 下大概率也能执行成功；但在真机上它不会感知 speed scaling，不如 `scaled_joint_trajectory_controller` 适合作为默认入口。
 
 ## 7. 风险与排障
 - Action server 名称不对：
@@ -90,4 +95,4 @@ ros2 run ur3_minimal_control_lab_py joint_trajectory_sender
 
 ## 8. 完成记录
 - 日期：
-- 备注：
+- 备注：已确认 Action goal accepted，且 result 返回 `status=4 error_code=0`。下一步只需补一组发送前后 `/joint_states` 记录，即可完成 5C 闭环证据。
