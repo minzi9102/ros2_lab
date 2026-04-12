@@ -53,11 +53,12 @@ ros2 launch ur3_minimal_control_lab_py task5C_minimal_control.launch.py
 - 文件：`workspaces/ws_stage2/src/ur3_minimal_control_lab_py/ur3_minimal_control_lab_py/joint_trajectory_sender.py`
 - 函数：`plan_demo_points()`
 
-### TODO(human)
-- 请你亲自补写 2 到 3 个轨迹点。
-- 建议先只让 1 到 2 个关节发生小幅变化。
-- 每个点的 `time_from_start` 必须递增。
-- 写完后再运行：
+### 已完成补写
+- 已补写 2 到 3 个轨迹点。
+- 当前建议回顾：
+  - 是否只让少量关节发生小幅变化。
+  - `time_from_start` 是否严格递增。
+- 接下来运行：
 ```bash
 ros2 run ur3_minimal_control_lab_py joint_trajectory_sender
 ```
