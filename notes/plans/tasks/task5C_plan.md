@@ -143,6 +143,6 @@ ros2 topic echo /joint_states --once
   - URSim 接入与 speed scaling 真实链路验证。
 
 ## 13. 完成记录
-- 状态：`[ ] 未开始` `[#] 进行中` `[x] 已完成`
+- 状态：`[x] 已完成`
 - 日期：`2026-04-12`
-- 备注：已按当前仓库状态重规划，并要求 5C 代码统一放入 `ws_stage2` 新应用包。
+- 备注：已在 mock hardware 下完成最小控制闭环验证；Action goal accepted，result 返回 `status=4 error_code=0`，发送前后 `/joint_states` 一致且符合“起点 -> 中间点 -> 起点”的轨迹设计。
