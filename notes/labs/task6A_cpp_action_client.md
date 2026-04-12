@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已补完 Action Client 发送逻辑并通过构建，待 mock hardware 联调`
+- 当前状态：`[x] 已完成 mock hardware 联调验证`
 
 ---
 
@@ -71,16 +71,26 @@ ros2 run ur3_minimal_control_lab_cpp joint_trajectory_sender
 ```
 
 ### 发送后记录
-- action server 是否可用：
-- goal 是否 accepted：
-- result 状态码：
-- error_code：
+- action server 是否可用：是
+- goal 是否 accepted：是
+- 反馈是否正常返回：是，持续收到 `desired_len=6 actual_len=6`
+- result 状态码：`4`
+- error_code：`0`
+- 关键日志：
+  ```text
+  [INFO] [1776001534.308458842] [ur3_joint_trajectory_sender_cpp]: joint_trajectory_sender_cpp started. action=/scaled_joint_trajectory_controller/follow_joint_trajectory topic=/joint_states
+  [INFO] [1776001535.308544581] [ur3_joint_trajectory_sender_cpp]: Waiting for FollowJointTrajectory action server...
+  [INFO] [1776001535.309266123] [ur3_joint_trajectory_sender_cpp]: Goal accepted, waiting for result...
+  [INFO] [1776001540.359796502] [ur3_joint_trajectory_sender_cpp]: Result received: status=4 error_code=0 error_string='Goal successfully reached!'
+  [INFO] [1776001540.359840050] [ur3_joint_trajectory_sender_cpp]: Shutting down node: Goal finished
+  ```
+- 结论：C++ 版 `FollowJointTrajectory` Action Client 已在 mock hardware 下验证通过。
 
 ## 7. 对比总结
-- Python 版更顺手的地方：
-- C++ 版更清晰的地方：
-- 你对 `rclcpp_action` 的理解：
+- Python 版更顺手的地方：`send_goal_async(..., feedback_callback=...)` 写法更短，异步发送入口更直接。
+- C++ 版更清晰的地方：`SendGoalOptions` 把 goal response / feedback / result 三类回调显式拆开，更容易看清生命周期与类型边界。
+- 你对 `rclcpp_action` 的理解：它本质上仍是“异步发 goal，再分别处理响应、反馈、结果”，只是 C++ 版要求更明确地声明回调类型和绑定方式。
 
 ## 8. 完成记录
-- 日期：
-- 备注：
+- 日期：2026-04-12
+- 备注：已完成 C++ Action Client 迁移与 mock hardware 联调验证，结果为 `status=4 error_code=0`。

@@ -111,6 +111,6 @@ ros2 run ur3_minimal_control_lab_cpp joint_trajectory_sender
   - 回退：本任务只在 mock hardware 下验 C++ Action Client。
 
 ## 12. 完成记录
-- 状态：`[ ] 未开始` `[#] 进行中` `[x] 已完成`
+- 状态：`[x] 已完成`
 - 日期：`2026-04-12`
-- 备注：已补完 `SendGoalOptions` 与 `async_send_goal`，并通过 `colcon build --packages-select ur3_minimal_control_lab_cpp`；下一步是在 mock hardware 下完成运行验证。
+- 备注：已补完 `SendGoalOptions` 与 `async_send_goal`，通过 `colcon build --packages-select ur3_minimal_control_lab_cpp`，并在 mock hardware 下完成运行验证；运行结果为 `status=4 error_code=0`。
