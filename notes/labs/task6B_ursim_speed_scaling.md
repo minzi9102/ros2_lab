@@ -120,3 +120,85 @@ ros2 launch ur3_ursim_speed_scaling_lab_py task6B_ursim_speed_scaling.launch.py
     - `speed_scaling=50.0%` 时轨迹耗时约 `10.00s`
     - 两次均返回 `status=4 error_code=0`
   - 中途定位到一次 `reverse interface dropped -> scaled_joint_trajectory_controller inactive -> speed_scaling=0.0` 的现象，并通过重发 robot program 恢复。
+
+## 9. 概念内化总结
+
+### 这次 6B 真正验证了什么
+
+这次实验真正验证的，不只是“URSim 里有一个会变化的话题”，而是下面这条完整因果链：
+
+```text
+URSim 速度滑块变化
+        ↓
+URSim / RTDE 回传真实速度比例
+        ↓
+ur_robot_driver 更新 speed_scaling state interface
+        ↓
+speed_scaling_state_broadcaster 发布新值
+        ↓
+scaled_joint_trajectory_controller 读取该值并拉伸轨迹时间轴
+        ↓
+同一条轨迹在不同 speed scaling 下表现出不同执行耗时
+```
+
+换句话说，6B 不是只验证“topic 变了”，而是验证“真实状态回传会改变控制器行为”。
+
+### 四个最重要的概念
+
+**概念 1：`speed_scaling` 是 state，不是我想象出来的命令回显**
+
+- 在 mock hardware 下，`set_speed_slider` 虽然能调用成功，但 broadcaster 仍固定发 `100%`。
+- 到了 URSim，下调速度滑块后，话题真实变为 `50.0`。
+- 这说明 broadcaster 发的是“驱动从外部控制器读回来的状态”，不是“我刚刚写进去的命令值”。
+
+**概念 2：`scaled_joint_trajectory_controller` 的核心不是“变慢”，而是“时间轴缩放”**
+
+- 我这次发的是同一条轨迹。
+- 在 `100%` 下耗时约 `5s`，在 `50%` 下耗时约 `10s`。
+- 轨迹路径没有换，goal 也没有失败，只是执行时间被大约拉成了 2 倍。
+- 所以 speed scaling 的控制语义不是“换一条轨迹”，而是“让同一条轨迹按更慢的节奏完成”。
+
+**概念 3：`speed_scaling=0.0` 和 `speed_scaling=50.0` 是两种完全不同的系统状态**
+
+- `50.0` 表示外部控制链路仍然活着，只是当前允许的执行速度是原来的 50%。
+- `0.0` 这次对应的是 `reverse interface dropped`，随后 `scaled_joint_trajectory_controller` 被自动降为 inactive。
+- 这意味着系统已经从“降速运行”切换成了“控制程序停止 / 无法继续执行”的状态。
+- 所以看到 `0.0` 时，第一反应不该是“这是更低的 speed scaling”，而该先检查程序状态、控制器状态和 reverse interface。
+
+**概念 4：机器人实验里，证据要分层看，不能只盯一个信号**
+
+- 只看 topic：你能知道状态变了，但不知道控制器是否还可执行。
+- 只看 action result：你能知道轨迹成功了，但不知道速度滑块是否真的影响了时间轴。
+- 只看 URSim 界面：你能知道自己拖了滑块，但不知道 ROS 侧有没有收到真实状态。
+- 这次 6B 让我更清楚：至少要把“UI 操作 + topic 变化 + controller 状态 + action 耗时”四层证据连起来看。
+
+### 四个核心问题自答
+
+**Q1：为什么同一条轨迹在 `50%` 下大约用了 `10s`，在 `100%` 下用了 `5s`？**
+
+因为 `scaled_joint_trajectory_controller` 会消费 `speed_scaling`，并把轨迹时间轴按比例拉伸。`50%` 并不是“只完成一半轨迹”，而是“用两倍时间完成同一条轨迹”。
+
+**Q2：为什么这次 Action 结果都成功，却仍能证明速度滑块生效了？**
+
+因为 speed scaling 的影响主要落在“执行节奏”上，不一定落在“是否成功”上。只要轨迹仍可执行，控制器就可能返回成功；真正说明滑块生效的证据，是 `speed_scaling` 从 `100.0` 变成了 `50.0`，同时总耗时从 `5s` 变成了 `10s`。
+
+**Q3：为什么我这次看到过 `speed_scaling=0.0`，但最后又能恢复到 `50.0`？**
+
+因为那次 `0.0` 不是“我把滑块调到了 0%”，而是外部控制程序停了，driver 日志里也对应出现了 `reverse interface dropped`。恢复 robot program 后，控制链路回来了，`speed_scaling` 才重新回到 `50.0`。
+
+**Q4：为什么 6B 值得新建独立应用包，而不是继续写进 5C？**
+
+因为 6B 的重点已经从“最小控制闭环”升级成了“真实状态回传如何改变控制器行为”。它需要自己的 monitor、自己的 runner、自己的实验记录和自己的异常解释。把它单独放进 `ur3_ursim_speed_scaling_lab_py`，可以让实验目的、代码边界和排障路径都更清楚。
+
+### 对未来手术机器人开发的迁移理解
+
+如果把 6B 压缩成对未来最有用的一句话，那就是：
+
+> 在真实控制系统里，"命令发出去了" 不等于 "系统就按我想的方式执行了"；必须同时验证状态回传、控制器行为和时间语义。
+
+这次 6B 练到的，不只是 UR 的 speed scaling，而是一种以后会不断重复用到的工程习惯：
+
+- 先分清 command 和 state；
+- 再确认状态是否真实来自外部系统；
+- 再验证控制器有没有消费这个状态；
+- 最后用执行结果和时间特征证明“这个状态真的改变了系统行为”。
