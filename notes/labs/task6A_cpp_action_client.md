@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已创建 C++ 包骨架，待补写 Action Client 发送逻辑`
+- 当前状态：`[#] 已补完 Action Client 发送逻辑并通过构建，待 mock hardware 联调`
 
 ---
 
@@ -32,8 +32,8 @@ source install/setup.bash
 ```
 
 ### 观察记录
-- 是否构建通过：
-- 若失败，报错集中在哪个依赖或头文件：
+- 是否构建通过：是
+- 若失败，报错集中在哪个依赖或头文件：本轮补写后，主要问题集中在 `SendGoalOptions` 类型限定、回调绑定里的类名拼写，以及残留的 `throw logic_error`；修正后已重新构建通过。
 
 ## 5. 练习 2：补写 Action Client 核心逻辑
 
@@ -45,10 +45,13 @@ source install/setup.bash
 - 参数声明、`/joint_states` 订阅、当前位姿重排、轨迹构造、结果回调函数签名已搭好。
 
 ### TODO(human)
-- 亲自补写：
+- 已补写：
   - `SendGoalOptions` 的三个回调绑定；
-  - `async_send_goal` 调用；
-  - 发送失败时的日志与 shutdown 路径。
+  - `async_send_goal` 调用。
+- review 时补充修正：
+  - `SendGoalOptions` 的类型限定；
+  - 回调绑定中的类名引用；
+  - 残留的 `throw logic_error`。
 
 ### 你要回答的问题
 - Python 里 `send_goal_async(..., feedback_callback=...)` 与 C++ 里 `SendGoalOptions` 的差别是什么：

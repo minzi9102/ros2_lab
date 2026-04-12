@@ -113,4 +113,4 @@ ros2 run ur3_minimal_control_lab_cpp joint_trajectory_sender
 ## 12. 完成记录
 - 状态：`[ ] 未开始` `[#] 进行中` `[x] 已完成`
 - 日期：`2026-04-12`
-- 备注：已创建实践计划与 C++ 包骨架，待补完 `SendGoalOptions` 与 `async_send_goal`。
+- 备注：已补完 `SendGoalOptions` 与 `async_send_goal`，并通过 `colcon build --packages-select ur3_minimal_control_lab_cpp`；下一步是在 mock hardware 下完成运行验证。

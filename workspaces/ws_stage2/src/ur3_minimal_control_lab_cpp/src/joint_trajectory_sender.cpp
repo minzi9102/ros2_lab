@@ -22,6 +22,7 @@ public:
   using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
   using GoalHandleFollowJointTrajectory =
     rclcpp_action::ClientGoalHandle<FollowJointTrajectory>;
+  using SendGoalOptions = rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions;
 
   Ur3JointTrajectorySenderNode()
   : Node("ur3_joint_trajectory_sender_cpp")
@@ -172,15 +173,17 @@ private:
 
   void send_goal_request(const FollowJointTrajectory::Goal & goal_msg)
   {
-    // TODO(human): 请在这里亲自补写 C++ Action Client 的发送逻辑。
-    // 你需要完成：
-    // 1. 创建 SendGoalOptions
-    // 2. 绑定 goal_response_callback / feedback_callback / result_callback
-    // 3. 调用 action_client_->async_send_goal(goal_msg, options)
-    // 建议先对照 5C 的 Python 版，再理解 rclcpp_action 的三类回调签名差异。
-    (void)goal_msg;
-    throw std::logic_error(
-            "TODO(human): 请补写 send_goal_request()，完成 SendGoalOptions 绑定与 async_send_goal 调用。");
+    SendGoalOptions options;
+    options.goal_response_callback =
+      std::bind(&Ur3JointTrajectorySenderNode::on_goal_response, this, std::placeholders::_1);
+    options.feedback_callback =
+      std::bind(
+      &Ur3JointTrajectorySenderNode::on_feedback, this,
+      std::placeholders::_1, std::placeholders::_2);
+    options.result_callback =
+      std::bind(&Ur3JointTrajectorySenderNode::on_result, this, std::placeholders::_1);
+
+    action_client_->async_send_goal(goal_msg, options);
   }
 
   void on_goal_response(const GoalHandleFollowJointTrajectory::SharedPtr & goal_handle)
