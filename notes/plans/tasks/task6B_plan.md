@@ -198,6 +198,6 @@ ros2 topic echo /speed_scaling_state_broadcaster/speed_scaling \
   - 回退：严格按“先连上 -> 再观测 -> 最后发送轨迹”的顺序推进。
 
 ## 15. 完成记录
-- 状态：`[ ] 未开始`
+- 状态：`[x] 已完成`
 - 日期：`2026-04-12`
-- 备注：本版计划已按当前仓库状态改为“6B 新建独立应用包”方案，后续执行时不再把 6B 代码继续堆入 `ur3_minimal_control_lab_py` 或 `ur3_minimal_control_lab_cpp`。
+- 备注：已按“6B 新建独立应用包”方案完成实证。URSim 下已观测到 `speed_scaling` 从 `100.0` 变为 `50.0`，同一条保守轨迹在 `100%` 下耗时约 `5.00s`、在 `50%` 下耗时约 `10.00s`，两次均返回 `status=4 error_code=0`。
