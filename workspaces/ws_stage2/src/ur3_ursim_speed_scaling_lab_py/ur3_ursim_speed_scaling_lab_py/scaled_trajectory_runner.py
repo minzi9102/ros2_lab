@@ -173,14 +173,19 @@ class Ur3ScaledTrajectoryRunner(Node):
         return goal
 
     def plan_demo_points(self, current_positions: list[float]) -> list[JointTrajectoryPoint]:
-        # TODO(human): 以 current_positions 为起点，设计 2 到 3 个保守轨迹点，用于比较
+        # 以 current_positions 为起点，设计 2 到 3 个保守轨迹点，用于比较
         # `100%` 与降速条件下的执行耗时。建议：
         # 1. 只让 1 到 2 个关节发生小幅变化，避免排障面过大；
         # 2. 每个 point 的 time_from_start 必须严格递增；
         # 3. 终点最好回到 current_positions，便于比较发送前后状态。
-        raise NotImplementedError(
-            "TODO(human): 请在 plan_demo_points() 中补写 6B 的保守实验轨迹。"
-        )
+        start = self._make_point(current_positions, 1)
+        middle_positions = list(current_positions)
+        middle_positions[0] += 0.5
+        middle_positions[1] -= 0.5
+        middle = self._make_point(middle_positions, 3)
+        end = self._make_point(current_positions, 5)
+        return [start, middle, end]
+
 
     def _make_point(self, positions: list[float], sec: int) -> JointTrajectoryPoint:
         point = JointTrajectoryPoint()
