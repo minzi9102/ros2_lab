@@ -33,7 +33,7 @@ def generate_launch_description() -> LaunchDescription:
     run_sender_arg = DeclareLaunchArgument(
         "run_sender",
         default_value="false",
-        description="Whether to start the trajectory sender. Keep false until TODO(human) is done.",
+        description="Whether to start the trajectory sender together with the observer.",
     )
 
     observer_node = Node(

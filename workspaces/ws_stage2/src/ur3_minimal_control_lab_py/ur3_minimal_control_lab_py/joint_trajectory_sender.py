@@ -128,28 +128,19 @@ class Ur3JointTrajectorySender(Node):
         return goal
 
     def plan_demo_points(self, current_positions: list[float]) -> list[JointTrajectoryPoint]:
-        # TODO(human): 请在这里亲自设计 2~3 个轨迹点，并说明你的理由。
-        # 建议：
-        # 1. 第一段尽量从 current_positions 出发，只做 1~2 个关节的小幅变化。
-        # 2. 每个点的 positions 长度必须等于 len(self.joint_names)。
-        # 3. time_from_start 必须严格递增，例如 2s / 4s / 6s。
-        # 4. 如果你打算回到初始位姿，请把 current_positions 作为最后一个点的参考。
-        # 5. 先追求“动作温和且可解释”，不要一开始就写大幅摆动。
-        #
-        # 参考骨架（可删改）：
-        # start = self._make_point(current_positions, 1)
-        # middle_positions = list(current_positions)
-        # middle_positions[0] += 0.2
-        # middle = self._make_point(middle_positions, 3)
-        # end = self._make_point(current_positions, 5)
-        # return [start, middle, end]
-        raise NotImplementedError(
-            "TODO(human): 请补写 plan_demo_points()，先基于当前位姿设计一条温和的最小轨迹。"
-        )
+        # 从当前位姿出发，轻微调整前三个关节，再回到起点，便于观察反馈与状态收敛。
+        start = self._make_point(current_positions, 1)
+        middle_positions = list(current_positions)
+        middle_positions[0] += 0.2
+        middle_positions[1] += 0.1
+        middle_positions[2] -= 0.1
+        middle = self._make_point(middle_positions, 3)
+        end = self._make_point(current_positions, 5)
+        return [start, middle, end]
 
     def _make_point(self, positions: list[float], sec: int) -> JointTrajectoryPoint:
         point = JointTrajectoryPoint()
-        point.positions = positions
+        point.positions = list(positions)
         point.velocities = [0.0] * len(self.joint_names)
         point.time_from_start = Duration(sec=sec, nanosec=0)
         return point
