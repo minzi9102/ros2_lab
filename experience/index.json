@@ -1,6 +1,70 @@
 {
   "schema_version": 1,
   "repository": "ros2_lab",
-  "updated_at": "2026-04-11T22:36:23+08:00",
-  "entries": []
+  "updated_at": "2026-04-13T18:12:38+08:00",
+  "entries": [
+    {
+      "experience_key": "pitfall--moveit-quickstart--launch-rviz-shadowed-between-includes",
+      "title": "Task7A wrapper launch 中同名 launch_rviz 参数会在 include 之间串值",
+      "summary": "在同一个 wrapper launch 里同时 include ur_control.launch.py 和 ur_moveit.launch.py 时，如果给 driver 子 launch 传了 launch_rviz:=false，而 MoveIt 子 launch 也复用了同名参数，后者会读到被覆盖后的值，表现为 move_group 正常启动但 RViz 窗口完全不出现。",
+      "experience_type": "pitfall",
+      "topics": [
+        "moveit-quickstart",
+        "ros2-launch",
+        "ur-moveit"
+      ],
+      "tasks": [
+        "task7A"
+      ],
+      "keywords": [
+        "IncludeLaunchDescription",
+        "SetLaunchConfiguration",
+        "launch_rviz",
+        "rviz2",
+        "ur_moveit_config",
+        "ur_robot_driver"
+      ],
+      "paths": [
+        "notes/labs/task7A_moveit_quickstart.md",
+        "notes/plans/tasks/task7A_plan.md",
+        "workspaces/ws_stage3/src/ur3_moveit_bringup_lab/launch/task7A_moveit_quickstart.launch.py"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-04-13T18:12:38+08:00",
+      "session_refs": [
+        "sessions/20260413-181238--moveit-quickstart.json"
+      ]
+    },
+    {
+      "experience_key": "workflow--moveit-quickstart--diagnose-move-group-without-rviz",
+      "title": "Task7A 遇到“MoveIt 起了但 RViz 没弹出”时的排错顺序",
+      "summary": "在 Jazzy + ur_moveit_config 的这套链路里，先不要被 URDF/SRDF 推断 warning 带偏；更有效的排错顺序是先确认 move_group 是否已就绪，再看 launch 日志里有没有 rviz2 进程，随后用官方 ur_moveit.launch.py 的源码和 --show-args 核对 RViz 的真正触发条件，最后再回看本仓库 wrapper launch 的参数传递。",
+      "experience_type": "workflow",
+      "topics": [
+        "debugging",
+        "moveit-quickstart",
+        "ros2-launch"
+      ],
+      "tasks": [
+        "task7A"
+      ],
+      "keywords": [
+        "launch.log",
+        "move_group",
+        "robot_description",
+        "rviz2",
+        "show-args",
+        "ur_moveit.launch.py"
+      ],
+      "paths": [
+        "notes/labs/task7A_moveit_quickstart.md",
+        "workspaces/ws_stage3/src/ur3_moveit_bringup_lab/launch/task7A_moveit_quickstart.launch.py"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-04-13T18:12:38+08:00",
+      "session_refs": [
+        "sessions/20260413-181238--moveit-quickstart.json"
+      ]
+    }
+  ]
 }

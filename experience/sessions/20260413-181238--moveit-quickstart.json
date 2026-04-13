@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "session_id": "20260413-181238--moveit-quickstart",
+  "captured_at": "2026-04-13T18:12:38+08:00",
+  "repository": "ros2_lab",
+  "repo_root": "/home/minzi/ros2_lab",
+  "context": {
+    "source": "current_codex_session",
+    "task_hint": "task7A",
+    "related_paths": [
+      "notes/labs/task7A_moveit_quickstart.md",
+      "workspaces/ws_stage3/src/ur3_moveit_bringup_lab/launch/task7A_moveit_quickstart.launch.py"
+    ]
+  },
+  "experiences": [
+    {
+      "experience_key": "pitfall--moveit-quickstart--launch-rviz-shadowed-between-includes",
+      "title": "Task7A wrapper launch 中同名 launch_rviz 参数会在 include 之间串值",
+      "summary": "在同一个 wrapper launch 里同时 include ur_control.launch.py 和 ur_moveit.launch.py 时，如果给 driver 子 launch 传了 launch_rviz:=false，而 MoveIt 子 launch 也复用了同名参数，后者会读到被覆盖后的值，表现为 move_group 正常启动但 RViz 窗口完全不出现。",
+      "experience_type": "pitfall",
+      "topics": [
+        "moveit-quickstart",
+        "ros2-launch",
+        "ur-moveit"
+      ],
+      "tasks": [
+        "task7A"
+      ],
+      "keywords": [
+        "launch_rviz",
+        "IncludeLaunchDescription",
+        "SetLaunchConfiguration",
+        "rviz2",
+        "ur_moveit_config",
+        "ur_robot_driver"
+      ],
+      "paths": [
+        "workspaces/ws_stage3/src/ur3_moveit_bringup_lab/launch/task7A_moveit_quickstart.launch.py",
+        "notes/plans/tasks/task7A_plan.md",
+        "notes/labs/task7A_moveit_quickstart.md"
+      ],
+      "applicability": "适用于本仓库后续所有“一个上层 launch 同时拼多个官方子 launch”的场景，尤其是子 launch 存在同名参数但语义不同或默认值不同的时候。",
+      "evidence": [
+        "症状是终端日志只出现 move_group started，没有 rviz2 process started。",
+        "修复方法是在上层 launch 先用 SetLaunchConfiguration 缓存用户传入的 launch_rviz，再把缓存值单独传给 ur_moveit.launch.py。",
+        "本次修复已落到 commit 576c745。"
+      ],
+      "commands": [
+        "colcon build --packages-select ur3_moveit_bringup_lab",
+        "ros2 launch ur3_moveit_bringup_lab task7A_moveit_quickstart.launch.py robot_ip:=192.168.56.101 use_mock_hardware:=true launch_rviz:=true"
+      ],
+      "followups": [
+        "后续新增 task7B-task7E 的 wrapper launch 时，优先避免直接复用带 UI 语义的顶层参数名。",
+        "如果必须复用同名参数，先在上层 launch 里缓存用户输入，再分别传给各子 launch。"
+      ],
+      "confidence": "high"
+    },
+    {
+      "experience_key": "workflow--moveit-quickstart--diagnose-move-group-without-rviz",
+      "title": "Task7A 遇到“MoveIt 起了但 RViz 没弹出”时的排错顺序",
+      "summary": "在 Jazzy + ur_moveit_config 的这套链路里，先不要被 URDF/SRDF 推断 warning 带偏；更有效的排错顺序是先确认 move_group 是否已就绪，再看 launch 日志里有没有 rviz2 进程，随后用官方 ur_moveit.launch.py 的源码和 --show-args 核对 RViz 的真正触发条件，最后再回看本仓库 wrapper launch 的参数传递。",
+      "experience_type": "workflow",
+      "topics": [
+        "moveit-quickstart",
+        "debugging",
+        "ros2-launch"
+      ],
+      "tasks": [
+        "task7A"
+      ],
+      "keywords": [
+        "move_group",
+        "rviz2",
+        "launch.log",
+        "ur_moveit.launch.py",
+        "show-args",
+        "robot_description"
+      ],
+      "paths": [
+        "workspaces/ws_stage3/src/ur3_moveit_bringup_lab/launch/task7A_moveit_quickstart.launch.py",
+        "notes/labs/task7A_moveit_quickstart.md"
+      ],
+      "applicability": "适用于 fake hardware 下 GUI 缺失但核心规划服务疑似仍在运行的 MoveIt bringup 排障。",
+      "evidence": [
+        "wait_for_robot_description 正常收到 /robot_description，说明 robot description 链路没有先挂。",
+        "move_group 日志出现 You can start planning now!，说明规划核心已经起来。",
+        "修复后日志新增 rviz2 process started，可作为这类问题的直接验收信号。"
+      ],
+      "commands": [
+        "ros2 launch ur_moveit_config ur_moveit.launch.py --show-args",
+        "rg -n \"rviz|process started|process has died\" ~/.ros/log/<launch-dir>/launch.log -S",
+        "sed -n '1,220p' /opt/ros/jazzy/share/ur_moveit_config/launch/ur_moveit.launch.py"
+      ],
+      "followups": [
+        "把“是否看到 rviz2 process started”补进 7A 的观察矩阵，作为 GUI bringup 的首个检查点。",
+        "后续若再遇到 GUI 缺失，优先先判断 launch 参数传播，再考虑显示环境或 OpenGL 问题。"
+      ],
+      "confidence": "high"
+    }
+  ]
+}
