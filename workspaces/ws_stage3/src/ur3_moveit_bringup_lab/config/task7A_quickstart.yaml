@@ -1,0 +1,10 @@
+task7A_defaults:
+  planning_group: ur_manipulator
+  pose_reference_frame: base_link
+  end_effector_link: tool0
+  driver_controller: scaled_joint_trajectory_controller
+  environment: fake_hardware
+  quickstart_checks:
+    - /robot_description 可见
+    - RViz Motion Planning 面板出现 ur_manipulator
+    - 先 Plan，再看 Execute
