@@ -1,5 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    SetLaunchConfiguration,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
@@ -31,6 +35,10 @@ def generate_launch_description() -> LaunchDescription:
         default_value="false",
         description="Keep Servo disabled during the 7A Quickstart.",
     )
+    moveit_launch_rviz_arg = SetLaunchConfiguration(
+        "task7A_moveit_launch_rviz",
+        LaunchConfiguration("launch_rviz"),
+    )
 
     driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -55,7 +63,8 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "ur_type": LaunchConfiguration("ur_type"),
-            "launch_rviz": LaunchConfiguration("launch_rviz"),
+            # Cache the user's RViz choice before the driver include forces launch_rviz:=false.
+            "launch_rviz": LaunchConfiguration("task7A_moveit_launch_rviz"),
             "launch_servo": LaunchConfiguration("launch_servo"),
         }.items(),
     )
@@ -67,6 +76,7 @@ def generate_launch_description() -> LaunchDescription:
             use_mock_hardware_arg,
             launch_rviz_arg,
             launch_servo_arg,
+            moveit_launch_rviz_arg,
             driver_launch,
             moveit_launch,
         ]
