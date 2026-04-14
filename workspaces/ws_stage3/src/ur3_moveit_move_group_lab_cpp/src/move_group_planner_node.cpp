@@ -110,8 +110,16 @@ private:
       joint_target_.front());
 
     // TODO(human): 在这里调用 setJointValueTarget(joint_target_)。
+    move_group_->setJointValueTarget(joint_target_);
     // TODO(human): 你需要判断“关节目标的尺寸、顺序、语义”是否和 ur_manipulator 一致。
-    return false;
+    if (!move_group_->setJointValueTarget(joint_target_)) {
+      RCLCPP_INFO(this->get_logger(), "Joint target is set successfully.");
+    } else {
+      RCLCPP_ERROR(this->get_logger(), "Failed to set joint target.");
+      return false;
+    }
+    RCLCPP_INFO(this->get_logger(), "Joint target is set successfully.");
+    return true;
   }
 
   bool apply_pose_target()
@@ -127,8 +135,15 @@ private:
       pose_reference_frame_.c_str());
 
     // TODO(human): 在这里调用 setPoseTarget(pose, end_effector_link_)。
+      move_group_->setPoseTarget(pose, end_effector_link_);
     // TODO(human): 你需要判断这个姿态是否可达，以及末端姿态语义是否合理。
-    return false;
+      if (!move_group_->setPoseTarget(pose, end_effector_link_)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to set pose target.");
+        return false;
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Pose target is set successfully.");
+      }
+    return true;
   }
 
   bool run_plan_flow()
@@ -139,9 +154,27 @@ private:
       execute_plan_ ? "true" : "false");
 
     // TODO(human): 在这里创建 MoveGroupInterface::Plan，并调用 plan()。
+      moveit::planning_interface::MoveGroupInterface::Plan plan;
+      const bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+      if (!success) {
+        RCLCPP_ERROR(this->get_logger(), "Planning failed.");
+        return false;
+      }
+  
+      RCLCPP_INFO(this->get_logger(), "Planning succeeded.");
+  
+      if (execute_plan_) {  
+        // TODO(human): 在这里调用 execute()。
+        const bool execute_success = (move_group_->execute(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+        if (!execute_success) {
+          RCLCPP_ERROR(this->get_logger(), "Execution failed.");
+          return false;
+        }
+        RCLCPP_INFO(this->get_logger(), "Execution succeeded.");
+      }
     // TODO(human): 你需要自己决定 plan 失败时是直接退出、打印更多上下文，还是做一次保守重试。
-    // TODO(human): 只有在 plan 成功时，才能根据 execute_plan_ 决定是否 execute()。
-    return false;
+    // TODO(human): 只有在 plan 成功时，才能根据 execute_plan_ 决定是否 execute()。 
+    return true;
   }
 
   void validate_joint_target() const
