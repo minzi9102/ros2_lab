@@ -58,13 +58,13 @@ private:
       ensure_move_group();
       const bool target_ready = apply_requested_target();
       if (!target_ready) {
-        request_shutdown("TODO(human) target logic not finished");
+        request_shutdown("Failed to apply requested target");
         return;
       }
 
       const bool flow_finished = run_plan_flow();
       if (!flow_finished) {
-        request_shutdown("TODO(human) plan flow not finished");
+        request_shutdown("Failed to complete plan flow");
         return;
       }
     } catch (const std::exception & ex) {
@@ -110,11 +110,9 @@ private:
       joint_target_.front());
 
     // TODO(human): 在这里调用 setJointValueTarget(joint_target_)。
-    move_group_->setJointValueTarget(joint_target_);
+    bool bstate = move_group_->setJointValueTarget(joint_target_);
     // TODO(human): 你需要判断“关节目标的尺寸、顺序、语义”是否和 ur_manipulator 一致。
-    if (!move_group_->setJointValueTarget(joint_target_)) {
-      RCLCPP_INFO(this->get_logger(), "Joint target is set successfully.");
-    } else {
+    if (!bstate) {
       RCLCPP_ERROR(this->get_logger(), "Failed to set joint target.");
       return false;
     }
@@ -135,9 +133,9 @@ private:
       pose_reference_frame_.c_str());
 
     // TODO(human): 在这里调用 setPoseTarget(pose, end_effector_link_)。
-      move_group_->setPoseTarget(pose, end_effector_link_);
+      bool bstate = move_group_->setPoseTarget(pose, end_effector_link_);
     // TODO(human): 你需要判断这个姿态是否可达，以及末端姿态语义是否合理。
-      if (!move_group_->setPoseTarget(pose, end_effector_link_)) {
+      if (!bstate) {
         RCLCPP_ERROR(this->get_logger(), "Failed to set pose target.");
         return false;
       } else {
