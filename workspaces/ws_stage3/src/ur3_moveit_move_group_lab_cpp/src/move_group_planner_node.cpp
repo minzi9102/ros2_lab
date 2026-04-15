@@ -78,6 +78,7 @@ private:
         request_shutdown("Failed to complete plan flow");
         return;
       }
+      request_shutdown("Plan flow completed successfully");
     } catch (const std::exception & ex) {
       RCLCPP_ERROR(this->get_logger(), "Task 7B failed: %s", ex.what());
       request_shutdown("Planning scaffold failed");
