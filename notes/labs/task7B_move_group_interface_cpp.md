@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已完成 joint goal / pose goal / plan_only / plan_and_execute 三轮最小验证，并确认成功路径会自动退出；已定位 kinematics warning 根因，并在 ros2 launch 主路径下注入 robot_description_kinematics`
+- 当前状态：`[x] 7B 主路径已完成：joint goal / pose goal / plan_only / plan_and_execute 已验证，成功路径可自动退出，ros2 launch 主路径下 kinematics warning 已收敛；ros2 run warning 作为已知边界保留`
 
 ## 1. 目标
 - 在 `workspaces/ws_stage3/src/ur3_moveit_move_group_lab_cpp` 中补完一个最小 MoveGroupInterface 节点。
@@ -36,7 +36,7 @@
   - one-shot 成功路径自动退出验证；
   - `task7B_move_group_interface.launch.py` 已注入 `robot_description_kinematics`；
   - 7B 实验记录模板。
-- 待你完成：
+- 已知边界：
   - 若希望 `ros2 run` 路径也消除本地 warning，仍需补参数文件或 wrapper launch；
 
 ## 4. 练习 1：构建 7B C++ 包

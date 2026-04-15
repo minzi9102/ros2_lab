@@ -41,12 +41,12 @@
 
 ### 4.1 进度统计
 - 已准备骨架：`5 / 5`
-- 已完成实验：`1 / 5`
-- 当前推进中：`7B` 已跑通 `joint goal + plan_only` 最小闭环，待补 `pose goal / plan_and_execute` 验证
+- 已完成实验：`2 / 5`
+- 当前推进中：`7C` 为下一步候选；`7B` 主路径已完成，`ros2 run` 本地 kinematics warning 作为已知边界保留
 
 ### 4.2 可勾选任务清单
 - [x] 任务 7A：MoveIt 2 bringup 与 RViz Quickstart
-- [ ] 任务 7B：C++ MoveGroupInterface 最小规划节点
+- [x] 任务 7B：C++ MoveGroupInterface 最小规划节点
 - [ ] 任务 7C：Planning Scene、Collision Object 与 Cartesian Path
 - [ ] 任务 7D：点击目标位姿 -> 自动规划并执行
 - [ ] 任务 7E：MoveIt Servo 连续控制入门
@@ -117,5 +117,6 @@
 - 能说明 MoveGroup 离线路径规划与 MoveIt Servo 连续速度控制的边界。
 
 ## 12. 当前结论
-- 阶段 3 已完成 `7A`，并完成 `7B` 的第一轮联调：`joint goal + plan_only` 已成功。
-- 当前仍处于 `7B` 进行中状态；下一步聚焦 `pose goal`、`plan_and_execute` 和 kinematics warning 的处理。
+- 阶段 3 已完成 `7A` 与 `7B` 主路径。
+- `7B` 已验证 `joint goal`、`pose goal`、`plan_only`、`plan_and_execute`，成功路径会自动退出；`ros2 launch` 主路径下的 kinematics warning 已通过参数注入收敛。
+- `ros2 run` 直跑仍会绕过 launch 注入并复现本地 kinematics warning，但当前决定将其视为已知边界，不阻塞进入 `7C`。
