@@ -41,10 +41,11 @@
 
 ### 4.1 进度统计
 - 已准备骨架：`5 / 5`
-- 已完成实验：`0 / 5`
+- 已完成实验：`1 / 5`
+- 当前推进中：`7B` 已跑通 `joint goal + plan_only` 最小闭环，待补 `pose goal / plan_and_execute` 验证
 
 ### 4.2 可勾选任务清单
-- [ ] 任务 7A：MoveIt 2 bringup 与 RViz Quickstart
+- [x] 任务 7A：MoveIt 2 bringup 与 RViz Quickstart
 - [ ] 任务 7B：C++ MoveGroupInterface 最小规划节点
 - [ ] 任务 7C：Planning Scene、Collision Object 与 Cartesian Path
 - [ ] 任务 7D：点击目标位姿 -> 自动规划并执行
@@ -116,5 +117,5 @@
 - 能说明 MoveGroup 离线路径规划与 MoveIt Servo 连续速度控制的边界。
 
 ## 12. 当前结论
-- 阶段 3 已完成文档规划与代码骨架准备。
-- 下一步进入 `7A`，先把官方 `ur_moveit_config` 跑通，并在 RViz 中完成一次 joint goal / pose goal 规划与执行。
+- 阶段 3 已完成 `7A`，并完成 `7B` 的第一轮联调：`joint goal + plan_only` 已成功。
+- 当前仍处于 `7B` 进行中状态；下一步聚焦 `pose goal`、`plan_and_execute` 和 kinematics warning 的处理。

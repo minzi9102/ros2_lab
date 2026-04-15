@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已创建 C++ 包骨架，关键规划调用保留为 TODO(human)`
+- 当前状态：`[#] 已补完最小规划逻辑，并在 fake hardware + 7A bringup 已启动时跑通 joint goal + plan_only；pose goal / plan_and_execute 仍待验证`
 
 ## 1. 目标
 - 在 `workspaces/ws_stage3/src/ur3_moveit_move_group_lab_cpp` 中补完一个最小 MoveGroupInterface 节点。
@@ -26,12 +26,16 @@
   - 参数声明；
   - `MoveGroupInterface` 初始化外壳；
   - `joint target` / `pose target` 参数校验；
+  - `setJointValueTarget(joint_target_)`；
+  - `setPoseTarget(pose, end_effector_link_)`；
+  - `plan()` 成功 / 失败分支；
+  - `execute_plan_` 为 `true` 时的执行逻辑骨架；
   - 7B 实验记录模板。
 - 待你完成：
-  - `setJointValueTarget(joint_target_)`
-  - `setPoseTarget(pose, end_effector_link_)`
-  - `plan()` 的成功 / 失败分支
-  - `execute_plan_` 为 `true` 时的执行逻辑
+  - 补做 `pose goal` 联调与结果记录；
+  - 验证 `execute_plan:=true` 时的执行分支；
+  - 判断 `No kinematics plugins defined` warning 是否会阻塞 `pose goal`；
+  - 收敛 one-shot 节点成功后的退出行为与最终日志。
 
 ## 4. 练习 1：构建 7B C++ 包
 
@@ -44,8 +48,8 @@ source install/setup.bash
 ```
 
 ### 结果记录
-- 是否构建通过：
-- 若失败，错误集中在哪个 MoveIt 头文件或依赖：
+- 是否构建通过：是
+- 若失败，错误集中在哪个 MoveIt 头文件或依赖：本轮已构建通过；此前主要踩过 `MoveItErrorCode` 命名空间和 `getJointValueTarget()` / `getPoseTarget()` API 使用方式。
 
 ## 5. 练习 2：补完关键规划逻辑
 
@@ -106,11 +110,16 @@ ros2 launch ur3_moveit_move_group_lab_cpp task7B_move_group_interface.launch.py 
 ```
 
 ### 记录模板
-- `joint goal` 是否规划成功：
-- `pose goal` 是否规划成功：
-- `plan_only` 与 `plan_and_execute` 的日志区别：
-- 不可达 pose 时的失败现象：
+- `joint goal` 是否规划成功：是；在先启动 `7A` bringup 后，`Planning request accepted -> complete -> Planning succeeded.` 日志已出现
+- `pose goal` 是否规划成功：尚未验证
+- `plan_only` 与 `plan_and_execute` 的日志区别：当前仅验证了 `plan_only`；已看到规划成功日志，尚未验证执行日志
+- 不可达 pose 时的失败现象：尚未验证
 
-## 7. 完成记录
-- 日期：
-- 备注：
+### 当前调试结论
+- 不能单独直接启动 `7B` 节点做联调；若未先启动 `7A` bringup，`MoveGroupInterface` 会因缺少 `robot_description` 无法构造 robot model。
+- 在 `7A` bringup 已启动的前提下，当前代码已经能完成一次 `joint target` 设置和一次 `plan_only` 规划请求。
+- 当前仍会看到 `No kinematics plugins defined. Fill and load kinematics.yaml!` warning，因此 `pose goal` 很可能是下一轮联调的主要风险点。
+
+## 7. 当前进度记录
+- 日期：2026.4.15
+- 备注：`joint goal + plan_only` 已打通，已完成从“骨架 + TODO”到“最小规划请求成功”的第一轮闭环；下一步进入 `pose goal / plan_and_execute` 验证。
