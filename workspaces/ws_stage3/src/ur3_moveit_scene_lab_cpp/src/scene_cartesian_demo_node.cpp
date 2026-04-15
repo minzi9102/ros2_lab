@@ -48,6 +48,8 @@ public:
     jump_threshold_ = this->declare_parameter<double>("jump_threshold", 0.0);
     min_cartesian_fraction_ = this->declare_parameter<double>("min_cartesian_fraction", 0.95);
 
+    // 这里沿用 7B 的 one-shot 模式：节点先完整创建，再在定时器回调里做一次实验流程。
+    // 这样可以避免对象尚未就绪时就去创建 MoveGroupInterface。
     start_timer_ = this->create_wall_timer(
       std::chrono::milliseconds(200),
       std::bind(&Ur3SceneCartesianDemoNode::run_once, this));
@@ -69,20 +71,25 @@ private:
     start_timer_->cancel();
 
     try {
+      // 先准备规划客户端，再把桌面障碍物塞进 Planning Scene。
+      // 这里影响的是“规划能不能通过碰撞检查”，不是底层 controller 的行为。
       ensure_move_group();
       add_table_collision_object();
 
       if (demo_mode_ == "pose" || demo_mode_ == "both") {
+        // pose demo 只问一件事：能否找到“到达 A 点”的任意合法轨迹。
         run_pose_planning_demo();
       }
 
       if (demo_mode_ == "cartesian" || demo_mode_ == "both") {
+        // cartesian demo 更严格：要求末端按笛卡尔路径依次经过多个 waypoint。
         run_cartesian_demo();
       }
     } catch (const std::exception & ex) {
       RCLCPP_ERROR(this->get_logger(), "Task 7C failed: %s", ex.what());
     }
 
+    // 实验结束后把临时桌面移除，避免污染后续手动测试或下一次启动。
     remove_table_collision_object();
     request_shutdown("Task 7C scaffold finished");
   }
@@ -93,6 +100,8 @@ private:
       return;
     }
 
+    // MoveGroupInterface 是当前节点对 move_group 服务端的客户端包装。
+    // 真正的规划仍发生在外部 move_group 节点里，这里负责设置目标与发起请求。
     move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
       shared_from_this(), planning_group_);
     move_group_->setPoseReferenceFrame(pose_reference_frame_);
@@ -106,6 +115,7 @@ private:
     validate_vector(table_dimensions_, 3, "table_dimensions");
     validate_vector(table_position_, 3, "table_position");
 
+    // CollisionObject 描述“场景里多了一个盒子障碍物”，它会参与后续碰撞检查。
     moveit_msgs::msg::CollisionObject table;
     table.header.frame_id = pose_reference_frame_;
     table.id = table_object_id_;
@@ -127,6 +137,7 @@ private:
     table.primitive_poses.push_back(pose);
     table.operation = moveit_msgs::msg::CollisionObject::ADD;
 
+    // applyCollisionObject 会把桌面写入 Planning Scene，之后新的规划请求都会考虑它。
     planning_scene_interface_.applyCollisionObject(table);
 
     RCLCPP_INFO(
@@ -150,6 +161,7 @@ private:
 
   void run_pose_planning_demo()
   {
+    // pose demo 把 waypoint A 当作一个“目标位姿”，并不要求中间路径必须是直线。
     geometry_msgs::msg::Pose target_pose = make_pose(waypoint_a_position_);
 
     move_group_->clearPoseTargets();
@@ -168,18 +180,22 @@ private:
       target_pose.position.z);
 
     if (success && execute_plan_) {
+      // 只有 execute_plan_=true 时，机器人当前状态才会真的更新到规划结果终点附近。
       move_group_->execute(plan);
     }
   }
 
   void run_cartesian_demo()
   {
+    // 这里的 A/B/C 不是三个独立目标，而是“希望末端依次穿过的路径点”。
     std::vector<geometry_msgs::msg::Pose> waypoints;
     waypoints.push_back(make_pose(waypoint_a_position_));
     waypoints.push_back(make_pose(waypoint_b_position_));
     waypoints.push_back(make_pose(waypoint_c_position_));
 
     moveit_msgs::msg::RobotTrajectory trajectory;
+    // computeCartesianPath 从“当前真实机器人状态”出发做笛卡尔插值。
+    // 如果 execute_plan_=false，前面的 pose planning 成功也不会把起点推进到 A。
     const double fraction =
       move_group_->computeCartesianPath(waypoints, eef_step_, trajectory);
 
@@ -190,6 +206,7 @@ private:
       eef_step_,
       jump_threshold_);
 
+    // fraction 反映“整条笛卡尔路径有多少比例真的算出来了”，不是执行成功率。
     if (fraction < min_cartesian_fraction_) {
       RCLCPP_WARN(
         this->get_logger(),
@@ -209,6 +226,7 @@ private:
     validate_vector(position, 3, "waypoint_position");
     validate_vector(common_orientation_xyzw_, 4, "common_orientation_xyzw");
 
+    // 这里仅负责把参数拼成 Pose，不在这一层判断“它是否可达”。
     geometry_msgs::msg::Pose pose;
     pose.position.x = position[0];
     pose.position.y = position[1];
@@ -225,6 +243,7 @@ private:
     std::size_t expected_size,
     const std::string & label) const
   {
+    // 提前在本地参数层做格式检查，避免把尺寸错误的数据带进规划调用里。
     if (values.size() != expected_size) {
       throw std::runtime_error(label + " must contain " + std::to_string(expected_size) + " values.");
     }
@@ -268,6 +287,7 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
+  // 节点本身不循环发命令，spin 的主要作用是等待定时器触发 one-shot 流程并处理回调。
   auto node = std::make_shared<Ur3SceneCartesianDemoNode>();
   rclcpp::spin(node);
   return 0;
