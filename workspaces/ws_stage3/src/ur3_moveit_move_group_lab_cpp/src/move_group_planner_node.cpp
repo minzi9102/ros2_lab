@@ -9,12 +9,19 @@
 #include "moveit/move_group_interface/move_group_interface.hpp"
 #include "rclcpp/rclcpp.hpp"
 
+// Task 7B 的目标，是把 7A 已经启动好的 MoveIt bringup 用起来，
+// 写出一个“一次性发送目标 -> 规划 -> 可选执行 -> 退出”的最小 C++ 节点。
 class Ur3MoveGroupPlannerNode : public rclcpp::Node
 {
 public:
   Ur3MoveGroupPlannerNode()
   : Node("ur3_move_group_planner")
   {
+    // 这组参数对应 7B 要练习的四个最小能力：
+    // 1. joint goal
+    // 2. pose goal
+    // 3. plan_only
+    // 4. plan_and_execute
     planning_group_ = this->declare_parameter<std::string>("planning_group", "ur_manipulator");
     pose_reference_frame_ =
       this->declare_parameter<std::string>("pose_reference_frame", "base_link");
@@ -33,6 +40,8 @@ public:
       "pose_orientation_xyzw",
       std::vector<double>{0.7071, 0.0, 0.0, 0.7071});
 
+    // 这里不在构造函数里立刻开始规划，而是延后到定时器回调里做 one-shot 流程。
+    // 这样更容易避免节点对象尚未完全就绪时就去创建 MoveGroupInterface。
     start_timer_ = this->create_wall_timer(
       std::chrono::milliseconds(200),
       std::bind(&Ur3MoveGroupPlannerNode::run_once, this));
@@ -48,6 +57,7 @@ public:
 private:
   void run_once()
   {
+    // 7B 节点是一次性节点：流程只跑一轮，不循环重复规划。
     if (started_) {
       return;
     }
@@ -55,6 +65,7 @@ private:
     start_timer_->cancel();
 
     try {
+      // 先连上 MoveIt 的规划接口，再设置目标，最后执行规划主流程。
       ensure_move_group();
       const bool target_ready = apply_requested_target();
       if (!target_ready) {
@@ -79,6 +90,8 @@ private:
       return;
     }
 
+    // MoveGroupInterface 本身不是规划器，而是“向 move_group 节点发规划/执行请求”的客户端包装。
+    // 这也是为什么 7B 不能脱离 7A bringup 单独工作：它需要 robot_description、move_group action 等运行时上下文。
     move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
       shared_from_this(), planning_group_);
     move_group_->setPoseReferenceFrame(pose_reference_frame_);
@@ -89,6 +102,7 @@ private:
 
   bool apply_requested_target()
   {
+    // target_mode 决定本轮练习是在“直接给关节值”还是“给末端位姿”两种思路之间切换。
     if (target_mode_ == "joint") {
       return apply_joint_target();
     }
@@ -109,6 +123,8 @@ private:
       joint_target_.size(),
       joint_target_.front());
 
+    // joint 模式下，7B 直接给规划组一组关节角。
+    // 这里还没有真正开始规划，只是在告诉 MoveIt“目标关节状态是什么”。
     // TODO(human): 在这里调用 setJointValueTarget(joint_target_)。
     bool bstate = move_group_->setJointValueTarget(joint_target_);
     // TODO(human): 你需要判断“关节目标的尺寸、顺序、语义”是否和 ur_manipulator 一致。
@@ -132,6 +148,8 @@ private:
       end_effector_link_.c_str(),
       pose_reference_frame_.c_str());
 
+    // pose 模式下，7B 给的是末端执行器期望到达的空间位姿。
+    // 真正的 IK 求解、碰撞检查和路径搜索，仍然发生在后面的 plan() 阶段。
     // TODO(human): 在这里调用 setPoseTarget(pose, end_effector_link_)。
       bool bstate = move_group_->setPoseTarget(pose, end_effector_link_);
     // TODO(human): 你需要判断这个姿态是否可达，以及末端姿态语义是否合理。
@@ -151,6 +169,8 @@ private:
       "Planning flow scaffold is ready. execute_plan=%s",
       execute_plan_ ? "true" : "false");
 
+    // 这里是 7B 的核心：把“已设置好的目标”交给 MoveIt 做路径规划。
+    // 注意：plan 成功只代表“找到了轨迹”，还不代表机器人已经运动。
     // TODO(human): 在这里创建 MoveGroupInterface::Plan，并调用 plan()。
       moveit::planning_interface::MoveGroupInterface::Plan plan;
       const bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
@@ -162,6 +182,8 @@ private:
       RCLCPP_INFO(this->get_logger(), "Planning succeeded.");
   
       if (execute_plan_) {  
+        // 只有在 plan() 成功后，才有资格把已生成的轨迹交给执行层。
+        // 这正是“规划”和“控制/执行”在职责上的分界线。
         // TODO(human): 在这里调用 execute()。
         const bool execute_success = (move_group_->execute(plan) == moveit::core::MoveItErrorCode::SUCCESS);
         if (!execute_success) {
@@ -192,6 +214,8 @@ private:
       throw std::runtime_error("pose_orientation_xyzw must contain exactly 4 values.");
     }
 
+    // 这里仅负责把参数拼成 geometry_msgs::msg::Pose，
+    // 不在这一步判断“它是否可达”，可达性留给后续规划阶段验证。
     geometry_msgs::msg::Pose pose;
     pose.position.x = pose_position_[0];
     pose.position.y = pose_position_[1];
@@ -209,11 +233,13 @@ private:
       return;
     }
 
+    // 7B 设计成 one-shot 节点：跑完一轮后主动关闭，方便观察单次实验结果。
     shutdown_requested_ = true;
     RCLCPP_INFO(this->get_logger(), "Shutting down node: %s", reason.c_str());
     rclcpp::shutdown();
   }
 
+  // 运行参数：描述“向哪个规划组发送什么目标，以及是否执行”。
   std::string planning_group_;
   std::string pose_reference_frame_;
   std::string end_effector_link_;
@@ -225,10 +251,12 @@ private:
   std::vector<double> pose_position_;
   std::vector<double> pose_orientation_xyzw_;
 
+  // 运行时状态：保证 one-shot 只跑一遍，并记录是否已发出 shutdown。
   bool started_{false};
   bool shutdown_requested_{false};
 
   rclcpp::TimerBase::SharedPtr start_timer_;
+  // MoveGroupInterface 是本节点和 move_group 之间的主要桥梁。
   std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
 };
 
