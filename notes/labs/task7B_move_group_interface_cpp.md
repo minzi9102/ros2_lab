@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已完成 joint goal / pose goal / plan_only / plan_and_execute 三轮最小验证，并确认成功路径会自动退出；当前仅剩 kinematics warning 根因待继续收敛`
+- 当前状态：`[#] 已完成 joint goal / pose goal / plan_only / plan_and_execute 三轮最小验证，并确认成功路径会自动退出；已定位 kinematics warning 根因，并在 ros2 launch 主路径下注入 robot_description_kinematics`
 
 ## 1. 目标
 - 在 `workspaces/ws_stage3/src/ur3_moveit_move_group_lab_cpp` 中补完一个最小 MoveGroupInterface 节点。
@@ -34,9 +34,10 @@
   - 不可达 pose 的失败现象记录；
   - `execute_plan:=true` 执行链路验证；
   - one-shot 成功路径自动退出验证；
+  - `task7B_move_group_interface.launch.py` 已注入 `robot_description_kinematics`；
   - 7B 实验记录模板。
 - 待你完成：
-  - 收敛 `No kinematics plugins defined` warning 的根因；
+  - 若希望 `ros2 run` 路径也消除本地 warning，仍需补参数文件或 wrapper launch；
 
 ## 4. 练习 1：构建 7B C++ 包
 
@@ -137,18 +138,25 @@ ros2 launch ur3_moveit_move_group_lab_cpp task7B_move_group_interface.launch.py 
 - `pose goal` 是否规划成功：是；默认 pose（`position=[0.25, -0.20, 0.35]`，`orientation_xyzw=[0.7071, 0.0, 0.0, 0.7071]`）在当前 fake hardware + `7A` bringup 前提下可成功 `plan()`
 - `plan_only` 与 `plan_and_execute` 的日志区别：`plan_only` 停在 `Planning succeeded.` 后立即打印 `Shutting down node: Plan flow completed successfully`；`plan_and_execute` 会继续出现 `Execute request accepted -> Execute request success! -> Execution succeeded.`，随后同样主动退出
 - 不可达 pose 时的失败现象：`setPoseTarget()` 仍然成功，但 `plan()` 阶段出现 `Planning request aborted` / `MoveGroupInterface::plan() failed or timeout reached`，节点随后打印 `Planning failed.`
+- `ros2 launch` 主路径下 `No kinematics plugins defined` warning 是否消失：是；已看到本地日志从 warning 变为 `moveit.kinematics.kdl_kinematics_plugin` 正常加载
+- `ros2 run` 直跑时 `No kinematics plugins defined` warning 是否仍会出现：是；因为会绕过 `task7B_move_group_interface.launch.py` 的参数注入
 
 ### 当前调试结论
 - 不能单独直接启动 `7B` 节点做联调；若未先启动 `7A` bringup，`MoveGroupInterface` 会因缺少 `robot_description` 无法构造 robot model。
 - `robot_description` 由 `ur_robot_driver` 的 `ur_rsp.launch.py` 生成并传给 `robot_state_publisher`；运行时既可作为 `/robot_state_publisher` 的参数读取，也会以 `std_msgs/msg/String` 的 `/robot_description` 话题发布。
+- `7A` 拉起的 `/move_group` 本身已经拥有 `robot_description_kinematics.ur_manipulator.*` 参数，因此官方 MoveIt 主链路并没有缺 kinematics 配置。
+- `7B` 自定义节点创建 `MoveGroupInterface` 时，也会在本地节点里创建 `RobotModelLoader`；它能通过 `/robot_description` 和 `/robot_description_semantic` 的同名话题兜底拿到 URDF / SRDF，但 `robot_description_kinematics` 没有同样的话题兜底。
+- 之前 `task7B_move_group_interface.launch.py` 只注入了实验参数，没有把 `robot_description_kinematics` 传给 `ur3_move_group_planner`，所以 warning 出现在 7B 客户端本地，而不是 `/move_group` 服务器侧。
+- 当前已按最小方案在 `task7B_move_group_interface.launch.py` 注入 `ur_moveit_config/config/kinematics.yaml`；因此 `ros2 launch ur3_moveit_move_group_lab_cpp ...` 主路径下，本地 `MoveGroupInterface` 应不再缺 kinematics 参数。
+- 已实测确认：若直接使用 `ros2 run ur3_moveit_move_group_lab_cpp move_group_planner_node ...`，会绕过 launch 注入，因此仍会看到同样的本地 warning。
+- 在 `ros2 launch` 主路径下，kdl kinematics plugin 加载成功后，节点退出时会出现一次 `class_loader.ClassLoader: SEVERE WARNING!!!`；当前进程仍然 clean exit，这更像是插件对象释放时机问题，而不是 7B 规划主链路失败。
 - 在 `7A` bringup 已启动的前提下，当前代码已经完成：
   - 一次 `joint target + plan_only`
   - 一次默认 `pose target + plan_only`
   - 一次默认 `pose target + plan_and_execute`
 - 默认 `pose target + plan_only` 和 `pose target + plan_and_execute` 成功后，节点都会打印 `Shutting down node: Plan flow completed successfully` 并干净结束进程。
 - 对明显不可达的 pose，失败点出现在 `plan()`，而不是 `setPoseTarget()`。
-- 当前仍会看到 `No kinematics plugins defined. Fill and load kinematics.yaml!` warning，但在默认 pose 下它不是 `pose goal` 规划的直接阻塞项；更像是 `7B` 独立节点没有显式加载完整 kinematics 参数，而不是 `7A` bringup 整体失效。
 
 ## 7. 当前进度记录
 - 日期：2026.4.15
-- 备注：已完成三轮最小验证并补齐记录：默认 `pose goal` 可规划、不可达 pose 会在 `plan()` 阶段失败、`execute_plan:=true` 可成功走完整执行链路，且成功路径现已自动退出。下一步聚焦 kinematics warning 根因。
+- 备注：已完成三轮最小验证并补齐记录：默认 `pose goal` 可规划、不可达 pose 会在 `plan()` 阶段失败、`execute_plan:=true` 可成功走完整执行链路，且成功路径现已自动退出。本轮已定位 kinematics warning 根因，并实测确认 `ros2 launch` 主路径下注入 `robot_description_kinematics` 后 warning 消失；`ros2 run` 仍会绕过该注入，若也要收敛 warning，后续需补参数文件或 wrapper launch。
