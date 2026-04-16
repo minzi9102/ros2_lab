@@ -83,6 +83,15 @@ source install/setup.bash
 - 你能解释为什么选择这 `3` 个点。
 - 你能解释当前 `fraction` 阈值背后的工程理由。
 
+### 参数填写区
+- 当前选择的桌面尺寸 `table_dimensions`：
+- 当前选择的桌面位置 `table_position`：
+- 当前选择的 `waypoint_a_position`：
+- 当前选择的 `waypoint_b_position`：
+- 当前选择的 `waypoint_c_position`：
+- 当前选择的 `min_cartesian_fraction`：
+- 选择这些参数的原因：
+
 ### 恢复方式
 - 你补完参数后告诉我“请 review task7C 参数与结果”。
 - 我会继续帮你：
@@ -100,12 +109,37 @@ ros2 launch ur3_moveit_scene_lab_cpp task7C_scene_cartesian.launch.py \
 ```
 
 ### 记录模板
+- 运行日期：
+- 运行模式：
+- 是否使用 `execute_plan=true`：
+- 本轮使用的桌面参数：
+  - `table_dimensions`：
+  - `table_position`：
+- 本轮使用的路径点参数：
+  - `waypoint_a_position`：
+  - `waypoint_b_position`：
+  - `waypoint_c_position`：
+- 本轮使用的阈值参数：
+  - `min_cartesian_fraction`：
+  - `eef_step`：
+  - `jump_threshold`：
 - 桌面碰撞体是否成功加入：
 - 低于桌面的 pose target 是否被拒绝或规划失败：
+- pose planning 是否成功：
+- 若失败，当前判断的主要原因：
 - Cartesian `fraction`：
 - 你对 `fraction` 的解释：
+- Cartesian 是否达到你设定的接受阈值：
+- 若未达到阈值，当前判断的主要原因：
 - fake hardware / URSim 下的差异：
+- 本轮最终结论：
+- 下一轮准备调整的内容：
 
 ## 7. 完成记录
 - 日期：
+- 最终采用的桌面参数：
+- 最终采用的路径点参数：
+- 最终采用的 `fraction` 阈值：
+- 最终观察到的关键现象：
+- 我对 7C 的一句话总结：
 - 备注：
