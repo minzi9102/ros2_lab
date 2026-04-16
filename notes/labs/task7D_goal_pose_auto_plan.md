@@ -45,8 +45,8 @@ source install/setup.bash
 ```
 
 ### 结果记录
-- 是否构建通过：
-- 若失败，错误集中在哪个 tf2 / MoveIt 头文件：
+- 是否构建通过：是
+- 若失败，错误集中在哪个 tf2 / MoveIt 头文件：无
 
 ## 5. 练习 2：检查默认映射策略
 
@@ -88,6 +88,21 @@ source install/setup.bash
 - 你能说清哪些目标应该在规划前就拒绝。
 - 你能完成至少一次点击后自动规划。
 
+### 参数填写区
+- 当前选择的 `target_height`：
+- 当前选择的工作区边界：
+  - `workspace_min_x`：
+  - `workspace_max_x`：
+  - `workspace_min_y`：
+  - `workspace_max_y`：
+- 当前选择的朝下姿态参数：
+  - `downward_roll_rad`：
+  - `downward_pitch_rad`：
+- 当前是否保留输入 `yaw`：
+- 你对“固定朝下 + 保留输入 yaw”的解释：
+- 你认为哪些点击目标应在规划前直接拒绝：
+- 选择这些参数与策略的原因：
+
 ### 恢复方式
 - 你调整完参数或逻辑后告诉我“请 review task7D 实现”。
 - 我会继续帮你：
@@ -103,13 +118,67 @@ ros2 launch ur3_moveit_goal_pose_lab_cpp task7D_goal_pose_auto_plan.launch.py \
   execute_plan:=true
 ```
 
-### 记录模板
+### 成功轮次记录
+- 运行日期：
+- 运行环境：fake hardware / URSim
+- 是否使用 `execute_plan=true`：
+- 本轮 RViz 的 `Fixed Frame`：
+- 本轮使用的参数：
+  - `target_height`：
+  - `workspace_min_x`：
+  - `workspace_max_x`：
+  - `workspace_min_y`：
+  - `workspace_max_y`：
+  - `downward_roll_rad`：
+  - `downward_pitch_rad`：
+- 本轮成功点击的目标：
+  - click A：`x=` `y=` `yaw=`
+  - click B：`x=` `y=` `yaw=`
+  - click C：`x=` `y=` `yaw=`
 - RViz 点击后是否收到 `/goal_pose`：
-- 工作区内目标是否成功规划：
-- 工作区外目标是否被直接拒绝：
-- 你对默认映射策略的评价：
+- 工作区内目标是否成功规划： 
+- 工作区内目标是否成功执行：
+- 终端中是否出现 `Mapped goal_pose -> target pose`：
+- 终端中是否出现 `Execute request success!`：
+- 你对本轮映射结果的观察：
+- 本轮最终结论：
+
+### 失败轮次总结
+- 是否观察到失败轮次：
+- 观察到的失败类型：
+  - frame 不匹配
+  - 工作区越界
+  - 规划失败
+  - 执行失败
+- 本轮失败点击的目标：
+  - fail A：`x=` `y=` `yaw=`
+  - fail B：`x=` `y=` `yaw=`
+- 失败时的关键日志：
+- 失败时的主要原因：
+- 你准备如何调整：
+
+### URSim 冒烟记录
+- 运行日期：
+- 是否已在 URSim 下验证：
+- URSim 下是否收到 `/goal_pose`：
+- URSim 下工作区内目标是否成功规划：
+- URSim 下工作区内目标是否成功执行：
+- URSim 下工作区外目标是否被直接拒绝：
+- URSim 下额外遇到的执行链路问题：
 - fake hardware / URSim 下的差异：
+- 本轮最终结论：
 
 ## 7. 完成记录
 - 日期：
+- 最终采用的参数：
+  - `target_height`：
+  - `workspace_min_x`：
+  - `workspace_max_x`：
+  - `workspace_min_y`：
+  - `workspace_max_y`：
+  - `downward_roll_rad`：
+  - `downward_pitch_rad`：
+- 最终是否保留输入 `yaw`：
+- 最终观察到的关键现象：
+- 我对 7D 的一句话总结：
 - 备注：
