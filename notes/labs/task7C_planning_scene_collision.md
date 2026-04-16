@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已创建 C++ 包骨架，桌面与 Cartesian API 已接通，关键参数已经调整，了解了planning_scene的作用以及pose planning 与 Cartesian Path的区别`
+- 当前状态：`[x] 已在 fake hardware 与 URSim 下完成桌面碰撞体、pose planning、Cartesian Path 与执行链路验证`
 
 ## 1. 目标
 - 在 `workspaces/ws_stage3/src/ur3_moveit_scene_lab_cpp` 中理解：
@@ -26,12 +26,11 @@
   - 桌面 `CollisionObject` 增删；
   - pose planning 入口；
   - `computeCartesianPath` 入口；
-  - 7C 实验记录模板。
+  - 7C 实验记录模板；
+  - fake hardware 下参数收敛；
+  - URSim 下一次真实执行冒烟。
 - 待你完成：
-  - 判断桌面尺寸与位置；
-  - 重新设计 `3` 个抓取点位；
-  - 决定 `min_cartesian_fraction` 的阈值；
-  - 在 fake hardware / URSim 下完成解释闭环。
+  - 无，本任务已完成主路径验收。
 
 ## 4. 练习 1：构建 7C C++ 包
 
@@ -148,6 +147,30 @@ ros2 launch ur3_moveit_scene_lab_cpp task7C_scene_cartesian.launch.py \
 - 失败轮次的反例参数是否已单独归档：否，当前只保留原因总结，后续如需复现实验可再补具体反例参数。
 - 下一轮准备调整的内容：在 URSim 中测试
 
+### URSim 冒烟记录
+- 运行日期：2026.4.16
+- 运行目标：在 URSim 下验证 7C 的执行链路，而不仅是 fake hardware 下的规划结果。
+- URSim 启动方式：通过 `docker --context default run ... universalrobots/ursim_e-series:latest` 启动。
+- 关键前置条件：
+  - 需要切到 `docker context default`，因为 `desktop-linux` 与 `default` 是两套独立 daemon，URSim 镜像只存在于 `default`。
+  - 需要在 URSim 中安装并运行 `External Control URCap`，否则 RViz 只能 `Plan`，不能 `Execute`。
+  - `External Control` 里远程主机地址需要填当前容器可见的宿主机网关，而不是想当然沿用旧桥接网段。
+- 关键排障过程：
+  - 初始现象：`plan` 成功但 `execute` 失败，`scaled_joint_trajectory_controller` 为 `inactive`，`/speed_scaling_state_broadcaster/speed_scaling=0.0`。
+  - 根因 1：URSim 镜像位于 `default` context，不在 `desktop-linux` 中；切换回 `default` 后恢复可运行镜像。
+  - 根因 2：URSim 初始没有 `External Control`，需挂载并安装 `externalcontrol-1.0.5.urcap`。
+  - 根因 3：`External Control` 最初连接到 `192.168.56.1:50002`，但当前容器实际在 `172.17.0.0/16` bridge 上，正确宿主机地址应为 `172.17.0.1:50002`。
+  - 恢复信号：`speed_scaling` 恢复为 `100.0`，`scaled_joint_trajectory_controller` 变为 `active`。
+- 冒烟结果：
+  - URSim 下 `External Control` 成功运行；
+  - 7C 在 URSim 下可正常 `execute`；
+  - 机械臂按当前参数完成了一次真实轨迹执行。
+- fake hardware / URSim 下的差异：
+  - fake hardware 下只要规划参数合理，通常不需要额外关注外部控制程序。
+  - URSim 下除了规划成功，还必须保证 `External Control`、reverse interface、控制器激活状态和容器网络地址全部正确。
+- 本轮最终结论：
+  - 7C 已完成 fake hardware 与 URSim 两条主路径，满足“程序添加桌面碰撞体 + 返回并解释 Cartesian fraction + 至少一次 URSim 安全冒烟执行”的验收目标。
+
 ## 7. 完成记录
 - 日期：2026.4.16
 - 最终采用的桌面参数：
@@ -159,6 +182,6 @@ ros2 launch ur3_moveit_scene_lab_cpp task7C_scene_cartesian.launch.py \
   - `waypoint_c_position`：0.4, 0.11, 0.22
   - `common_orientation_xyzw`：-0.70691, 0.70714, -0.014692, 0.0042299
 - 最终采用的 `fraction` 阈值：0.95
-- 最终观察到的关键现象：成功按指定计划执行
-- 我对 7C 的一句话总结：学习如何在planning scene中添加碰撞体，并能按pose和cartesian两种模式规划轨迹
-- 备注：无
+- 最终观察到的关键现象：fake hardware 与 URSim 下都能成功按指定计划执行；失败轮次主要由桌面碰撞体设置过于激进或外部控制链路未就绪引起。
+- 我对 7C 的一句话总结：学习如何在 Planning Scene 中添加碰撞体，并在 fake hardware 与 URSim 两种执行环境下分别验证 pose 与 Cartesian 轨迹规划、执行和排障路径。
+- 备注：URSim 冒烟额外暴露了 Docker context、URCap 安装、容器网络地址与 `External Control` 配置之间的联动关系。

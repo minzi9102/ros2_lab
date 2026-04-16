@@ -1,8 +1,99 @@
 {
   "schema_version": 1,
   "repository": "ros2_lab",
-  "updated_at": "2026-04-13T18:12:38+08:00",
+  "updated_at": "2026-04-16T12:20:35+08:00",
   "entries": [
+    {
+      "experience_key": "workflow--task7c-ursim--recover-execute-chain-from-plan-only-state",
+      "title": "Task7C 在 URSim 下出现“能 Plan 不能 Execute”时的最短排查链路",
+      "summary": "当 MoveIt 在 URSim 下可以规划但不能执行时，优先不要继续调路径点，而是把问题收敛为执行链路状态检查：先看 speed_scaling 是否为非零，再看 scaled_joint_trajectory_controller 是否 active，最后确认 URSim 的 External Control 程序是否真的在运行。",
+      "experience_type": "workflow",
+      "topics": [
+        "moveit-execution",
+        "ur-robot-driver",
+        "ursim"
+      ],
+      "tasks": [
+        "task6B",
+        "task7C"
+      ],
+      "keywords": [
+        "External Control",
+        "resend_robot_program",
+        "reverse interface",
+        "scaled_joint_trajectory_controller",
+        "speed_scaling"
+      ],
+      "paths": [
+        "notes/labs/task6B_ursim_speed_scaling.md",
+        "notes/labs/task7C_planning_scene_collision.md"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-04-16T12:20:35+08:00",
+      "session_refs": [
+        "sessions/20260416-122035--task7c-ursim-smoke.json"
+      ]
+    },
+    {
+      "experience_key": "pitfall--task7c-ursim--docker-context-and-container-network-must-match-external-control-host",
+      "title": "URSim 容器网络与 Docker context 不一致时，External Control 很容易连错宿主机地址",
+      "summary": "同一台机器同时存在 Docker Desktop 的 desktop-linux context 和系统默认的 default context 时，URSim 镜像可能只存在于其中一个 daemon。即便镜像能运行，External Control 里填写的宿主机地址也必须与该容器实际所在的 docker bridge 网段匹配，而不能沿用历史实验中的旧桥接 IP。",
+      "experience_type": "pitfall",
+      "topics": [
+        "docker-context",
+        "networking",
+        "ursim"
+      ],
+      "tasks": [
+        "task7C"
+      ],
+      "keywords": [
+        "172.17.0.1",
+        "192.168.56.1",
+        "External Control",
+        "default",
+        "desktop-linux",
+        "docker context"
+      ],
+      "paths": [
+        "notes/labs/task7C_planning_scene_collision.md"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-04-16T12:20:35+08:00",
+      "session_refs": [
+        "sessions/20260416-122035--task7c-ursim-smoke.json"
+      ]
+    },
+    {
+      "experience_key": "workflow--task7c-ursim--install-external-control-urcap-in-containerized-ursim",
+      "title": "在容器化 URSim 里安装 External Control URCap 的稳定做法",
+      "summary": "容器化 URSim 默认不一定已经装好 External Control URCap。稳定做法是把 .urcap 文件挂载进容器可访问目录，在 URCaps 页面手动安装，并接受 PolyScope 重启后容器退出这一行为，然后重新启动容器继续联调。",
+      "experience_type": "workflow",
+      "topics": [
+        "external-control",
+        "urcap",
+        "ursim"
+      ],
+      "tasks": [
+        "task7C"
+      ],
+      "keywords": [
+        "/urcaps",
+        "/ursim/programs",
+        "PolyScope restart",
+        "URCaps",
+        "docker run -d",
+        "externalcontrol-1.0.5.urcap"
+      ],
+      "paths": [
+        "notes/labs/task7C_planning_scene_collision.md"
+      ],
+      "confidence": "medium",
+      "updated_at": "2026-04-16T12:20:35+08:00",
+      "session_refs": [
+        "sessions/20260416-122035--task7c-ursim-smoke.json"
+      ]
+    },
     {
       "experience_key": "pitfall--moveit-quickstart--launch-rviz-shadowed-between-includes",
       "title": "Task7A wrapper launch 中同名 launch_rviz 参数会在 include 之间串值",

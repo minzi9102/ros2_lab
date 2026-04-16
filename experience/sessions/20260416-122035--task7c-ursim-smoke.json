@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "session_id": "20260416-122035--task7c-ursim-smoke",
+  "captured_at": "2026-04-16T12:20:35+08:00",
+  "repository": "ros2_lab",
+  "repo_root": "/home/minzi/ros2_lab",
+  "context": {
+    "source": "current_codex_session",
+    "task_hint": "task7C",
+    "related_paths": [
+      "notes/labs/task7C_planning_scene_collision.md",
+      "notes/labs/task6B_ursim_speed_scaling.md",
+      "workspaces/ws_stage3/src/ur3_moveit_scene_lab_cpp/src/scene_cartesian_demo_node.cpp"
+    ]
+  },
+  "experiences": [
+    {
+      "experience_key": "workflow--task7c-ursim--recover-execute-chain-from-plan-only-state",
+      "title": "Task7C 在 URSim 下出现“能 Plan 不能 Execute”时的最短排查链路",
+      "summary": "当 MoveIt 在 URSim 下可以规划但不能执行时，优先不要继续调路径点，而是把问题收敛为执行链路状态检查：先看 speed_scaling 是否为非零，再看 scaled_joint_trajectory_controller 是否 active，最后确认 URSim 的 External Control 程序是否真的在运行。",
+      "experience_type": "workflow",
+      "topics": [
+        "ursim",
+        "moveit-execution",
+        "ur-robot-driver"
+      ],
+      "tasks": [
+        "task7C",
+        "task6B"
+      ],
+      "keywords": [
+        "External Control",
+        "speed_scaling",
+        "scaled_joint_trajectory_controller",
+        "resend_robot_program",
+        "reverse interface"
+      ],
+      "paths": [
+        "notes/labs/task7C_planning_scene_collision.md",
+        "notes/labs/task6B_ursim_speed_scaling.md"
+      ],
+      "applicability": "适用于本仓库后续所有通过 ur_robot_driver + MoveIt 在 URSim 下做真实执行的任务，尤其是 RViz 里能 Plan 但 Execute 不成功的场景。",
+      "evidence": [
+        "本次 URSim 冒烟中，speed_scaling=0.0 与 scaled_joint_trajectory_controller inactive 同时出现，说明不是路径规划问题，而是外部控制程序未就绪。",
+        "当 External Control 真正运行后，speed_scaling 恢复到 100.0，scaled_joint_trajectory_controller 变为 active，7C 即可正常 execute。",
+        "6B 中也记录过 reverse interface dropped -> controller inactive -> speed_scaling=0.0，并通过恢复 robot program 回到非零状态。"
+      ],
+      "commands": [
+        "ros2 topic echo /speed_scaling_state_broadcaster/speed_scaling --once",
+        "ros2 control list_controllers",
+        "ros2 service call /io_and_status_controller/resend_robot_program std_srvs/srv/Trigger \"{}\""
+      ],
+      "followups": [
+        "后续进入 7D/7E 的 URSim 联调时，先验证执行链路状态，再调规划语义或速度参数。",
+        "如果 speed_scaling=0.0 且 controller inactive，优先回到 URSim 界面检查 External Control，而不是继续修改 MoveIt waypoint。"
+      ],
+      "confidence": "high"
+    },
+    {
+      "experience_key": "pitfall--task7c-ursim--docker-context-and-container-network-must-match-external-control-host",
+      "title": "URSim 容器网络与 Docker context 不一致时，External Control 很容易连错宿主机地址",
+      "summary": "同一台机器同时存在 Docker Desktop 的 desktop-linux context 和系统默认的 default context 时，URSim 镜像可能只存在于其中一个 daemon。即便镜像能运行，External Control 里填写的宿主机地址也必须与该容器实际所在的 docker bridge 网段匹配，而不能沿用历史实验中的旧桥接 IP。",
+      "experience_type": "pitfall",
+      "topics": [
+        "docker-context",
+        "ursim",
+        "networking"
+      ],
+      "tasks": [
+        "task7C"
+      ],
+      "keywords": [
+        "docker context",
+        "desktop-linux",
+        "default",
+        "172.17.0.1",
+        "192.168.56.1",
+        "External Control"
+      ],
+      "paths": [
+        "notes/labs/task7C_planning_scene_collision.md"
+      ],
+      "applicability": "适用于本仓库所有通过 Docker 运行 URSim 的联调场景，尤其是本机同时装了 Docker Desktop 和系统 Docker Engine 的情况。",
+      "evidence": [
+        "本次机器上 default 与 desktop-linux 是两套独立 daemon；URSim 镜像只在 default 中存在。",
+        "URSim 容器实际挂在 172.17.0.0/16 bridge 上，容器内默认网关是 172.17.0.1，因此 External Control 应连接 172.17.0.1:50002。",
+        "最初把 External Control 配成 192.168.56.1:50002 时，URSim 弹出 connection refused；改成 172.17.0.1 后恢复正常。"
+      ],
+      "commands": [
+        "docker context ls",
+        "docker --context default image ls --digests",
+        "docker --context default inspect ursim_ur3 --format '{{json .NetworkSettings.Networks}}'",
+        "ss -ltnp | rg ':50002|:50001|:50003'"
+      ],
+      "followups": [
+        "后续若继续使用 URSim，优先统一到 docker --context default 运行，减少在两个 daemon 之间切换导致的镜像/容器状态错觉。",
+        "每次配置 External Control 前，先确认容器网关而不是沿用旧实验里的桥接 IP。"
+      ],
+      "confidence": "high"
+    },
+    {
+      "experience_key": "workflow--task7c-ursim--install-external-control-urcap-in-containerized-ursim",
+      "title": "在容器化 URSim 里安装 External Control URCap 的稳定做法",
+      "summary": "容器化 URSim 默认不一定已经装好 External Control URCap。稳定做法是把 .urcap 文件挂载进容器可访问目录，在 URCaps 页面手动安装，并接受 PolyScope 重启后容器退出这一行为，然后重新启动容器继续联调。",
+      "experience_type": "workflow",
+      "topics": [
+        "ursim",
+        "urcap",
+        "external-control"
+      ],
+      "tasks": [
+        "task7C"
+      ],
+      "keywords": [
+        "externalcontrol-1.0.5.urcap",
+        "URCaps",
+        "PolyScope restart",
+        "docker run -d",
+        "/urcaps",
+        "/ursim/programs"
+      ],
+      "paths": [
+        "notes/labs/task7C_planning_scene_collision.md"
+      ],
+      "applicability": "适用于本仓库后续任何需要在 URSim 中运行 External Control 程序的任务。",
+      "evidence": [
+        "本次将 externalcontrol-1.0.5.urcap 挂到 ~/.ursim/urcaps -> /urcaps，容器内可见后仍需在 GUI 里手动通过 URCaps 页面安装。",
+        "PolyScope 重启后容器会退出；重新 docker start 该容器后，External Control 已出现在 URCaps 列表中。",
+        "安装成功后还需要在 Program 页面插入并运行 External Control，光安装不运行仍无法恢复执行链路。"
+      ],
+      "commands": [
+        "docker --context default run -d --name ursim_ur3 -p 5900:5900 -p 6080:6080 -e ROBOT_MODEL=UR3 -v ~/.ursim/urcaps:/urcaps -v ~/.ursim/programs:/ursim/programs universalrobots/ursim_e-series:latest",
+        "docker --context default start ursim_ur3",
+        "docker --context default exec ursim_ur3 sh -lc 'ls -lah /urcaps; find /urcaps -maxdepth 2 -type f | sort'"
+      ],
+      "followups": [
+        "如果后续还需要长期保留 URCap 安装状态，可继续研究是否需要额外挂载 PolyScope 数据目录做持久化。",
+        "进入 7D/7E 之前，先复用当前已安装 External Control 的容器，避免重复安装。"
+      ],
+      "confidence": "medium"
+    }
+  ]
+}
