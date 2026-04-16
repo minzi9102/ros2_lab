@@ -41,13 +41,13 @@
 
 ### 4.1 进度统计
 - 已准备骨架：`5 / 5`
-- 已完成实验：`2 / 5`
-- 当前推进中：`7C` 为下一步候选；`7B` 主路径已完成，`ros2 run` 本地 kinematics warning 作为已知边界保留
+- 已完成实验：`3 / 5`
+- 当前推进中：`7D` 为当前主任务；`7C` 已在 fake hardware 与 URSim 下完成验收，`ros2 run` 本地 kinematics warning 作为已知边界保留
 
 ### 4.2 可勾选任务清单
 - [x] 任务 7A：MoveIt 2 bringup 与 RViz Quickstart
 - [x] 任务 7B：C++ MoveGroupInterface 最小规划节点
-- [ ] 任务 7C：Planning Scene、Collision Object 与 Cartesian Path
+- [x] 任务 7C：Planning Scene、Collision Object 与 Cartesian Path
 - [ ] 任务 7D：点击目标位姿 -> 自动规划并执行
 - [ ] 任务 7E：MoveIt Servo 连续控制入门
 
@@ -117,6 +117,7 @@
 - 能说明 MoveGroup 离线路径规划与 MoveIt Servo 连续速度控制的边界。
 
 ## 12. 当前结论
-- 阶段 3 已完成 `7A` 与 `7B` 主路径。
+- 阶段 3 已完成 `7A`、`7B`、`7C` 主路径。
 - `7B` 已验证 `joint goal`、`pose goal`、`plan_only`、`plan_and_execute`，成功路径会自动退出；`ros2 launch` 主路径下的 kinematics warning 已通过参数注入收敛。
-- `ros2 run` 直跑仍会绕过 launch 注入并复现本地 kinematics warning，但当前决定将其视为已知边界，不阻塞进入 `7C`。
+- `7C` 已验证 Planning Scene 桌面碰撞体、pose planning、Cartesian Path，以及 fake hardware 与 URSim 两条执行路径；本轮还完成了 `External Control`、`speed_scaling`、`scaled_joint_trajectory_controller` 的执行链路排障闭环。
+- `ros2 run` 直跑仍会绕过 launch 注入并复现本地 kinematics warning，但当前决定将其视为已知边界，不阻塞进入 `7D`。
