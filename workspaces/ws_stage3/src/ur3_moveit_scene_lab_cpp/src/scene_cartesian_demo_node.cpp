@@ -28,22 +28,22 @@ public:
     table_object_id_ = this->declare_parameter<std::string>("table_object_id", "training_table");
     table_dimensions_ = this->declare_parameter<std::vector<double>>(
       "table_dimensions",
-      std::vector<double>{0.70, 0.90, 0.05});
+      std::vector<double>{0.35, 0.45, 0.1});
     table_position_ = this->declare_parameter<std::vector<double>>(
       "table_position",
-      std::vector<double>{0.35, 0.0, -0.03});
+      std::vector<double>{0.50, 0.0, -0.03});
     waypoint_a_position_ = this->declare_parameter<std::vector<double>>(
       "waypoint_a_position",
-      std::vector<double>{0.25, -0.20, 0.22});
+      std::vector<double>{0.29, 0.11, 0.41});
     waypoint_b_position_ = this->declare_parameter<std::vector<double>>(
       "waypoint_b_position",
-      std::vector<double>{0.25, 0.00, 0.22});
+      std::vector<double>{0.4, 0.11, 0.3});
     waypoint_c_position_ = this->declare_parameter<std::vector<double>>(
       "waypoint_c_position",
-      std::vector<double>{0.25, 0.20, 0.22});
+      std::vector<double>{0.4, 0.11, 0.22});
     common_orientation_xyzw_ = this->declare_parameter<std::vector<double>>(
       "common_orientation_xyzw",
-      std::vector<double>{0.7071, 0.0, 0.0, 0.7071});
+      std::vector<double>{-0.70691, 0.70714, -0.014692, 0.0042299});
     eef_step_ = this->declare_parameter<double>("eef_step", 0.01);
     jump_threshold_ = this->declare_parameter<double>("jump_threshold", 0.0);
     min_cartesian_fraction_ = this->declare_parameter<double>("min_cartesian_fraction", 0.95);
