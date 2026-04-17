@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已创建 /goal_pose 自动规划骨架，映射策略为保守默认值`
+- 当前状态：`[x] 已在 fake hardware 与 URSim 下完成 /goal_pose 点击自动规划与执行验证`
 
 ## 1. 目标
 - 在 `workspaces/ws_stage3/src/ur3_moveit_goal_pose_lab_cpp` 中实现一个“点击 -> 自动规划”的最小 demo。
@@ -27,12 +27,11 @@
   - 工作区范围检查；
   - `x / y / yaw -> 目标抓取位姿` 的默认映射；
   - 自动 `plan()` 与可选 `execute()`；
-  - 7D 实验记录模板。
+  - 7D 实验记录模板；
+  - fake hardware 下点击自动规划与执行验证；
+  - URSim 下点击自动规划与执行验证。
 - 待你完成：
-  - 判断当前工作区边界是否合理；
-  - 判断 `target_height` 是否合适；
-  - 判断“末端朝下 + 保留 yaw”的姿态语义是否真的适合你的抓取理解；
-  - 在 fake hardware / URSim 下完成点击演示。
+  - 无，本任务已完成主路径验收。
 
 ## 4. 练习 1：构建 7D C++ 包
 
@@ -89,19 +88,19 @@ source install/setup.bash
 - 你能完成至少一次点击后自动规划。
 
 ### 参数填写区
-- 当前选择的 `target_height`：
+- 当前选择的 `target_height`：0.1519
 - 当前选择的工作区边界：
-  - `workspace_min_x`：
-  - `workspace_max_x`：
-  - `workspace_min_y`：
-  - `workspace_max_y`：
+  - `workspace_min_x`：0.0
+  - `workspace_max_x`：0.6
+  - `workspace_min_y`：-0.3
+  - `workspace_max_y`：0.3
 - 当前选择的朝下姿态参数：
-  - `downward_roll_rad`：
-  - `downward_pitch_rad`：
-- 当前是否保留输入 `yaw`：
-- 你对“固定朝下 + 保留输入 yaw”的解释：
-- 你认为哪些点击目标应在规划前直接拒绝：
-- 选择这些参数与策略的原因：
+  - `downward_roll_rad`：M_PI
+  - `downward_pitch_rad`：0
+- 当前是否保留输入 `yaw`：是
+- 你对“固定朝下 + 保留输入 yaw”的解释：2d goal pose的输入信息只包含x,y,yaw，所以必须要补充roll和pitch的数值，固定roll和pitch的数值为竖直指向下方，并添加固定z轴数值，整理成完整的pose类型消息
+- 你认为哪些点击目标应在规划前直接拒绝：超过工作区域的；与场景碰撞或不可达的目标当前主要在规划阶段失败，而不是在本地预先拒绝
+- 选择这些参数与策略的原因：工作区足够覆盖桌面点击测试范围，固定高度和朝下姿态能形成稳定的最小点击抓取语义
 
 ### 恢复方式
 - 你调整完参数或逻辑后告诉我“请 review task7D 实现”。
@@ -119,66 +118,63 @@ ros2 launch ur3_moveit_goal_pose_lab_cpp task7D_goal_pose_auto_plan.launch.py \
 ```
 
 ### 成功轮次记录
-- 运行日期：
-- 运行环境：fake hardware / URSim
-- 是否使用 `execute_plan=true`：
-- 本轮 RViz 的 `Fixed Frame`：
+- 运行日期：2026.4.16 17：23
+- 运行环境：fake hardware 
+- 是否使用 `execute_plan=true`：是
+- 本轮 RViz 的 `Fixed Frame`：base_link
 - 本轮使用的参数：
-  - `target_height`：
-  - `workspace_min_x`：
-  - `workspace_max_x`：
-  - `workspace_min_y`：
-  - `workspace_max_y`：
-  - `downward_roll_rad`：
-  - `downward_pitch_rad`：
+  - `target_height`：0.1519
+  - `workspace_min_x`：0.0
+  - `workspace_max_x`：0.6
+  - `workspace_min_y`：-0.3
+  - `workspace_max_y`：0.3
+  - `downward_roll_rad`：M_PI
+  - `downward_pitch_rad`：0.0
 - 本轮成功点击的目标：
-  - click A：`x=` `y=` `yaw=`
-  - click B：`x=` `y=` `yaw=`
-  - click C：`x=` `y=` `yaw=`
-- RViz 点击后是否收到 `/goal_pose`：
-- 工作区内目标是否成功规划： 
-- 工作区内目标是否成功执行：
-- 终端中是否出现 `Mapped goal_pose -> target pose`：
-- 终端中是否出现 `Execute request success!`：
-- 你对本轮映射结果的观察：
-- 本轮最终结论：
+  - click A：`x=0.448` `y=0.050` `yaw=0.000`
+  - click B：`x=0.227` `y=-0.007` `yaw=0.000`
+  - click C：`x=0.340` `y=0.056` `yaw=0.000`
+- RViz 点击后是否收到 `/goal_pose`：是
+- 工作区内目标是否成功规划： 是
+- 工作区内目标是否成功执行：是
+- 终端中是否出现 `Mapped goal_pose -> target pose`：是
+- 终端中是否出现 `Execute request success!`：是
+- 你对本轮映射结果的观察：能成功执行运动
+- 本轮最终结论：能成功执行运动
 
 ### 失败轮次总结
-- 是否观察到失败轮次：
-- 观察到的失败类型：
-  - frame 不匹配
-  - 工作区越界
-  - 规划失败
-  - 执行失败
+- 是否观察到失败轮次：是
+- 观察到的失败类型：工作区越界
 - 本轮失败点击的目标：
-  - fail A：`x=` `y=` `yaw=`
-  - fail B：`x=` `y=` `yaw=`
-- 失败时的关键日志：
-- 失败时的主要原因：
-- 你准备如何调整：
+  - fail A：`x=-0.504` `y=-0.037` `yaw=未看见`
+  - fail B：`x=0.862` `y=-0.030` `yaw=未看见`
+- 失败时的关键日志：[goal_pose_executor_node-1] [WARN] [1776331558.871402420] [ur3_goal_pose_executor]: Rejected goal outside workspace: x=-0.504 y=-0.037
+- 失败时的主要原因：超出工作区界限
+- 你准备如何调整：重新设置目标，在工作区内运动
 
 ### URSim 冒烟记录
-- 运行日期：
-- 是否已在 URSim 下验证：
-- URSim 下是否收到 `/goal_pose`：
-- URSim 下工作区内目标是否成功规划：
-- URSim 下工作区内目标是否成功执行：
-- URSim 下工作区外目标是否被直接拒绝：
-- URSim 下额外遇到的执行链路问题：
-- fake hardware / URSim 下的差异：
-- 本轮最终结论：
+- 运行日期：2026.4.16
+- 是否已在 URSim 下验证：是
+- URSim 下是否收到 `/goal_pose`：是；终端已多次进入 `on_goal_pose` 回调，并打印 `Mapped goal_pose -> target pose`、`Rejected goal outside workspace` 和 `Unsupported goal frame` 等日志。
+- URSim 下工作区内目标是否成功规划：是；例如 `(x=0.257, y=0.011, yaw=0.000)` 和 `(x=0.370, y=0.132, yaw=0.000)` 均出现 `planned=true`。
+- URSim 下工作区内目标是否成功执行：是；两次成功规划后都出现了 `Execute request success!`，说明机械臂在 URSim 控制链路下完成了真实执行。
+- URSim 下工作区外目标是否被直接拒绝：是；例如 `x=-0.057, y=0.372` 和 `x=-0.221, y=0.010` 被直接判定为 `Rejected goal outside workspace`。
+- URSim 下额外遇到的执行链路问题：本轮未观察到新的执行链路故障。`scaled_joint_trajectory_controller` 与 `speed_scaling_state_broadcaster` 均为 `active`，`/speed_scaling_state_broadcaster/speed_scaling` 读到 `100.0`，说明 `External Control` 与执行控制器链路正常。
+- fake hardware / URSim 下的差异：fake hardware 下只要规划成功通常就能直接执行；URSim 下除了规划成功，还必须保证 `External Control` 已运行、`scaled_joint_trajectory_controller` 为 `active`，并且 `speed_scaling` 不为 `0.0`。本轮说明 7D 在真实 URSim 执行链路下也能完成“点击 -> 自动规划 -> 执行”。
+- 本轮最终结论：7D 已在 URSim 下完成一次主路径验收。程序能够接收 RViz 的 `/goal_pose` 输入，对非法 frame 或越界目标做前置拒绝，并对工作区内的合法目标完成自动规划与执行。
+
 
 ## 7. 完成记录
-- 日期：
+- 日期：2026.4.17
 - 最终采用的参数：
-  - `target_height`：
-  - `workspace_min_x`：
-  - `workspace_max_x`：
-  - `workspace_min_y`：
-  - `workspace_max_y`：
-  - `downward_roll_rad`：
-  - `downward_pitch_rad`：
-- 最终是否保留输入 `yaw`：
-- 最终观察到的关键现象：
-- 我对 7D 的一句话总结：
-- 备注：
+  - `target_height`：0.1519
+  - `workspace_min_x`：0.0
+  - `workspace_max_x`：0.6
+  - `workspace_min_y`：-0.3
+  - `workspace_max_y`：0.3
+  - `downward_roll_rad`：M_PI
+  - `downward_pitch_rad`：0.0
+- 最终是否保留输入 `yaw`：是
+- 最终观察到的关键现象：程序能够接收 RViz 的 `/goal_pose` 输入，对非法 frame 或越界目标做前置拒绝，并对工作区内的合法目标完成自动规划与执行
+- 我对 7D 的一句话总结：把 RViz 的二维人类输入翻译成机械臂三维动作语义，并通过 MoveIt 自动完成规划与执行的最小中间层
+- 备注：URSim 验证中额外确认了 `External Control`、`scaled_joint_trajectory_controller` 和 `speed_scaling` 状态对真实执行链路的重要性
