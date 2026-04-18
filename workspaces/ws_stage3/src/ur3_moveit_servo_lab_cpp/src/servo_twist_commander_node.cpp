@@ -19,10 +19,11 @@ public:
     status_topic_ = this->declare_parameter<std::string>("status_topic", "/servo_node/status");
     command_type_service_ =
       this->declare_parameter<std::string>("command_type_service", "/servo_node/switch_command_type");
-    frame_id_ = this->declare_parameter<std::string>("frame_id", "tool0");
+    frame_id_ = this->declare_parameter<std::string>("frame_id", "base_link");
     publish_rate_hz_ = this->declare_parameter<double>("publish_rate_hz", 50.0);
-    start_delay_sec_ = this->declare_parameter<double>("start_delay_sec", 1.0);
-    run_duration_sec_ = this->declare_parameter<double>("run_duration_sec", 1.5);
+    start_delay_sec_ = this->declare_parameter<double>("start_delay_sec", 4.0);
+    run_duration_sec_ = this->declare_parameter<double>("run_duration_sec", 2.5);
+    servo_ready_timeout_sec_ = this->declare_parameter<double>("servo_ready_timeout_sec", 8.0);
     halt_publish_count_ = this->declare_parameter<int>("halt_publish_count", 5);
     linear_x_ = this->declare_parameter<double>("linear_x", 0.02);
     linear_y_ = this->declare_parameter<double>("linear_y", 0.00);
@@ -67,6 +68,12 @@ private:
       }
     }
 
+    if (!servo_ready_) {
+      if (!wait_for_servo_ready(now)) {
+        return;
+      }
+    }
+
     if (now < start_time_) {
       return;
     }
@@ -85,6 +92,44 @@ private:
     publish_timer_->cancel();
     RCLCPP_INFO(this->get_logger(), "Servo command sequence finished, shutting down.");
     rclcpp::shutdown();
+  }
+
+  bool wait_for_servo_ready(const rclcpp::Time & now)
+  {
+    // 在真正开始发运动命令前，先用零速度 warmup，等 Servo 至少发布一次 status。
+    // 这样可以避免“命令序列已经跑完，但 Servo 还没进入可工作态”的空跑。
+    publish_twist(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+    const double wait_sec = (now - servo_ready_wait_start_time_).seconds();
+    if (!status_received_) {
+      if (wait_sec >= servo_ready_timeout_sec_) {
+        RCLCPP_ERROR(
+          this->get_logger(),
+          "Timed out waiting for Servo status after %.2fs. Servo never reached a ready state.",
+          servo_ready_timeout_sec_);
+        publish_timer_->cancel();
+        rclcpp::shutdown();
+        return false;
+      }
+
+      RCLCPP_INFO_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        1000,
+        "Waiting for Servo status before starting motion commands... elapsed=%.2fs",
+        wait_sec);
+      return false;
+    }
+
+    servo_ready_ = true;
+    start_time_ = now + rclcpp::Duration::from_seconds(start_delay_sec_);
+    stop_time_ = start_time_ + rclcpp::Duration::from_seconds(run_duration_sec_);
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Servo status stream detected. Starting motion commands after %.2fs delay.",
+      start_delay_sec_);
+    return false;
   }
 
   bool prepare_twist_mode(const rclcpp::Time & now)
@@ -123,13 +168,11 @@ private:
     }
 
     command_type_ready_ = true;
-    start_time_ = now + rclcpp::Duration::from_seconds(start_delay_sec_);
-    stop_time_ = start_time_ + rclcpp::Duration::from_seconds(run_duration_sec_);
+    servo_ready_wait_start_time_ = now;
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Servo accepted TWIST mode. Starting command stream after %.2fs delay.",
-      start_delay_sec_);
+      "Servo accepted TWIST mode. Waiting for Servo status before starting motion commands.");
     return true;
   }
 
@@ -153,8 +196,13 @@ private:
     command_pub_->publish(msg);
   }
 
-  void on_status(const moveit_msgs::msg::ServoStatus::SharedPtr msg) const
+  void on_status(const moveit_msgs::msg::ServoStatus::SharedPtr msg)
   {
+    if (!status_received_) {
+      status_received_ = true;
+      RCLCPP_INFO(this->get_logger(), "Received the first Servo status message.");
+    }
+
     RCLCPP_INFO(
       this->get_logger(),
       "Servo status: code=%d message='%s'",
@@ -169,6 +217,7 @@ private:
   double publish_rate_hz_{50.0};
   double start_delay_sec_{1.0};
   double run_duration_sec_{1.5};
+  double servo_ready_timeout_sec_{8.0};
   int halt_publish_count_{5};
   double linear_x_{0.02};
   double linear_y_{0.0};
@@ -179,7 +228,10 @@ private:
   int halt_messages_sent_{0};
   bool command_type_request_sent_{false};
   bool command_type_ready_{false};
+  bool servo_ready_{false};
+  bool status_received_{false};
 
+  rclcpp::Time servo_ready_wait_start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time stop_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr command_pub_;
