@@ -45,6 +45,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="false",
         description="Optionally launch RViz while Servo is running.",
     )
+    frame_id_arg = DeclareLaunchArgument(
+        "frame_id",
+        default_value="tool0",
+        description="Reference frame used by the Task 7E twist commander.",
+    )
     servo_log_level_arg = DeclareLaunchArgument(
         "servo_log_level",
         default_value="debug",
@@ -104,6 +109,11 @@ def generate_launch_description() -> LaunchDescription:
         executable="servo_twist_commander_node",
         name="ur3_servo_twist_commander",
         output="screen",
+        parameters=[
+            {
+                "frame_id": LaunchConfiguration("frame_id"),
+            }
+        ],
     )
 
     return LaunchDescription(
@@ -112,6 +122,7 @@ def generate_launch_description() -> LaunchDescription:
             robot_ip_arg,
             use_mock_hardware_arg,
             launch_rviz_arg,
+            frame_id_arg,
             servo_log_level_arg,
             driver_launch,
             moveit_launch,
