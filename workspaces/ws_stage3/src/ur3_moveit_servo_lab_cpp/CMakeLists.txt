@@ -27,6 +27,11 @@ install(
 )
 
 install(
+  PROGRAMS scripts/wait_for_joint_states.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
