@@ -6,7 +6,8 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, LogInfo, RegisterEventHandler, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, LogInfo, RegisterEventHandler, SetEnvironmentVariable, SetLaunchConfiguration
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.events import Shutdown
@@ -118,9 +119,31 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "ur_type": LaunchConfiguration("ur_type"),
-            "launch_rviz": LaunchConfiguration("launch_rviz"),
+            "launch_rviz": "false",
             "launch_servo": "false",
         }.items(),
+    )
+
+    rviz_config_file = PathJoinSubstitution(
+        [FindPackageShare("ur_moveit_config"), "config", "moveit.rviz"]
+    )
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2_moveit",
+        condition=IfCondition(LaunchConfiguration("task7e_launch_rviz")),
+        output="log",
+        arguments=["-d", rviz_config_file],
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            moveit_config.planning_pipelines,
+            moveit_config.joint_limits,
+            {
+                "use_sim_time": False,
+            },
+        ],
     )
 
     servo_container = ComposableNodeContainer(
@@ -207,9 +230,14 @@ def generate_launch_description() -> LaunchDescription:
             servo_log_level_arg,
             joint_states_wait_timeout_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
+            SetLaunchConfiguration(
+                name="task7e_launch_rviz",
+                value=LaunchConfiguration("launch_rviz"),
+            ),
             LogInfo(msg=f"Task 7E logs will be written to: {run_log_dir}"),
             driver_launch,
             moveit_launch,
+            rviz_node,
             LogInfo(
                 msg="Waiting for /joint_states and active controllers before starting Task 7E Servo nodes..."
             ),
