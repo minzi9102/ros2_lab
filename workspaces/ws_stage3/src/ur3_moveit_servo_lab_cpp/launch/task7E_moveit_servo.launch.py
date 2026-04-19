@@ -165,9 +165,6 @@ def generate_launch_description() -> LaunchDescription:
                 parameters=[
                     moveit_config.to_dict(),
                     servo_params,
-                    {
-                        "moveit_servo.is_primary_planning_scene_monitor": True,
-                    },
                 ],
                 extra_arguments=[{"use_intra_process_comms": False}],
             )
