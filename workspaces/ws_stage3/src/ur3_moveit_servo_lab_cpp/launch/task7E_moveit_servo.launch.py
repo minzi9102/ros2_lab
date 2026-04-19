@@ -96,6 +96,9 @@ def generate_launch_description() -> LaunchDescription:
             "use_mock_hardware": LaunchConfiguration("use_mock_hardware"),
             "initial_joint_controller": "forward_position_controller",
             "launch_rviz": "false",
+            "description_launchfile": PathJoinSubstitution(
+                [FindPackageShare("ur3_moveit_servo_lab_cpp"), "launch", "task7E_ur_rsp.launch.py"]
+            ),
         }.items(),
     )
 
