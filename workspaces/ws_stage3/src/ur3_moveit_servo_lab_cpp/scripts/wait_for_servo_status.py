@@ -17,8 +17,8 @@ class WaitForServoStatusNode(Node):
         self.timeout_sec = float(self.declare_parameter("timeout_sec", 15.0).value)
 
 
-def main() -> int:
-    rclpy.init(args=[])
+def main(args=None) -> int:
+    rclpy.init(args=args)
     node = WaitForServoStatusNode()
     qos_profile = QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
@@ -53,4 +53,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

@@ -86,8 +86,8 @@ def wait_for_active_controllers(node: WaitForJointStatesNode) -> bool:
     return False
 
 
-def main() -> int:
-    rclpy.init(args=[])
+def main(args=None) -> int:
+    rclpy.init(args=args)
     node = WaitForJointStatesNode()
     qos_profile = QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
@@ -122,4 +122,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

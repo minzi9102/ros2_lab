@@ -12,9 +12,11 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(moveit_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 
 add_executable(servo_twist_commander_node src/servo_twist_commander_node.cpp)
+add_executable(joint_state_stamp_relay_node src/joint_state_stamp_relay_node.cpp)
 ament_target_dependencies(
   servo_twist_commander_node
   rclcpp
@@ -22,9 +24,14 @@ ament_target_dependencies(
   moveit_msgs
   std_srvs
 )
+ament_target_dependencies(
+  joint_state_stamp_relay_node
+  rclcpp
+  sensor_msgs
+)
 
 install(
-  TARGETS servo_twist_commander_node
+  TARGETS servo_twist_commander_node joint_state_stamp_relay_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

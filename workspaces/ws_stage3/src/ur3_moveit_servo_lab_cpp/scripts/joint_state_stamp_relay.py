@@ -5,7 +5,7 @@ import sys
 import rclpy
 
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 
 
@@ -19,21 +19,18 @@ class JointStateStampRelayNode(Node):
         self.publish_period_sec = float(
             self.declare_parameter("publish_period_sec", 0.02).value
         )
+        self.position_epsilon = float(
+            self.declare_parameter("position_epsilon", 1e-9).value
+        )
         self.latest_msg: JointState | None = None
         self.logged_source_msg = False
         self.logged_relay_msg = False
+        self.relay_toggle_positive = False
 
-        source_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=10,
-            reliability=ReliabilityPolicy.RELIABLE,
-        )
-        relay_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1,
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-        )
+        # 让 relay 的 QoS 贴近 JointState/MoveIt CurrentStateMonitor 的默认传感器语义，
+        # 避免在 RViz 打开时出现 fresh topic 偶发不匹配或 discovery 抖动。
+        source_qos = qos_profile_sensor_data
+        relay_qos = qos_profile_sensor_data
 
         self.subscription = self.create_subscription(
             JointState,
@@ -73,6 +70,16 @@ class JointStateStampRelayNode(Node):
         relay_msg.position = list(self.latest_msg.position)
         relay_msg.velocity = list(self.latest_msg.velocity)
         relay_msg.effort = list(self.latest_msg.effort)
+        if relay_msg.position and self.position_epsilon > 0.0:
+            # MoveIt only wakes waiters when the numeric state changes, not when only
+            # the JointState stamp changes. This tiny toggle is local to the fresh topic.
+            self.relay_toggle_positive = not self.relay_toggle_positive
+            signed_epsilon = (
+                self.position_epsilon
+                if self.relay_toggle_positive
+                else -self.position_epsilon
+            )
+            relay_msg.position[0] += signed_epsilon
 
         self.publisher.publish(relay_msg)
         if not self.logged_relay_msg:
@@ -82,8 +89,8 @@ class JointStateStampRelayNode(Node):
             self.logged_relay_msg = True
 
 
-def main() -> int:
-    rclpy.init(args=[])
+def main(args=None) -> int:
+    rclpy.init(args=args)
     node = JointStateStampRelayNode()
 
     try:
@@ -99,4 +106,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))
