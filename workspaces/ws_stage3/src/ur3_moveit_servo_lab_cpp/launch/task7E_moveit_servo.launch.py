@@ -12,8 +12,7 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import ComposableNodeContainer, Node
-from launch_ros.descriptions import ComposableNode
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -87,7 +86,7 @@ def generate_launch_description() -> LaunchDescription:
     servo_startup_settle_arg = DeclareLaunchArgument(
         "servo_startup_settle_sec",
         default_value="2.0",
-        description="Extra settle time after MoveIt and controllers are ready before launching the Task 7E Servo container.",
+        description="Extra settle time after MoveIt and controllers are ready before launching the Task 7E Servo node.",
     )
     servo_status_wait_timeout_arg = DeclareLaunchArgument(
         "servo_status_wait_timeout_sec",
@@ -156,25 +155,16 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    servo_container = ComposableNodeContainer(
-        name="task7e_servo_container",
-        namespace="/",
-        package="rclcpp_components",
-        executable="component_container_mt",
+    servo_node = Node(
+        package="moveit_servo",
+        executable="servo_node",
+        name="servo_node",
         output="screen",
-        composable_node_descriptions=[
-            ComposableNode(
-                package="moveit_servo",
-                plugin="moveit_servo::ServoNode",
-                name="servo_node",
-                parameters=[
-                    moveit_config.to_dict(),
-                    servo_params,
-                ],
-                extra_arguments=[{"use_intra_process_comms": False}],
-            )
-        ],
         arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
+        parameters=[
+            moveit_config.to_dict(),
+            servo_params,
+        ],
     )
 
     servo_commander = Node(
@@ -229,8 +219,8 @@ def generate_launch_description() -> LaunchDescription:
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),
                     actions=[
-                        LogInfo(msg="Starting Task 7E Servo container."),
-                        servo_container,
+                        LogInfo(msg="Starting Task 7E Servo node."),
+                        servo_node,
                         LogInfo(
                             msg="Waiting for /servo_node/status before starting the Task 7E commander."
                         ),
