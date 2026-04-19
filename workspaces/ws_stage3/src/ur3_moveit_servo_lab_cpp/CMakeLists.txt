@@ -27,7 +27,9 @@ install(
 )
 
 install(
-  PROGRAMS scripts/wait_for_joint_states.py
+  PROGRAMS
+    scripts/wait_for_joint_states.py
+    scripts/wait_for_servo_status.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -84,6 +84,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="15.0",
         description="Maximum time to wait for /joint_states before starting Task 7E Servo nodes.",
     )
+    servo_status_wait_timeout_arg = DeclareLaunchArgument(
+        "servo_status_wait_timeout_sec",
+        default_value="15.0",
+        description="Maximum time to wait for /servo_node/status before starting the Task 7E commander.",
+    )
 
     moveit_config = (
         MoveItConfigsBuilder(robot_name="ur", package_name="ur_moveit_config")
@@ -200,19 +205,47 @@ def generate_launch_description() -> LaunchDescription:
             }
         ],
     )
+    servo_status_gate = Node(
+        package="ur3_moveit_servo_lab_cpp",
+        executable="wait_for_servo_status.py",
+        name="task7e_servo_status_gate",
+        output="screen",
+        parameters=[
+            {
+                "topic": "/servo_node/status",
+                "timeout_sec": LaunchConfiguration("servo_status_wait_timeout_sec"),
+            }
+        ],
+    )
 
     def on_joint_states_gate_exit(event, _context):
         if event.returncode == 0:
             return [
-                LogInfo(msg="Detected /joint_states traffic. Starting Task 7E Servo nodes."),
+                LogInfo(msg="Detected /joint_states traffic. Starting Task 7E Servo container."),
                 servo_container,
-                servo_commander,
+                LogInfo(msg="Waiting for /servo_node/status before starting the Task 7E commander."),
+                servo_status_gate,
             ]
 
         return [
             EmitEvent(
                 event=Shutdown(
                     reason="Task 7E joint state gate timed out before Servo startup."
+                )
+            )
+        ]
+
+    def on_servo_status_gate_exit(event, _context):
+        if event.returncode == 0:
+            return [
+                LogInfo(msg="Detected Servo status traffic. Starting the Task 7E commander."),
+                servo_commander,
+            ]
+
+        return [
+            EmitEvent(
+                event=Shutdown(
+                    reason="Task 7E Servo status gate timed out before commander startup."
                 )
             )
         ]
@@ -229,6 +262,7 @@ def generate_launch_description() -> LaunchDescription:
             linear_z_arg,
             servo_log_level_arg,
             joint_states_wait_timeout_arg,
+            servo_status_wait_timeout_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             SetLaunchConfiguration(
                 name="task7e_launch_rviz",
@@ -246,6 +280,12 @@ def generate_launch_description() -> LaunchDescription:
                 OnProcessExit(
                     target_action=joint_states_gate,
                     on_exit=on_joint_states_gate_exit,
+                )
+            ),
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=servo_status_gate,
+                    on_exit=on_servo_status_gate_exit,
                 )
             ),
         ]
