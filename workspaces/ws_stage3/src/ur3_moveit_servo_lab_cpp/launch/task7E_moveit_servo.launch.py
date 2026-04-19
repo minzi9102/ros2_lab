@@ -1,11 +1,12 @@
 import os
 import yaml
 
+from datetime import datetime
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -25,6 +26,10 @@ def load_yaml(package_name: str, file_path: str):
 
 
 def generate_launch_description() -> LaunchDescription:
+    log_root_dir = Path.cwd() / "logs" / "task7E"
+    run_log_dir = log_root_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_log_dir.mkdir(parents=True, exist_ok=True)
+
     ur_type_arg = DeclareLaunchArgument(
         "ur_type",
         default_value="ur3",
@@ -124,6 +129,8 @@ def generate_launch_description() -> LaunchDescription:
             launch_rviz_arg,
             frame_id_arg,
             servo_log_level_arg,
+            SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
+            LogInfo(msg=f"Task 7E logs will be written to: {run_log_dir}"),
             driver_launch,
             moveit_launch,
             servo_node,
