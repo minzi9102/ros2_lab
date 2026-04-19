@@ -11,7 +11,8 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -122,16 +123,28 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    servo_node = Node(
-        package="moveit_servo",
-        executable="servo_node",
-        name="servo_node",
+    servo_container = ComposableNodeContainer(
+        name="task7e_servo_container",
+        namespace="/",
+        package="rclcpp_components",
+        executable="component_container_mt",
         output="screen",
-        arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
-        parameters=[
-            moveit_config.to_dict(),
-            servo_params,
+        composable_node_descriptions=[
+            ComposableNode(
+                package="moveit_servo",
+                plugin="moveit_servo::ServoNode",
+                name="servo_node",
+                parameters=[
+                    moveit_config.to_dict(),
+                    servo_params,
+                    {
+                        "moveit_servo.is_primary_planning_scene_monitor": True,
+                    },
+                ],
+                extra_arguments=[{"use_intra_process_comms": False}],
+            )
         ],
+        arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
     )
 
     servo_commander = Node(
@@ -157,6 +170,10 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "topic": "/joint_states",
                 "timeout_sec": LaunchConfiguration("joint_states_wait_timeout_sec"),
+                "required_active_controllers": [
+                    "joint_state_broadcaster",
+                    "forward_position_controller",
+                ],
             }
         ],
     )
@@ -165,7 +182,7 @@ def generate_launch_description() -> LaunchDescription:
         if event.returncode == 0:
             return [
                 LogInfo(msg="Detected /joint_states traffic. Starting Task 7E Servo nodes."),
-                servo_node,
+                servo_container,
                 servo_commander,
             ]
 
@@ -193,7 +210,9 @@ def generate_launch_description() -> LaunchDescription:
             LogInfo(msg=f"Task 7E logs will be written to: {run_log_dir}"),
             driver_launch,
             moveit_launch,
-            LogInfo(msg="Waiting for /joint_states before starting Task 7E Servo nodes..."),
+            LogInfo(
+                msg="Waiting for /joint_states and active controllers before starting Task 7E Servo nodes..."
+            ),
             joint_states_gate,
             RegisterEventHandler(
                 OnProcessExit(
