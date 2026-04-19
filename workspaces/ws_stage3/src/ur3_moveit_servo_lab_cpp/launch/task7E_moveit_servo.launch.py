@@ -55,6 +55,21 @@ def generate_launch_description() -> LaunchDescription:
         default_value="tool0",
         description="Reference frame used by the Task 7E twist commander.",
     )
+    linear_x_arg = DeclareLaunchArgument(
+        "linear_x",
+        default_value="0.02",
+        description="Linear X command sent by the Task 7E twist commander.",
+    )
+    linear_y_arg = DeclareLaunchArgument(
+        "linear_y",
+        default_value="0.0",
+        description="Linear Y command sent by the Task 7E twist commander.",
+    )
+    linear_z_arg = DeclareLaunchArgument(
+        "linear_z",
+        default_value="0.0",
+        description="Linear Z command sent by the Task 7E twist commander.",
+    )
     servo_log_level_arg = DeclareLaunchArgument(
         "servo_log_level",
         default_value="debug",
@@ -117,6 +132,9 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {
                 "frame_id": LaunchConfiguration("frame_id"),
+                "linear_x": LaunchConfiguration("linear_x"),
+                "linear_y": LaunchConfiguration("linear_y"),
+                "linear_z": LaunchConfiguration("linear_z"),
             }
         ],
     )
@@ -128,6 +146,9 @@ def generate_launch_description() -> LaunchDescription:
             use_mock_hardware_arg,
             launch_rviz_arg,
             frame_id_arg,
+            linear_x_arg,
+            linear_y_arg,
+            linear_z_arg,
             servo_log_level_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"Task 7E logs will be written to: {run_log_dir}"),
