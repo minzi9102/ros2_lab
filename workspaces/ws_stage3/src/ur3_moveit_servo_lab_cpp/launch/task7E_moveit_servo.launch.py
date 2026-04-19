@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, LogInfo, RegisterEventHandler, SetEnvironmentVariable, SetLaunchConfiguration
+from launch.actions import DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, LogInfo, RegisterEventHandler, SetEnvironmentVariable, SetLaunchConfiguration, TimerAction
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -83,6 +83,11 @@ def generate_launch_description() -> LaunchDescription:
         "joint_states_wait_timeout_sec",
         default_value="15.0",
         description="Maximum time to wait for /joint_states before starting Task 7E Servo nodes.",
+    )
+    servo_startup_settle_arg = DeclareLaunchArgument(
+        "servo_startup_settle_sec",
+        default_value="2.0",
+        description="Extra settle time after MoveIt and controllers are ready before launching the Task 7E Servo container.",
     )
     servo_status_wait_timeout_arg = DeclareLaunchArgument(
         "servo_status_wait_timeout_sec",
@@ -218,10 +223,20 @@ def generate_launch_description() -> LaunchDescription:
     def on_joint_states_gate_exit(event, _context):
         if event.returncode == 0:
             return [
-                LogInfo(msg="Detected /joint_states traffic. Starting Task 7E Servo container."),
-                servo_container,
-                LogInfo(msg="Waiting for /servo_node/status before starting the Task 7E commander."),
-                servo_status_gate,
+                LogInfo(
+                    msg="Detected /joint_states traffic. Waiting briefly for MoveIt startup to settle before launching Task 7E Servo."
+                ),
+                TimerAction(
+                    period=LaunchConfiguration("servo_startup_settle_sec"),
+                    actions=[
+                        LogInfo(msg="Starting Task 7E Servo container."),
+                        servo_container,
+                        LogInfo(
+                            msg="Waiting for /servo_node/status before starting the Task 7E commander."
+                        ),
+                        servo_status_gate,
+                    ],
+                ),
             ]
 
         return [
@@ -259,6 +274,7 @@ def generate_launch_description() -> LaunchDescription:
             linear_z_arg,
             servo_log_level_arg,
             joint_states_wait_timeout_arg,
+            servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             SetLaunchConfiguration(
