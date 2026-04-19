@@ -76,7 +76,7 @@ def generate_launch_description() -> LaunchDescription:
     )
     servo_log_level_arg = DeclareLaunchArgument(
         "servo_log_level",
-        default_value="debug",
+        default_value="info",
         description="Log level for the standalone Servo node started by Task 7E.",
     )
     joint_states_wait_timeout_arg = DeclareLaunchArgument(
