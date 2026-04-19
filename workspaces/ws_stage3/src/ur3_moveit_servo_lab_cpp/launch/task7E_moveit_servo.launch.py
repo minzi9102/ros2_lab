@@ -34,6 +34,8 @@ def generate_launch_description() -> LaunchDescription:
     run_log_dir = log_root_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
     run_log_dir.mkdir(parents=True, exist_ok=True)
 
+    # 这一层 launch 做的不是算法，而是把 7E 实验拆成几个可观察的阶段：
+    # 先起驱动和 MoveIt，再确认 joint_states/控制器就绪，再起 Servo，最后才起 commander。
     ur_type_arg = DeclareLaunchArgument(
         "ur_type",
         default_value="ur3",
@@ -101,9 +103,14 @@ def generate_launch_description() -> LaunchDescription:
         .to_moveit_configs()
     )
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    # Servo 对 joint state 时间戳比较敏感；这里改成实验专用的话题，
+    # 让 relay 节点持续转发带新时间戳的 joint_states，避免状态过旧导致 Servo 拒绝工作。
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
     servo_params = {"moveit_servo": servo_yaml}
 
+    # driver_launch 负责底层机器人/假硬件和 ros2_control。
+    # 7E 这里显式要求起始控制器就是 forward_position_controller，
+    # 因为本任务要验证的是 Servo 到前向位置控制器这条最小闭环。
     driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -177,6 +184,8 @@ def generate_launch_description() -> LaunchDescription:
         executable="component_container_mt",
         output="screen",
         composable_node_descriptions=[
+            # ServoNode 被单独放进容器里，便于把 Servo bringup 和 commander 解耦。
+            # 这样排障时能更快分清：是 Servo 没起来，还是 commander 没发对命令。
             ComposableNode(
                 package="moveit_servo",
                 plugin="moveit_servo::ServoNode",
@@ -240,6 +249,8 @@ def generate_launch_description() -> LaunchDescription:
                 LogInfo(
                     msg="Detected /joint_states traffic. Waiting briefly for MoveIt startup to settle before launching Task 7E Servo."
                 ),
+                # joint_states_gate 通过后，说明底层状态流和控制器已经起来了；
+                # 但 MoveIt/Servo 仍可能处于刚启动的抖动窗口，所以这里再加一小段 settle 时间。
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),
                     actions=[
@@ -264,6 +275,8 @@ def generate_launch_description() -> LaunchDescription:
     def on_servo_status_gate_exit(event, _context):
         if event.returncode == 0:
             return [
+                # 只有真的看见 /servo_node/status，才允许 commander 发 Twist。
+                # 这能避免“命令发了，但 Servo 还没 ready”的空跑现象。
                 LogInfo(msg="Detected Servo status traffic. Starting the Task 7E commander."),
                 servo_commander,
             ]
@@ -308,6 +321,8 @@ def generate_launch_description() -> LaunchDescription:
             moveit_launch,
             rviz_node,
             joint_state_relay,
+            # 两个 gate 把启动顺序显式串起来：
+            # /joint_states ready -> Servo ready -> commander ready。
             LogInfo(
                 msg="Waiting for /joint_states and active controllers before starting Task 7E Servo nodes..."
             ),

@@ -14,6 +14,8 @@ public:
   Ur3ServoTwistCommanderNode()
   : Node("ur3_servo_twist_commander")
   {
+    // 这些参数基本对应一次最小 Servo 实验的三个问题：
+    // 1) 命令往哪里发；2) 何时允许开始动；3) 以多快的速度、持续多久、如何停下。
     command_topic_ =
       this->declare_parameter<std::string>("command_topic", "/servo_node/delta_twist_cmds");
     status_topic_ = this->declare_parameter<std::string>("status_topic", "/servo_node/status");
@@ -62,6 +64,8 @@ private:
   {
     const rclcpp::Time now = this->now();
 
+    // 这个定时器不是“每次都直接发速度”。
+    // 它先按阶段推进状态机：切换 TWIST 模式 -> 等 Servo ready -> 等启动延迟 -> 发运动 -> 发停机零速度。
     if (!command_type_ready_) {
       if (!prepare_twist_mode(now)) {
         return;
@@ -122,6 +126,8 @@ private:
     }
 
     servo_ready_ = true;
+    // 收到 status 后并不会立刻发非零速度，而是再留一个 start_delay，
+    // 给 Servo / 控制器链路一点稳定时间，减少“刚 ready 就开始动”的抖动。
     start_time_ = now + rclcpp::Duration::from_seconds(start_delay_sec_);
     stop_time_ = start_time_ + rclcpp::Duration::from_seconds(run_duration_sec_);
 
@@ -134,6 +140,8 @@ private:
 
   bool prepare_twist_mode(const rclcpp::Time & now)
   {
+    // MoveIt Servo 可以接受不同命令类型；这里显式切到 TWIST，
+    // 避免 commander 已经开始发 TwistStamped，但 Servo 仍处在别的命令模式。
     if (!command_type_request_sent_) {
       if (!command_type_client_->service_is_ready()) {
         RCLCPP_INFO_THROTTLE(
@@ -186,6 +194,8 @@ private:
   {
     geometry_msgs::msg::TwistStamped msg;
     msg.header.stamp = this->now();
+    // frame_id 决定这组线速度/角速度是相对哪个坐标系解释的。
+    // 7E 默认用 tool0，是为了先聚焦“连续速度控制链路”本身。
     msg.header.frame_id = frame_id_;
     msg.twist.linear.x = linear_x;
     msg.twist.linear.y = linear_y;
@@ -214,6 +224,7 @@ private:
   std::string status_topic_;
   std::string command_type_service_;
   std::string frame_id_;
+  // 这组参数定义“发什么命令”。
   double publish_rate_hz_{50.0};
   double start_delay_sec_{1.0};
   double run_duration_sec_{1.5};
@@ -225,12 +236,15 @@ private:
   double angular_x_{0.0};
   double angular_y_{0.0};
   double angular_z_{0.0};
+
+  // 这组状态位描述 commander 当前处在哪个阶段。
   int halt_messages_sent_{0};
   bool command_type_request_sent_{false};
   bool command_type_ready_{false};
   bool servo_ready_{false};
   bool status_received_{false};
 
+  // 这些时间戳把“一次短时 Servo 实验”切成等待 ready、开始运动、停止运动三个窗口。
   rclcpp::Time servo_ready_wait_start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time stop_time_{0, 0, RCL_ROS_TIME};
