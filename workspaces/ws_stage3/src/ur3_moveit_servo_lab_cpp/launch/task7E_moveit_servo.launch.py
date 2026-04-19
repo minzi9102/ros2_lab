@@ -12,7 +12,8 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -76,7 +77,7 @@ def generate_launch_description() -> LaunchDescription:
     servo_log_level_arg = DeclareLaunchArgument(
         "servo_log_level",
         default_value="info",
-        description="Log level for the standalone Servo node started by Task 7E.",
+        description="Log level for the Task 7E Servo container.",
     )
     joint_states_wait_timeout_arg = DeclareLaunchArgument(
         "joint_states_wait_timeout_sec",
@@ -85,8 +86,8 @@ def generate_launch_description() -> LaunchDescription:
     )
     servo_startup_settle_arg = DeclareLaunchArgument(
         "servo_startup_settle_sec",
-        default_value="2.0",
-        description="Extra settle time after MoveIt and controllers are ready before launching the Task 7E Servo node.",
+        default_value="5.0",
+        description="Extra settle time after MoveIt and controllers are ready before launching the Task 7E Servo container.",
     )
     servo_status_wait_timeout_arg = DeclareLaunchArgument(
         "servo_status_wait_timeout_sec",
@@ -100,6 +101,7 @@ def generate_launch_description() -> LaunchDescription:
         .to_moveit_configs()
     )
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
     servo_params = {"moveit_servo": servo_yaml}
 
     driver_launch = IncludeLaunchDescription(
@@ -154,17 +156,39 @@ def generate_launch_description() -> LaunchDescription:
             },
         ],
     )
-
-    servo_node = Node(
-        package="moveit_servo",
-        executable="servo_node",
-        name="servo_node",
+    joint_state_relay = Node(
+        package="ur3_moveit_servo_lab_cpp",
+        executable="joint_state_stamp_relay.py",
+        name="task7e_joint_state_stamp_relay",
         output="screen",
-        arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
         parameters=[
-            moveit_config.to_dict(),
-            servo_params,
+            {
+                "source_topic": "/joint_states",
+                "target_topic": "/task7e/joint_states_fresh",
+                "publish_period_sec": 0.02,
+            }
         ],
+    )
+
+    servo_container = ComposableNodeContainer(
+        name="task7e_servo_container",
+        namespace="/",
+        package="rclcpp_components",
+        executable="component_container_mt",
+        output="screen",
+        composable_node_descriptions=[
+            ComposableNode(
+                package="moveit_servo",
+                plugin="moveit_servo::ServoNode",
+                name="servo_node",
+                parameters=[
+                    moveit_config.to_dict(),
+                    servo_params,
+                ],
+                extra_arguments=[{"use_intra_process_comms": False}],
+            )
+        ],
+        arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
     )
 
     servo_commander = Node(
@@ -219,8 +243,8 @@ def generate_launch_description() -> LaunchDescription:
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),
                     actions=[
-                        LogInfo(msg="Starting Task 7E Servo node."),
-                        servo_node,
+                        LogInfo(msg="Starting Task 7E Servo container."),
+                        servo_container,
                         LogInfo(
                             msg="Waiting for /servo_node/status before starting the Task 7E commander."
                         ),
@@ -252,6 +276,14 @@ def generate_launch_description() -> LaunchDescription:
             )
         ]
 
+    def on_servo_commander_exit(event, _context):
+        if event.returncode == 0:
+            reason = "Task 7E Servo command sequence completed successfully."
+        else:
+            reason = f"Task 7E commander exited with return code {event.returncode}."
+
+        return [EmitEvent(event=Shutdown(reason=reason))]
+
     return LaunchDescription(
         [
             ur_type_arg,
@@ -275,6 +307,7 @@ def generate_launch_description() -> LaunchDescription:
             driver_launch,
             moveit_launch,
             rviz_node,
+            joint_state_relay,
             LogInfo(
                 msg="Waiting for /joint_states and active controllers before starting Task 7E Servo nodes..."
             ),
@@ -289,6 +322,12 @@ def generate_launch_description() -> LaunchDescription:
                 OnProcessExit(
                     target_action=servo_status_gate,
                     on_exit=on_servo_status_gate_exit,
+                )
+            ),
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=servo_commander,
+                    on_exit=on_servo_commander_exit,
                 )
             ),
         ]

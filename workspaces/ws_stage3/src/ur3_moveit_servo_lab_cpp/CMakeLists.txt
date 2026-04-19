@@ -28,6 +28,8 @@ install(
 
 install(
   PROGRAMS
+    scripts/joint_state_stamp_relay.py
+    scripts/run_task7e_full_test.py
     scripts/wait_for_joint_states.py
     scripts/wait_for_servo_status.py
   DESTINATION lib/${PROJECT_NAME}
