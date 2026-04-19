@@ -1,4 +1,5 @@
 #include <chrono>
+#include <functional>
 #include <future>
 #include <memory>
 #include <string>
@@ -7,6 +8,7 @@
 #include "moveit_msgs/msg/servo_status.hpp"
 #include "moveit_msgs/srv/servo_command_type.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 class Ur3ServoTwistCommanderNode : public rclcpp::Node
 {
@@ -21,9 +23,9 @@ public:
     status_topic_ = this->declare_parameter<std::string>("status_topic", "/servo_node/status");
     command_type_service_ =
       this->declare_parameter<std::string>("command_type_service", "/servo_node/switch_command_type");
-    frame_id_ = this->declare_parameter<std::string>("frame_id", "base_link");
+    frame_id_ = this->declare_parameter<std::string>("frame_id", "tool0");
     publish_rate_hz_ = this->declare_parameter<double>("publish_rate_hz", 50.0);
-    start_delay_sec_ = this->declare_parameter<double>("start_delay_sec", 4.0);
+    start_delay_sec_ = this->declare_parameter<double>("start_delay_sec", 0.0);
     run_duration_sec_ = this->declare_parameter<double>("run_duration_sec", 2.5);
     servo_ready_timeout_sec_ = this->declare_parameter<double>("servo_ready_timeout_sec", 8.0);
     halt_publish_count_ = this->declare_parameter<int>("halt_publish_count", 5);
@@ -41,6 +43,13 @@ public:
       std::bind(&Ur3ServoTwistCommanderNode::on_status, this, std::placeholders::_1));
     command_type_client_ =
       this->create_client<moveit_msgs::srv::ServoCommandType>(command_type_service_);
+    start_motion_service_ = this->create_service<std_srvs::srv::Trigger>(
+      "~/start_motion",
+      std::bind(
+        &Ur3ServoTwistCommanderNode::on_start_motion_request,
+        this,
+        std::placeholders::_1,
+        std::placeholders::_2));
 
     const auto period = std::chrono::duration<double>(1.0 / publish_rate_hz_);
     publish_timer_ = this->create_wall_timer(
@@ -49,10 +58,11 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "servo_twist_commander_node started. command_topic=%s status_topic=%s command_type_service=%s duration=%.2fs rate=%.1fHz",
+      "servo_twist_commander_node started. command_topic=%s status_topic=%s command_type_service=%s start_motion_service=%s duration=%.2fs rate=%.1fHz",
       command_topic_.c_str(),
       status_topic_.c_str(),
       command_type_service_.c_str(),
+      start_motion_service_->get_service_name(),
       run_duration_sec_,
       publish_rate_hz_);
 
@@ -60,42 +70,59 @@ public:
   }
 
 private:
+  enum class CommanderState
+  {
+    PreparingCommandType,
+    WaitingServoReady,
+    IdleReady,
+    Running,
+    Halting,
+  };
+
   void on_publish_timer()
   {
     const rclcpp::Time now = this->now();
 
-    // 这个定时器不是“每次都直接发速度”。
-    // 它先按阶段推进状态机：切换 TWIST 模式 -> 等 Servo ready -> 等启动延迟 -> 发运动 -> 发停机零速度。
-    if (!command_type_ready_) {
-      if (!prepare_twist_mode(now)) {
+    // 这个定时器不会在 ready 后自动开始运动，而是只推进状态机。
+    // 真正的运动开始由 ~/start_motion 服务触发。
+    switch (state_) {
+      case CommanderState::PreparingCommandType:
+        if (prepare_twist_mode(now)) {
+          state_ = CommanderState::WaitingServoReady;
+        }
         return;
-      }
-    }
-
-    if (!servo_ready_) {
-      if (!wait_for_servo_ready(now)) {
+      case CommanderState::WaitingServoReady:
+        if (wait_for_servo_ready(now)) {
+          enter_idle_ready();
+        }
         return;
-      }
-    }
+      case CommanderState::IdleReady:
+        return;
+      case CommanderState::Running:
+        if (now < start_time_) {
+          return;
+        }
 
-    if (now < start_time_) {
-      return;
-    }
+        if (now <= stop_time_) {
+          publish_twist(linear_x_, linear_y_, linear_z_, angular_x_, angular_y_, angular_z_);
+          return;
+        }
 
-    if (now <= stop_time_) {
-      publish_twist(linear_x_, linear_y_, linear_z_, angular_x_, angular_y_, angular_z_);
-      return;
-    }
+        state_ = CommanderState::Halting;
+        halt_messages_sent_ = 0;
+        RCLCPP_INFO(this->get_logger(), "Motion duration elapsed. Publishing halt commands.");
+        [[fallthrough]];
+      case CommanderState::Halting:
+        if (halt_messages_sent_ < halt_publish_count_) {
+          publish_twist(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+          ++halt_messages_sent_;
+          return;
+        }
 
-    if (halt_messages_sent_ < halt_publish_count_) {
-      publish_twist(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-      ++halt_messages_sent_;
-      return;
+        RCLCPP_INFO(this->get_logger(), "Servo command sequence finished. Commander returned to idle.");
+        enter_idle_ready();
+        return;
     }
-
-    publish_timer_->cancel();
-    RCLCPP_INFO(this->get_logger(), "Servo command sequence finished, shutting down.");
-    rclcpp::shutdown();
   }
 
   bool wait_for_servo_ready(const rclcpp::Time & now)
@@ -120,22 +147,12 @@ private:
         this->get_logger(),
         *this->get_clock(),
         1000,
-        "Waiting for Servo status before starting motion commands... elapsed=%.2fs",
+        "Waiting for Servo status before accepting motion requests... elapsed=%.2fs",
         wait_sec);
       return false;
     }
 
-    servo_ready_ = true;
-    // 收到 status 后并不会立刻发非零速度，而是再留一个 start_delay，
-    // 给 Servo / 控制器链路一点稳定时间，减少“刚 ready 就开始动”的抖动。
-    start_time_ = now + rclcpp::Duration::from_seconds(start_delay_sec_);
-    stop_time_ = start_time_ + rclcpp::Duration::from_seconds(run_duration_sec_);
-
-    RCLCPP_INFO(
-      this->get_logger(),
-      "Servo status stream detected. Starting motion commands after %.2fs delay.",
-      start_delay_sec_);
-    return false;
+    return true;
   }
 
   bool prepare_twist_mode(const rclcpp::Time & now)
@@ -180,8 +197,58 @@ private:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Servo accepted TWIST mode. Waiting for Servo status before starting motion commands.");
+      "Servo accepted TWIST mode. Waiting for Servo status before accepting motion requests.");
     return true;
+  }
+
+  void on_start_motion_request(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+  {
+    (void)request;
+
+    if (state_ != CommanderState::IdleReady) {
+      response->success = false;
+      response->message = reject_start_motion_message();
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Rejected start_motion request while commander state=%s: %s",
+        state_name(state_),
+        response->message.c_str());
+      return;
+    }
+
+    halt_messages_sent_ = 0;
+    start_time_ = this->now() + rclcpp::Duration::from_seconds(start_delay_sec_);
+    stop_time_ = start_time_ + rclcpp::Duration::from_seconds(run_duration_sec_);
+    state_ = CommanderState::Running;
+
+    response->success = true;
+    if (start_delay_sec_ > 0.0) {
+      response->message =
+        "motion accepted; waiting for configured start_delay before publishing twist";
+    } else {
+      response->message = "motion accepted; publishing twist commands immediately";
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Accepted start_motion request. Motion will run for %.2fs after a %.2fs start delay.",
+      run_duration_sec_,
+      start_delay_sec_);
+  }
+
+  void enter_idle_ready()
+  {
+    state_ = CommanderState::IdleReady;
+    halt_messages_sent_ = 0;
+    start_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    stop_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Commander is idle and ready. Call %s to start one motion cycle.",
+      start_motion_service_->get_service_name());
   }
 
   void publish_twist(
@@ -220,14 +287,50 @@ private:
       msg->message.c_str());
   }
 
+  const char * state_name(CommanderState state) const
+  {
+    switch (state) {
+      case CommanderState::PreparingCommandType:
+        return "PreparingCommandType";
+      case CommanderState::WaitingServoReady:
+        return "WaitingServoReady";
+      case CommanderState::IdleReady:
+        return "IdleReady";
+      case CommanderState::Running:
+        return "Running";
+      case CommanderState::Halting:
+        return "Halting";
+    }
+
+    return "Unknown";
+  }
+
+  std::string reject_start_motion_message() const
+  {
+    switch (state_) {
+      case CommanderState::PreparingCommandType:
+        return "not ready yet: waiting for Servo TWIST mode";
+      case CommanderState::WaitingServoReady:
+        return "not ready yet: waiting for Servo status";
+      case CommanderState::IdleReady:
+        return "ready";
+      case CommanderState::Running:
+        return "already running";
+      case CommanderState::Halting:
+        return "halting";
+    }
+
+    return "unknown state";
+  }
+
   std::string command_topic_;
   std::string status_topic_;
   std::string command_type_service_;
   std::string frame_id_;
   // 这组参数定义“发什么命令”。
   double publish_rate_hz_{50.0};
-  double start_delay_sec_{1.0};
-  double run_duration_sec_{1.5};
+  double start_delay_sec_{0.0};
+  double run_duration_sec_{2.5};
   double servo_ready_timeout_sec_{8.0};
   int halt_publish_count_{5};
   double linear_x_{0.02};
@@ -241,8 +344,8 @@ private:
   int halt_messages_sent_{0};
   bool command_type_request_sent_{false};
   bool command_type_ready_{false};
-  bool servo_ready_{false};
   bool status_received_{false};
+  CommanderState state_{CommanderState::PreparingCommandType};
 
   // 这些时间戳把“一次短时 Servo 实验”切成等待 ready、开始运动、停止运动三个窗口。
   rclcpp::Time servo_ready_wait_start_time_{0, 0, RCL_ROS_TIME};
@@ -251,6 +354,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr command_pub_;
   rclcpp::Subscription<moveit_msgs::msg::ServoStatus>::SharedPtr status_sub_;
   rclcpp::Client<moveit_msgs::srv::ServoCommandType>::SharedPtr command_type_client_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_motion_service_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
   rclcpp::Client<moveit_msgs::srv::ServoCommandType>::SharedFuture command_type_future_;
 };

@@ -25,6 +25,7 @@
   - `forward_position_controller` 对齐；
   - `TwistStamped` 周期发布节点；
   - `/servo_node/status` 订阅；
+  - `start_motion` 手动触发入口；
   - 7E 实验记录模板。
 - 待你完成：
   - 判断线速度 / 角速度上限；
@@ -63,7 +64,7 @@ source install/setup.bash
 ### 已准备内容
 - Servo bringup wrapper；
 - `forward_position_controller` 启动链路；
-- `TwistStamped` 周期发送；
+- `Trigger` 服务手动开始一轮 `TwistStamped` 周期发送；
 - 零速度 halt 消息；
 - Servo status 日志。
 
@@ -98,9 +99,20 @@ ros2 launch ur3_moveit_servo_lab_cpp task7E_moveit_servo.launch.py \
   use_mock_hardware:=true
 ```
 
+### 手动开始一轮速度发布
+```bash
+ros2 service call /ur3_servo_twist_commander/start_motion std_srvs/srv/Trigger "{}"
+```
+
+### 观察点
+- launch 完成后，`commander` 会先进入待机，不会自动发非零速度。
+- 每次调用一次 `start_motion`，会按当前参数跑完一轮，再自动停下并回到待机。
+- 你可以重复调用同一个服务，对比不同速度参数下的响应。
+
 ### 记录模板
 - Servo 链路是否启动：
 - 是否收到 `/servo_node/status`：
+- `commander` 是否进入 idle ready：
 - 短时移动是否可见：
 - 停止后是否能停下：
 - 你对当前速度上限与停止策略的评价：

@@ -275,9 +275,9 @@ def generate_launch_description() -> LaunchDescription:
     def on_servo_status_gate_exit(event, _context):
         if event.returncode == 0:
             return [
-                # 只有真的看见 /servo_node/status，才允许 commander 发 Twist。
-                # 这能避免“命令发了，但 Servo 还没 ready”的空跑现象。
-                LogInfo(msg="Detected Servo status traffic. Starting the Task 7E commander."),
+                # 只有真的看见 /servo_node/status，才允许 commander 启动并进入待机。
+                # 后续非零速度命令改由 /ur3_servo_twist_commander/start_motion 手动触发。
+                LogInfo(msg="Detected Servo status traffic. Starting the Task 7E commander in manual-trigger mode."),
                 servo_commander,
             ]
 

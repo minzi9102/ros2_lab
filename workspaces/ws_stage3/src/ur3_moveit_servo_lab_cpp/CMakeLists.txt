@@ -12,6 +12,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(moveit_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_executable(servo_twist_commander_node src/servo_twist_commander_node.cpp)
 ament_target_dependencies(
@@ -19,6 +20,7 @@ ament_target_dependencies(
   rclcpp
   geometry_msgs
   moveit_msgs
+  std_srvs
 )
 
 install(
