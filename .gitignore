@@ -2,6 +2,8 @@
 workspaces/**/build/
 workspaces/**/install/
 workspaces/**/log/
+workspaces/**/logs/
+logs/
 
 # Temporary downloads
 downloads/*

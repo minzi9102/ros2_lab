@@ -27,11 +27,11 @@ public:
     end_effector_link_ = this->declare_parameter<std::string>("end_effector_link", "tool0");
     goal_topic_ = this->declare_parameter<std::string>("goal_topic", "/goal_pose");
     execute_plan_ = this->declare_parameter<bool>("execute_plan", true);
-    target_height_ = this->declare_parameter<double>("target_height", 0.22);
-    workspace_min_x_ = this->declare_parameter<double>("workspace_min_x", 0.10);
-    workspace_max_x_ = this->declare_parameter<double>("workspace_max_x", 0.45);
-    workspace_min_y_ = this->declare_parameter<double>("workspace_min_y", -0.25);
-    workspace_max_y_ = this->declare_parameter<double>("workspace_max_y", 0.25);
+    target_height_ = this->declare_parameter<double>("target_height", 0.1519);
+    workspace_min_x_ = this->declare_parameter<double>("workspace_min_x", 0.0);
+    workspace_max_x_ = this->declare_parameter<double>("workspace_max_x", 0.6);
+    workspace_min_y_ = this->declare_parameter<double>("workspace_min_y", -0.3);
+    workspace_max_y_ = this->declare_parameter<double>("workspace_max_y", 0.3);
     downward_roll_rad_ = this->declare_parameter<double>("downward_roll_rad", M_PI);
     downward_pitch_rad_ = this->declare_parameter<double>("downward_pitch_rad", 0.0);
 
@@ -181,11 +181,11 @@ private:
   std::string end_effector_link_;
   std::string goal_topic_;
   bool execute_plan_{true};
-  double target_height_{0.22};
-  double workspace_min_x_{0.10};
-  double workspace_max_x_{0.45};
-  double workspace_min_y_{-0.25};
-  double workspace_max_y_{0.25};
+  double target_height_{0.1519};
+  double workspace_min_x_{0.0};
+  double workspace_max_x_{0.6};
+  double workspace_min_y_{-0.3};
+  double workspace_max_y_{0.3};
   double downward_roll_rad_{M_PI};
   double downward_pitch_rad_{0.0};
   bool busy_{false};
