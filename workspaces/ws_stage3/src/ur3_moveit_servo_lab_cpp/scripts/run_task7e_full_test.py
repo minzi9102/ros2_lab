@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import signal
 import subprocess
 import sys
@@ -134,15 +135,27 @@ def wait_for_completion_count(log_dir: Path, expected_count: int, timeout_sec: f
     return False
 
 
+def signal_process_group(process: subprocess.Popen[str], sig: signal.Signals) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        return
+
+
 def stop_launch(process: subprocess.Popen[str], timeout_sec: float) -> int:
     if process.poll() is not None:
         return process.returncode
 
-    process.send_signal(signal.SIGINT)
+    signal_process_group(process, signal.SIGINT)
     try:
         return process.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
-        process.kill()
+        signal_process_group(process, signal.SIGTERM)
+
+    try:
+        return process.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        signal_process_group(process, signal.SIGKILL)
         return process.wait(timeout=5)
 
 
@@ -185,6 +198,7 @@ def main() -> int:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             text=True,
+            start_new_session=True,
         )
 
         try:
@@ -241,8 +255,7 @@ def main() -> int:
 
             returncode = stop_launch(launch_process, timeout_sec=5.0)
         except subprocess.TimeoutExpired:
-            launch_process.kill()
-            returncode = launch_process.wait(timeout=5)
+            returncode = stop_launch(launch_process, timeout_sec=5.0)
             success = False
 
         if after is None:
