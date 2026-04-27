@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "session_id": "20260427-111657--task7e-moveit-servo",
+  "captured_at": "2026-04-27T11:16:57+08:00",
+  "repository": "ros2_lab",
+  "repo_root": "/home/minzi/ros2_lab",
+  "context": {
+    "source": "current_codex_session",
+    "task_hint": "task7E",
+    "related_paths": [
+      "notes/labs/task7E_moveit_servo.md",
+      "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/launch/task7E_moveit_servo.launch.py",
+      "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/src/servo_twist_commander_node.cpp"
+    ]
+  },
+  "experiences": [
+    {
+      "experience_key": "workflow--task7e-moveit-servo--startup-gates-before-motion",
+      "title": "Task7E MoveIt Servo 启动应先串联状态门闩再允许运动",
+      "summary": "在本仓库的 UR3 + MoveIt Servo fake hardware 链路里，稳定顺序是先等 /joint_states 与 forward_position_controller，再等 /servo_node/status，随后 commander 进入 idle ready，最后通过 Trigger 服务手动触发一轮短时 Twist。这样能把底层状态、Servo 初始化和运动命令失败分开定位。",
+      "experience_type": "workflow",
+      "topics": [
+        "task7e-moveit-servo",
+        "moveit-servo",
+        "ros2-launch"
+      ],
+      "tasks": [
+        "task7E"
+      ],
+      "keywords": [
+        "joint_states gate",
+        "servo status gate",
+        "start_motion",
+        "TWIST command mode",
+        "forward_position_controller"
+      ],
+      "paths": [
+        "notes/labs/task7E_moveit_servo.md",
+        "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/launch/task7E_moveit_servo.launch.py",
+        "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/src/servo_twist_commander_node.cpp"
+      ],
+      "applicability": "适用于后续调试 MoveIt Servo 启动偶发失败、commander 过早发命令、或需要区分控制器 ready 与 Servo ready 的任务。",
+      "evidence": [
+        "commits ca0f66f, 4ba48bb, 8940a0f, aff6c04, ec147ed 逐步建立命令类型握手、ready 门闩、joint state gate、servo status gate 和 settle gate",
+        "logs/task7E/20260427-104753 与 logs/task7E/20260427-104858 均通过 8 次 Trigger 验收"
+      ],
+      "commands": [
+        "ros2 run ur3_moveit_servo_lab_cpp run_task7e_full_test.py --workspace-root . --max-attempts 1 --timeout-sec 60 --trigger-count 8 --use-mock-hardware true --launch-rviz true"
+      ],
+      "followups": [
+        "进入 URSim 或真机前重新校准速度、运行时长和 halt 策略",
+        "若 Servo 未 ready，先看 /joint_states gate 与 /servo_node/status gate 的日志，不要直接改 Twist 参数"
+      ],
+      "confidence": "high"
+    },
+    {
+      "experience_key": "pitfall--task7e-moveit-servo--stationary-mock-joint-state-needs-fresh-relay",
+      "title": "静止 fake hardware 下 Servo 可能需要 fresh-stamped joint state relay",
+      "summary": "mock hardware 静止时关节数值长期不变，MoveIt Servo 的 CurrentStateMonitor 可能一直等待机器人状态更新。7E 最终通过实验专用 /task7e/joint_states_fresh relay 持续转发带新时间戳的 JointState，让静止态启动也能稳定通过。",
+      "experience_type": "pitfall",
+      "topics": [
+        "task7e-moveit-servo",
+        "moveit-current-state-monitor",
+        "fake-hardware"
+      ],
+      "tasks": [
+        "task7E"
+      ],
+      "keywords": [
+        "CurrentStateMonitor",
+        "joint_state_stamp_relay_node",
+        "/task7e/joint_states_fresh",
+        "static joint state",
+        "Servo startup"
+      ],
+      "paths": [
+        "notes/labs/task7E_moveit_servo.md",
+        "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/src/joint_state_stamp_relay_node.cpp",
+        "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/launch/task7E_moveit_servo.launch.py"
+      ],
+      "applicability": "适用于 RViz/MoveIt 已启动但 Servo 日志反复等待 robot state update，尤其是 fake hardware 静止初始姿态不变化的场景。",
+      "evidence": [
+        "commit ac1bf2a 将 relay 升级为 C++ 节点，并把 Servo joint_topic 指向 /task7e/joint_states_fresh",
+        "最终两轮 8-trigger 验收中均出现 Servo initialized successfully 与 Received ServoStatus"
+      ],
+      "commands": [
+        "rg -n \"Waiting to receive robot state update|Servo initialized successfully|Received ServoStatus\" logs/task7E/<run>/*.log"
+      ],
+      "followups": [
+        "如果后续真实机器人状态持续更新，可重新评估是否仍需要 7E 专用 fresh relay",
+        "不要把静止态 CurrentStateMonitor 问题误判为 Twist 速度参数问题"
+      ],
+      "confidence": "high"
+    },
+    {
+      "experience_key": "validation--task7e-moveit-servo--repeatable-trigger-harness",
+      "title": "Task7E 的稳定性应通过重复 Trigger harness 验收",
+      "summary": "一次 launch 成功不足以证明 Servo 闭环稳定。7E 使用 run_task7e_full_test.py 在单次 launch 内重复调用 /ur3_servo_twist_commander/start_motion，并检查每轮是否 accepted、是否发布 halt、是否回到 idle；最终两轮 trigger-count=8 均 PASS，作为 fake hardware 收口证据。",
+      "experience_type": "validation",
+      "topics": [
+        "task7e-moveit-servo",
+        "validation",
+        "test-harness"
+      ],
+      "tasks": [
+        "task7E"
+      ],
+      "keywords": [
+        "run_task7e_full_test.py",
+        "trigger-count",
+        "Servo command sequence finished",
+        "process group cleanup",
+        "logs/task7E"
+      ],
+      "paths": [
+        "notes/labs/task7E_moveit_servo.md",
+        "workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp/scripts/run_task7e_full_test.py"
+      ],
+      "applicability": "适用于后续需要证明 Servo/launch 修改没有引入偶发启动或重复触发失败的场景。",
+      "evidence": [
+        "commit 4d8f212 新增 retry harness，commit d3f6a00 清理测试进程组",
+        "logs/task7E/20260427-104753 和 logs/task7E/20260427-104858 均记录 8 次 accepted 与 8 次 Servo command sequence finished"
+      ],
+      "commands": [
+        "ros2 run ur3_moveit_servo_lab_cpp run_task7e_full_test.py --workspace-root . --max-attempts 1 --timeout-sec 60 --trigger-count 8 --use-mock-hardware true --launch-rviz true"
+      ],
+      "followups": [
+        "文档收口时记录日志目录，而不是复制大段日志",
+        "遇到 harness 卡住或残留进程时先检查进程组清理逻辑"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

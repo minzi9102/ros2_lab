@@ -13,6 +13,8 @@
   - `/servo_node/status`
 - 理解 Servo 为什么属于“连续速度控制”，而不是“离线路径规划”。
 
+Servo 属于连续速度控制，是因为它实时根据当前状态和输入，持续生成下一时刻的速度命令；离线路径规划则是在执行前先算出整条轨迹，再交给执行链路跟随。
+
 ## 2. 应用包位置
 - 包路径：`/home/minzi/ros2_lab/workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp`
 - 关键文件：
@@ -150,3 +152,70 @@ ros2 service call /ur3_servo_twist_commander/start_motion std_srvs/srv/Trigger "
 ## 7. 完成记录
 - 日期：2026-04-27
 - 备注：Task 7E 已完成 fake hardware 下 MoveIt Servo 最小闭环；`launch-rviz=true` 下连续两轮、每轮 8 次手动触发均通过。URSim、真机、遥操作和视觉伺服留作后续独立任务。
+
+## 8. 调试与修改记录
+
+### 8.1 从骨架到可触发命令
+- `8295f12 feat(task7E): 新建MoveIt Servo练习包骨架`
+  - 新建 `ur3_moveit_servo_lab_cpp`，建立 launch、CMake、package 和 `servo_twist_commander_node.cpp`。
+  - 目标是先跑通最小 Servo 链路，而不是一次性加入遥操作或真机策略。
+- `ca0f66f fix(task7E): 补上 Servo 启动命令类型握手`
+  - commander 启动后先调用 `/servo_node/switch_command_type`，显式切到 TWIST。
+  - 避免 `TwistStamped` 已经发布，但 Servo 仍处在其他命令模式。
+- `4ba48bb fix(task7E): 为 Servo 命令增加 ready 状态门闩`
+  - commander 不再一启动就发非零速度，而是等待 Servo status 后再允许进入可运行状态。
+  - 这一步把“启动流程”和“运动命令”拆开，日志更容易判断失败点。
+- `3f3a532 feat(task7E): 手动触发 servo commander`
+  - 新增 `/ur3_servo_twist_commander/start_motion` 服务。
+  - 每次触发只执行一轮短时运动，结束后发布 halt 并回到 idle，便于重复试验。
+
+### 8.2 启动顺序与可观测性
+- `4130556 fix(task7E): 独立启动 Servo 节点便于排障`
+  - 不直接依赖顶层 MoveIt launch 的 Servo 开关，而是在 7E wrapper 中独立启动 `servo_node`。
+  - 这样可以单独观察 Servo 参数、status 和 commander 的启动时序。
+- `233b920 fix(task7E): 暴露 commander frame_id 启动参数`
+  - 将 `frame_id` 暴露为 launch 参数，便于比较 `tool0` 等参考系对 Twist 语义的影响。
+- `006c618 fix(task7E): 为每次 Servo 测试生成独立日志目录`
+  - 每次运行生成 `logs/task7E/<timestamp>`，后续排障能直接对照单次实验日志。
+- `5e60970 fix(task7E): 暴露线速度轴向测试参数`
+  - 将 `linear_x/y/z` 暴露为 launch 参数，保留默认保守速度，同时支持单轴对比。
+- `8aa4855 docs(task7E): 补充 servo 教学注释`
+  - 给 launch 和 commander 增加教学注释，说明为什么要分阶段启动、为什么默认用 `tool0`。
+
+### 8.3 解决启动不稳定
+- `82d89d4 fix(task7E): 将初始姿态切换为 test_configuration`
+  - 增加 7E 专用 URDF wrapper 和初始关节位置文件，减少初始状态对 Servo 启动的干扰。
+- `8940a0f feat(task7e): delay servo startup until joint states arrive`
+  - 新增 `/joint_states` gate，底层状态流和控制器 ready 后才启动 Servo。
+  - 失败时能明确知道问题卡在 controller/joint state 阶段，而不是误判为 commander 问题。
+- `db23f80 fix(task7E): stabilize servo current state monitor startup`
+  - 强化 joint state gate，降低 MoveIt CurrentStateMonitor 启动窗口导致的偶发失败。
+- `aff6c04 fix(task7E): gate commander on servo status`
+  - 新增 `/servo_node/status` gate，只有看到 Servo status 后才启动 commander。
+  - 这一步把启动链路收敛成：`/joint_states` ready -> Servo status ready -> commander ready。
+- `ec147ed fix(task7E): add servo startup settle gate`
+  - joint state gate 通过后增加 settle 时间，避开 MoveIt 和控制器刚启动时的抖动窗口。
+- `dba5c50 fix(task7E): follow ur servo planning scene ownership`
+  - 避免 7E wrapper 额外争用 planning scene 相关职责，减少与 `ur_moveit_config` 默认链路的冲突。
+
+### 8.4 验收脚本与静止态问题
+- `8294234 test(task7E): probe standalone servo startup path`
+  - 尝试把问题拆到独立 Servo 启动路径中定位，而不是只看完整 launch 的混合日志。
+- `4d8f212 fix(task7E): add servo-ready retry harness`
+  - 新增 `run_task7e_full_test.py`，自动启动 launch、等待服务、触发 motion、检查完成标记。
+  - 这让“是否稳定”从人工观察变成可重复的 PASS/FAIL 判断。
+- `ac1bf2a fix(task7E): 稳定静止态 servo 启动`
+  - 将 Python relay 升级为 C++ `joint_state_stamp_relay_node`，持续发布 fresh-stamped joint states。
+  - 背景是 mock robot 静止时关节数值不变，MoveIt 等待“新状态”时可能迟迟不醒。
+- `d3f6a00 fix(task7E): 清理 servo 测试进程组`
+  - harness 结束时清理 launch 进程组，避免残留 ROS 进程污染下一轮测试。
+- `7757a5e docs(task7E): 收口 servo fake hardware 验收`
+  - 记录两轮 `trigger-count=8` 的最终验收结果，并明确 URSim/真机 Servo 留作后续任务。
+
+## 9. 经验总结
+- Servo 调试不要一开始就盯着 Twist 数值。更可靠的顺序是先确认底层状态和控制器，再确认 Servo status，再启动 commander，最后才触发非零速度。
+- 对 MoveIt Servo 来说，“能收到 `/joint_states`”不等于 CurrentStateMonitor 一定会及时满足等待条件。mock hardware 静止时，fresh stamp relay 可以把静止状态也变成稳定的可观测输入。
+- commander 默认不自动运动是更安全的实验形态。让它先进入 idle ready，再通过 `Trigger` 服务手动开始一轮短时运动，能避免 launch 一成功就发非零速度。
+- 每轮运动结束后发布若干次零速度 halt，比单纯停止发布命令更清楚：日志里能看到主动停机意图，控制链路也有明确的收尾消息。
+- 独立日志目录和 harness 很重要。7E 后期的判断不是靠“这次看起来没报错”，而是靠两个目录中重复出现的 `Servo initialized successfully`、`Received ServoStatus`、`Accepted start_motion` 和 `Servo command sequence finished`。
+- fake hardware 下可接受 `/recognize_objects not available`、`No 3D sensor plugin(s) defined` 和 realtime/FIFO warning；这些不是 7E 最小 Servo 闭环的失败信号。
