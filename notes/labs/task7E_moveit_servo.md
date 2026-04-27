@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[#] 已创建 Servo bringup 与 Twist 命令骨架，速度参数待你亲自校准`
+- 当前状态：`[x] 已完成 fake hardware 下 MoveIt Servo 最小闭环验收`
 
 ## 1. 目标
 - 在 `workspaces/ws_stage3/src/ur3_moveit_servo_lab_cpp` 中跑通最小 MoveIt Servo 链路。
@@ -26,12 +26,13 @@
   - `TwistStamped` 周期发布节点；
   - `/servo_node/status` 订阅；
   - `start_motion` 手动触发入口；
-  - 7E 实验记录模板。
-- 待你完成：
-  - 判断线速度 / 角速度上限；
-  - 判断运行持续时间；
-  - 判断停止策略是否足够保守；
-  - 在 fake hardware 下完成最小验收。
+  - 7E 实验记录模板；
+  - fake hardware 下 2 轮、每轮 8 次手动触发验收。
+- 本任务不继续扩展到：
+  - URSim / 真机 Servo；
+  - 遥操作输入设备；
+  - 视觉伺服；
+  - 多控制模式切换策略。
 
 ## 4. 练习 1：构建 7E C++ 包
 
@@ -44,8 +45,15 @@ source install/setup.bash
 ```
 
 ### 结果记录
-- 是否构建通过：
-- 若失败，错误集中在哪个 `ServoStatus` 或 `TwistStamped` 依赖：
+- 是否构建通过：通过。
+- 构建命令：
+  ```bash
+  cd /home/minzi/ros2_lab/workspaces/ws_stage3
+  source /opt/ros/jazzy/setup.bash
+  colcon build --packages-select ur3_moveit_servo_lab_cpp
+  source install/setup.bash
+  ```
+- 结果：`1 package finished`，未出现 `ServoStatus` 或 `TwistStamped` 依赖错误。
 
 ## 5. 练习 2：审查速度与停机参数
 
@@ -83,20 +91,28 @@ source install/setup.bash
 - 停止发命令后能看到机械臂停下。
 - 你能解释为什么 Servo 不是 MoveGroup 的替代品。
 
-### 恢复方式
-- 你改完参数或命令策略后告诉我“请 review task7E 实现”。
-- 我会继续帮你：
-  - review 速度边界；
-  - 检查 status 输出；
-  - 修正构建与 launch 问题。
+### 参数结论
+- `linear_x=0.02`：在 fake hardware + RViz 下可观察到 Servo 命令链路响应，同时保持足够保守。
+- `run_duration_sec=2.5`：单次运动窗口足够观察启动、持续发布和停止收尾，不会把一次练习拉得过长。
+- `halt_publish_count=5`：每轮结束后能稳定发布零速度 halt，并让 commander 回到 idle。
+- 当前未启用角速度命令，避免把 7E 的首轮目标扩大到姿态伺服。
+
+### 学习结论
+- Servo 是连续速度控制：它持续消费当前 `TwistStamped` 命令并即时修正运动，而不是先生成一整条离线轨迹再交给控制器执行。
+- `forward_position_controller` 适合本任务的最小闭环，因为 7E 要观察 Servo 到前向位置控制器的直接命令链路，而不是复用 `scaled_joint_trajectory_controller` 的轨迹执行语义。
+- halt 零速度消息用于明确结束一次短时运动，让“停止发布非零速度”和“发送停止意图”在日志与控制链路里都可观察。
 
 ## 6. 练习 3：运行记录
 
 ### 执行命令
 ```bash
-ros2 launch ur3_moveit_servo_lab_cpp task7E_moveit_servo.launch.py \
-  robot_ip:=192.168.56.101 \
-  use_mock_hardware:=true
+ros2 run ur3_moveit_servo_lab_cpp run_task7e_full_test.py \
+  --workspace-root . \
+  --max-attempts 1 \
+  --timeout-sec 60 \
+  --trigger-count 8 \
+  --use-mock-hardware true \
+  --launch-rviz true
 ```
 
 ### 手动开始一轮速度发布
@@ -110,13 +126,27 @@ ros2 service call /ur3_servo_twist_commander/start_motion std_srvs/srv/Trigger "
 - 你可以重复调用同一个服务，对比不同速度参数下的响应。
 
 ### 记录模板
-- Servo 链路是否启动：
-- 是否收到 `/servo_node/status`：
-- `commander` 是否进入 idle ready：
-- 短时移动是否可见：
-- 停止后是否能停下：
-- 你对当前速度上限与停止策略的评价：
+- Servo 链路是否启动：是，两轮验收均出现 `Servo initialized successfully`。
+- 是否收到 `/servo_node/status`：是，两轮验收均收到 `code=0 message='No warnings'`。
+- `commander` 是否进入 idle ready：是，每次运动结束后都回到 idle。
+- 短时移动是否可见：fake hardware + RViz 下可观察到短时 Servo 命令链路响应。
+- 停止后是否能停下：是，每次触发都出现 `Motion duration elapsed` 后发布 halt，并出现 `Servo command sequence finished`。
+- 你对当前速度上限与停止策略的评价：当前默认值在 fake hardware 下表现稳定，适合作为 7E 的保守入门参数；后续若进入 URSim 或真机，应重新校准速度、持续时间和 halt 策略。
+
+### 验收记录
+- 2026-04-27 10:47:53：`logs/task7E/20260427-104753`
+  - `trigger 1/8` 到 `trigger 8/8` 均 accepted。
+  - 8 次 `Servo command sequence finished. Commander returned to idle.`。
+  - 结果：`status=PASS`。
+- 2026-04-27 10:48:58：`logs/task7E/20260427-104858`
+  - `trigger 1/8` 到 `trigger 8/8` 均 accepted。
+  - 8 次 `Servo command sequence finished. Commander returned to idle.`。
+  - 结果：`status=PASS`。
+- 可接受提示：
+  - `/recognize_objects not available`
+  - `No 3D sensor plugin(s) defined`
+  - realtime / FIFO scheduling warning
 
 ## 7. 完成记录
-- 日期：
-- 备注：
+- 日期：2026-04-27
+- 备注：Task 7E 已完成 fake hardware 下 MoveIt Servo 最小闭环；`launch-rviz=true` 下连续两轮、每轮 8 次手动触发均通过。URSim、真机、遥操作和视觉伺服留作后续独立任务。
