@@ -1,0 +1,23 @@
+# Task 8A preflight skeleton. Copy answers into notes/labs/task8A_real_robot_preflight.md.
+robot:
+  ur_type: "TODO(human): 填写 ur3 或 ur3e"
+  robot_ip: "TODO(human): 填写真机固定 IP"
+  polyscope_version: "TODO(human): 填写 PolyScope / PolyScope X 版本"
+  control_box: "TODO(human): 填写控制柜类型"
+
+ros_pc:
+  pc_ip: "TODO(human): 填写 ROS PC 有线网卡 IP"
+  network_interface: "TODO(human): 填写网卡名，例如 enp3s0"
+  kernel: "TODO(human): 填写 uname -a 结果摘要"
+  realtime_profile: "TODO(human): generic / lowlatency / PREEMPT_RT"
+
+safety:
+  emergency_stop_location: "TODO(human): 描述急停位置"
+  protective_stop_recovery_owner: "TODO(human): 填写现场恢复责任人"
+  external_control_program: "TODO(human): 填写程序名与安装状态"
+  remote_control_ready: "TODO(human): yes / no / not-applicable"
+
+entry_gate:
+  allow_task8b: false
+  blockers:
+    - "TODO(human): 未清零前禁止进入 8B 的事项"
