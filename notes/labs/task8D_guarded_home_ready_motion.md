@@ -24,6 +24,10 @@
   - 默认 dry-run launch；
   - home / ready 点配置模板；
   - 本记录模板。
+- 8D 前置风险：
+  - 实时调度 / overrun 缓解尚未完成；
+  - 当前修复 runbook：`notes/runbooks/real_time_overrun_mitigation.md`；
+  - 未完成前最多进入 dry-run 与状态门闩验证，不应直接执行真实轨迹。
 - 待你完成：
   - 审核并填写 home / ready 关节目标；
   - 判断速度、加速度、delta 上限；
