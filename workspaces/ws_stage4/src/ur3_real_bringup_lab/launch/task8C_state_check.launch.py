@@ -10,6 +10,14 @@ def generate_launch_description() -> LaunchDescription:
         default_value="true",
         description="Record whether External Control is required before motion tasks.",
     )
+    require_trajectory_controller_active_arg = DeclareLaunchArgument(
+        "require_trajectory_controller_active",
+        default_value="false",
+        description=(
+            "Set true only for pre-motion checks; Task 8C readonly checks keep "
+            "trajectory controllers inactive."
+        ),
+    )
     report_only_arg = DeclareLaunchArgument(
         "report_only",
         default_value="true",
@@ -24,6 +32,9 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {
                 "require_external_control": LaunchConfiguration("require_external_control"),
+                "require_trajectory_controller_active": LaunchConfiguration(
+                    "require_trajectory_controller_active"
+                ),
                 "report_only": LaunchConfiguration("report_only"),
             }
         ],
@@ -32,6 +43,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             require_external_control_arg,
+            require_trajectory_controller_active_arg,
             report_only_arg,
             state_check,
         ]
