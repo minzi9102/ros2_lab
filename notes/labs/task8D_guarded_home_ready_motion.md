@@ -4,7 +4,7 @@
 - `[ ] 未开始`
 - `[#] 进行中`
 - `[x] 已完成`
-- 当前状态：`[ ] 待填写`
+- 当前状态：`[#] 方案完善中，等待人工审批后才进入 8D 执行`
 
 ## 1. 目标
 - 在 8A-8C 通过后，执行第一组低速、小范围、人工确认过的真机关节空间动作。
@@ -25,13 +25,30 @@
   - home / ready 点配置模板；
   - 本记录模板。
 - 8D 前置风险：
-  - 实时调度 / overrun 缓解尚未完成；
-  - 当前修复 runbook：`notes/runbooks/real_time_overrun_mitigation.md`；
-  - 未完成前最多进入 dry-run 与状态门闩验证，不应直接执行真实轨迹。
+  - calibration 已提取并归档，但进入动作前必须确认已接入当前 driver / description 链路，且不再出现 calibration mismatch；
+  - 实时调度 / overrun 已完成阶段性修复，但进入动作前仍需确认 driver 日志中 FIFO warning 消失、overrun 未频繁刷屏；
+  - 当前 `remote_control=false`，本阶段策略是由人类在示教器上启动 External Control，ROS 端不远程 load/play 程序；
+  - 当前 `scaled_joint_trajectory_controller` 在 8C 只读模式下保持 inactive，动作前门闩会因此 block，只有审批后才允许讨论显式激活。
+- 当前修复 / 记录位置：
+  - calibration 归档：`docs/calibration/ur3e_real_calibration.yaml`
+  - calibration 运行副本：`workspaces/ws_stage4/src/ur3_real_bringup_lab/config/ur3e_real_calibration.yaml`
+  - 实时调度 runbook：`notes/runbooks/real_time_overrun_mitigation.md`
 - 待你完成：
+  - 审批是否允许进入 8D；
   - 审核并填写 home / ready 关节目标；
   - 判断速度、加速度、delta 上限；
   - 现场确认是否允许执行。
+
+## 3.1 当前状态记录（2026-04-28）
+- calibration 文件状态：`已提取；docs/calibration 与 ws_stage4 config 副本一致；hash=calib_9781467669625414396`
+- calibration 接入状态：`待 8D 审批后在 bringup/description wrapper 中确认；未确认前不进入真实动作`
+- 实时内核：`6.8.0-110-lowlatency`
+- realtime 权限：`minzi 在 realtime 组；ulimit -r=99；ulimit -l=unlimited；chrt -f 50 true 通过`
+- 电源策略：`powerprofilesctl=performance；12 个 CPU energy_performance_preference=performance；intel_pstate active 下 scaling_governor 仍显示 powersave，按 runbook 不单独判失败`
+- 机器人网络：`192.168.56.101 dev enp7s0 src 192.168.56.2`
+- 8C 只读门闩：`WARN，可用于状态观察与方案评审`
+- 8C 动作前门闩：`BLOCK，阻断项为 scaled_joint_trajectory_controller inactive`
+- 本轮审批状态：`未审批；不得进入 8D 执行`
 
 ## 4. 构建与 dry-run
 ```bash
@@ -46,10 +63,22 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 ```
 
 ### dry-run 记录
-- 是否构建通过：`【请填写】`
-- dry-run 是否运行：`【请填写】`
-- 是否确认未发送 goal：`【请填写】`
-- 输出的关键日志：`【请填写】`
+- 是否构建通过：`待审批后执行`
+- dry-run 是否运行：`待审批后执行`
+- 是否确认未发送 goal：`本轮未进入 8D，未发送 goal`
+- 输出的关键日志：`本轮仅完善方案文档`
+
+### 进入 8D 前必须重新执行的只读检查
+```bash
+cd /home/minzi/ros2_lab/workspaces/ws_stage4
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
+  require_trajectory_controller_active:=true
+```
+
+预期：审批前该门闩仍可因 trajectory controller inactive 而 `BLOCK`；只有在 8D 审批允许激活 controller 后，才允许重新评估。
 
 ## 5. 点位审核填写区
 - home 目标来源：`【请填写】`
@@ -63,6 +92,16 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 - 最短执行时间：`【请填写】`
 - 你选择这些值的理由：`【请填写】`
 
+### 方案审批填写区
+- 是否批准进入 8D：`【待人工审批：批准 / 不批准】`
+- 审批人：`【请填写】`
+- 审批时间：`【请填写】`
+- calibration 接入确认：`【请填写：已确认 / 未确认】`
+- 实时调度确认：`【请填写：已确认 / 未确认】`
+- Remote Control 策略确认：`【请填写：示教器人工启动 / Dashboard 远程】`
+- 是否允许显式激活 `scaled_joint_trajectory_controller`：`【请填写：允许 / 不允许】`
+- 是否允许 `execute:=true`：`【请填写：允许 / 不允许】`
+
 ## 6. 单次执行前记录
 
 | 项目 | 内容 |
@@ -70,6 +109,11 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 | 时间 | `【请填写】` |
 | 操作者 | `【请填写】` |
 | 旁站确认 | `【请填写】` |
+| 8D 审批状态 | `【请填写】` |
+| calibration 文件 | `【请填写】` |
+| calibration mismatch 是否消失 | `【请填写】` |
+| 实时调度状态 | `【请填写】` |
+| Remote Control 策略 | `【请填写】` |
 | 目标名 | `【请填写：home / ready】` |
 | 当前 joint state | `【请填写】` |
 | 目标 joint state | `【请填写】` |

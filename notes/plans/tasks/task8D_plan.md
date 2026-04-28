@@ -8,7 +8,20 @@
 ## 2. 当前基线（来自仓库现状）
 - 阶段 2 已完成 FollowJointTrajectory 和 URSim speed scaling。
 - 阶段 3 已完成 MoveIt 规划执行，但真机首轮不直接复用复杂规划。
-- 8C 将提供执行前状态门闩。
+- 8C 已提供 Dashboard、External Control、controller 与状态流门闩：
+  - 只读状态门闩为 `WARN`，主要 warning 为 `remote_control=false` 与轨迹控制器 inactive；
+  - 动作前门闩为 `BLOCK`，阻断项为 `scaled_joint_trajectory_controller` inactive。
+- 真机 calibration 已提取并归档：
+  - 归档路径：`docs/calibration/ur3e_real_calibration.yaml`
+  - 运行副本：`workspaces/ws_stage4/src/ur3_real_bringup_lab/config/ur3e_real_calibration.yaml`
+  - 两份文件当前一致，hash 为 `calib_9781467669625414396`。
+- 实时调度与电源策略已完成阶段性修复：
+  - 当前内核：`6.8.0-110-lowlatency`
+  - `minzi` 已在 `realtime` 组，`ulimit -r = 99`，`ulimit -l = unlimited`
+  - `chrt -f 50 true` 通过
+  - `powerprofilesctl get = performance`，12 个 CPU 的 `energy_performance_preference = performance`
+  - `scaling_governor` 在 `intel_pstate active` 下仍显示 `powersave`，按 runbook 不单独判定为失败。
+- 当前用户要求：本轮只完善 8D 方案文档，等待人工审批后才进入 8D 执行。
 
 ## 3. 任务范围（单功能约束）
 - 包含：
@@ -24,6 +37,19 @@
   - 循环执行；
   - 自动恢复 protective stop；
   - 非人工确认的无人值守动作。
+
+## 3.1 本轮审批边界
+- 本轮允许：
+  - 完善 8D 方案；
+  - 记录 calibration 与实时调度当前状态；
+  - 明确进入 8D 前需要审批的检查项；
+  - 保留 dry-run / 状态门闩命令作为后续入口。
+- 本轮不允许：
+  - 启动真实机器人 driver；
+  - 激活 `scaled_joint_trajectory_controller`；
+  - 发送 FollowJointTrajectory goal；
+  - 修改或执行任何真实动作逻辑；
+  - 将“状态可观察”解释为“可以运动”。
 
 ## 4. 包设计建议
 - 包名：`ur3_real_guarded_motion_lab_cpp`
@@ -62,6 +88,17 @@
 
 ## 7. 实施步骤
 
+### 练习 0：审批前复核，不进入动作
+1. 确认 8A-8C 记录均已完成。
+2. 确认 calibration 文件已接入后续 bringup / description wrapper；如果尚未接入，只允许继续方案设计或 dry-run。
+3. 确认实时调度状态：
+   - lowlatency 内核；
+   - `SCHED_FIFO` 可用；
+   - power profile / EPP 为 performance；
+   - driver 启动时 FIFO warning 消失，overrun 不频繁刷屏。
+4. 确认 `remote_control=false` 的现场策略：本阶段采用“人类在示教器上启动 External Control，ROS 端不远程 load/play 程序”。
+5. 确认动作前门闩仍会在 trajectory controller inactive 时 block。
+
 ### 练习 1：准备目标点但不执行
 1. 人类给出 home / ready 候选关节值。
 2. 记录每个关节目标、单位、来源、现场审核人。
@@ -69,10 +106,23 @@
 
 ### 练习 2：实现执行前检查
 1. 检查 8C 状态门闩是否通过。
-2. 检查当前 joint state 是否新鲜、关节名是否匹配。
-3. 检查目标是否在允许范围内。
-4. 检查每个关节 delta 是否小于本任务上限。
-5. 检查速度、加速度、执行时长是否保守。
+2. 检查真机 calibration 是否已在当前 driver/description 链路生效，不再出现 calibration mismatch。
+3. 检查当前 joint state 是否新鲜、关节名是否匹配。
+4. 检查目标是否在允许范围内。
+5. 检查每个关节 delta 是否小于本任务上限。
+6. 检查速度、加速度、执行时长是否保守。
+
+建议动作前最小门闩：
+- `robot_mode=RUNNING`
+- `safety_mode=NORMAL` 或人工解释过的 `REDUCED`
+- `program_running=true`
+- `speed_scaling > 0`
+- `/joint_states` 新鲜且频率稳定
+- `joint_state_broadcaster=active`
+- `scaled_joint_trajectory_controller=active`
+- calibration mismatch 已消除
+- FIFO warning 已消除，overrun 未频繁刷屏
+- `remote_control=false` 的情况下，External Control 由示教器人工启动并由现场确认
 
 ### 练习 3：人工确认后执行单次小动作
 1. 只发送一个目标。
@@ -92,6 +142,10 @@ source /opt/ros/jazzy/setup.bash
 colcon build --packages-select ur3_real_guarded_motion_lab_cpp
 source install/setup.bash
 
+# 进入 8D 前再次确认状态门闩；本命令只检查，不会激活 controller
+ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
+  require_trajectory_controller_active:=true
+
 # dry-run：只检查，不发送 goal
 ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py \
   execute:=false \
@@ -101,6 +155,7 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py \
   execute:=true \
   require_confirmation:=true \
+  human_confirmation:=I_CONFIRM_REAL_ROBOT_MOTION \
   target_name:=ready
 ```
 
@@ -111,6 +166,11 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 | 时间 | |
 | 操作者 | |
 | 旁站确认 | |
+| 8D 审批人 | |
+| calibration 文件 | `docs/calibration/ur3e_real_calibration.yaml` / 运行副本 |
+| calibration mismatch 是否消失 | yes / no |
+| 实时调度状态 | lowlatency / SCHED_FIFO / performance |
+| Remote Control 策略 | 示教器人工启动 / Dashboard 远程 |
 | 目标名 | home / ready |
 | 当前 joint state | |
 | 目标 joint state | |
