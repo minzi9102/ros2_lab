@@ -70,6 +70,14 @@ ros2 service call <program_state_service> <service_type> "{}"
 - Action server 是否存在：`存在 /scaled_joint_trajectory_controller/follow_joint_trajectory 和 /trajectory_until_node/execute；本轮未调用`
 - External Control 是否运行：`是，program_running=true，speed_scaling=100.0`
 
+## 6.1 真机 calibration 记录
+- 提取状态：`已提取`
+- 主用文件：`workspaces/ws_stage4/src/ur3_real_bringup_lab/config/ur3e_real_calibration.yaml`
+- 仓库归档副本：`docs/calibration/ur3e_real_calibration.yaml`
+- calibration hash：`calib_9781467669625414396`
+- 文件用途：`替代 ur_description 默认 kinematics 参数，使 robot_description、TF、MoveIt 与 TCP 位姿计算使用当前这台 UR3e 的真实标定参数。`
+- 当前处理状态：`已记录并归档；尚未接入 task8B/task8C bringup wrapper。后续进入 8D 前，需要通过 description launch/wrapper 将该文件作为 kinematics_params_file 传入。`
+
 ## 7. 状态门闩矩阵
 
 | 类别 | 检查项 | 当前结果 | pass/warn/block | 说明 |
@@ -94,8 +102,8 @@ ros2 service call <program_state_service> <service_type> "{}"
 
 ## 8. 你需要完成的判断
 - 本轮状态门闩是否通过：`只读 8C 通过但带 warning；动作前门闩不通过`
-- 如果不通过，阻断项：`进入动作任务前，scaled_joint_trajectory_controller 仍为 inactive；此外 calibration mismatch、FIFO/实时调度 warning、overrun warning 需要作为 8D 风险前置记录`
-- 如果通过，进入 8D 前还需人工确认什么：`是否允许在 8D 中显式激活轨迹控制器；是否接受当前 remote_control=false 的现场操作模式；是否先提取并使用真机 calibration 文件；是否继续在非实时内核/powersave 下仅做极低风险动作测试`
+- 如果不通过，阻断项：`进入动作任务前，scaled_joint_trajectory_controller 仍为 inactive；此外 calibration 文件已提取但尚未接入 bringup，FIFO/实时调度 warning、overrun warning 也需要作为 8D 风险前置记录`
+- 如果通过，进入 8D 前还需人工确认什么：`是否允许在 8D 中显式激活轨迹控制器；是否接受当前 remote_control=false 的现场操作模式；是否先把真机 calibration 文件接入 description launch/wrapper；是否继续在非实时内核/powersave 下仅做极低风险动作测试`
 
 ## 9. 完成标准
 - Dashboard、controller、External Control 状态都已记录。
@@ -104,5 +112,5 @@ ros2 service call <program_state_service> <service_type> "{}"
 
 ## 10. 完成记录
 - 日期：`2026-04-28`
-- 最终结论：`8C 完成。Dashboard、External Control、状态流和 controller manager 均可只读查询；当前状态允许继续做 8D 前置设计与人工评审，但不允许直接进入运动执行。`
-- 下一步：`进入 8D 前，先决定 calibration、实时调度、Remote Control 与 trajectory controller 激活策略；若继续 8D，必须保持 guarded home-ready motion 的最小动作范围。`
+- 最终结论：`8C 完成。Dashboard、External Control、状态流和 controller manager 均可只读查询；真机 calibration 已提取并归档；当前状态允许继续做 8D 前置设计与人工评审，但不允许直接进入运动执行。`
+- 下一步：`进入 8D 前，先把 calibration 接入 bringup wrapper，并决定实时调度、Remote Control 与 trajectory controller 激活策略；若继续 8D，必须保持 guarded home-ready motion 的最小动作范围。`
