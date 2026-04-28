@@ -101,8 +101,8 @@ cat /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference | sort | 
 ```
 
 通过条件：
-- 所有 CPU governor 均为 `performance`；
-- 或在 `intel_pstate` 环境下，`powerprofilesctl get` 为 `performance`，且 `energy_performance_preference` 不再是保守电源策略。
+- 非 `intel_pstate` 环境：所有 CPU governor 均为 `performance`；
+- `intel_pstate` active 环境：`powerprofilesctl get` 为 `performance`，且 `energy_performance_preference` 为 `performance`。此时 `scaling_governor` 仍可能显示 `powersave`，不要把这一项单独当作失败。
 
 ### 4. 延迟与 driver 验证
 基础延迟测试：
@@ -138,6 +138,8 @@ ros2 launch ur3_real_bringup_lab task8B_readonly_bringup.launch.py \
 - `cyclictest -p 80 -m -i 1000 -l 10000 -q`：`Min 2 us / Avg 6 us / Max 51 us`；同时提示 `/dev/cpu_dma_latency` 权限不足，说明本轮未成功锁住电源管理延迟约束。
 - driver 只读验证：FIFO warning 已消失，日志出现 `Successful set up FIFO RT scheduling policy with priority 50` 与 `SCHED_FIFO OK, priority 99`。
 - 未完全通过项：当前 `powerprofilesctl get` 为 `balanced`，实际 12 个 CPU governor 仍为 `powersave`；`cpufrequtils` 虽为 enabled/active 且 `/etc/default/cpufrequtils` 已写 `GOVERNOR="performance"`，但被更高层电源策略覆盖。
+- 补充验证：执行 `powerprofilesctl set performance` 后，`powerprofilesctl get` 为 `performance`，12 个 CPU 的 `energy_performance_preference` 均为 `performance`，当前频率约 `3.00 GHz`。由于系统使用 `intel_pstate active`，`scaling_governor` 仍显示 `powersave`，本轮按 EPP 与 power profile 判定性能策略已切换。
+- 性能策略切换后再次运行 `cyclictest -p 80 -m -i 1000 -l 10000 -q`：`Min 1 us / Avg 8 us / Max 60 us`；仍提示 `/dev/cpu_dma_latency` 权限不足。
 - 仍需单独处理：机器人 calibration mismatch 仍存在；controller 激活阶段仍可能出现一次性 overrun warning，需继续观察是否频繁刷屏。
 
 ## 8D 前准入建议
