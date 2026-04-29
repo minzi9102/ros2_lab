@@ -152,22 +152,22 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 
 | 项目 | 内容 |
 |---|---|
-| 时间 | `【请填写】` |
-| 操作者 | `【请填写】` |
-| 旁站确认 | `【请填写】` |
-| 8D 审批状态 | `【请填写】` |
-| calibration 文件 | `【请填写】` |
-| calibration mismatch 是否消失 | `【请填写】` |
-| 实时调度状态 | `【请填写】` |
-| Remote Control 策略 | `【请填写】` |
-| 目标名 | `【请填写：home / ready】` |
-| 当前 joint state | `【请填写】` |
-| 目标 joint state | `【请填写】` |
-| 每关节 delta | `【请填写】` |
-| 8C 状态门闩结果 | `【请填写】` |
-| controller 状态 | `【请填写】` |
-| robot / safety / program 状态 | `【请填写】` |
-| 人工确认 | `【请填写：yes / no】` |
+| 时间 | `2026-04-29 21:26:41 CST` |
+| 操作者 | `用户现场操作；Codex 只读复核与记录` |
+| 旁站确认 | `待真实执行前现场再次确认` |
+| 8D 审批状态 | `已审批通过；本轮仅完成执行前记录，不发送 goal` |
+| calibration 文件 | `workspaces/ws_stage4/src/ur3_real_bringup_lab/config/ur3e_real_calibration.yaml` |
+| calibration mismatch 是否消失 | `是；日志显示 Calibration checked successfully，checksum=calib_9781467669625414396` |
+| 实时调度状态 | `lowlatency；SCHED_FIFO OK；powerprofilesctl=performance；CPU EPP=performance` |
+| Remote Control 策略 | `remote_control=false；示教器人工启动 External Control；ROS 端不远程 load/play` |
+| 目标名 | `ready` |
+| 当前 joint state | `[1.5376816987991333, -1.6184712849059046, 1.4087899366961878, -2.942134996453756, -1.5928576628314417, -0.09972602525819951]` |
+| 目标 joint state | `[1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.04980899492372686]` |
+| 每关节 delta | `配置 home->ready: [0, 0, 0, 0, 0, 0.05]；当前->ready 约 [-0.000046, -0.000082, -0.000030, 0.000013, 0.000028, 0.049917]` |
+| 8C 状态门闩结果 | `WARN；唯一 warning 为 remote_control=false` |
+| controller 状态 | `scaled_joint_trajectory_controller=active；joint_state_broadcaster=active；speed_scaling_state_broadcaster=active` |
+| robot / safety / program 状态 | `robot_mode=RUNNING；safety_mode=NORMAL；External Control program_running=true；speed_scaling=100.0` |
+| 人工确认 | `待真实执行前输入确认 token 并现场确认急停可达` |
 
 ## 7. 真实执行记录
 > 只有 8C 通过、点位审核完成、现场人工确认后，才允许填写并执行本节。
