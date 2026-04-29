@@ -101,6 +101,7 @@ ros2 run ur3_real_guarded_motion_lab_cpp guarded_joint_motion_node --ros-args \
 | controller inactive | 执行前 | `已验证` | 拒绝执行 | 是 | 否 | `Local 模式下 External Control 显示 PLAYING、speed_scaling=100.0，但 scaled_joint_trajectory_controller=inactive，8C BLOCK` |
 | External Control 未运行 / 生命周期残留 | 执行前 | `已验证恢复路径` | 拒绝执行，人工切 Remote Control 后由 PC stop/load/play | 是 | 否 | `Remote Control=true 后 PC 调用 stop/load_program/play 成功，8C 恢复 PASS` |
 | Action 执行异常 | 执行中 | `已观察` | cancel / 停止观察 | 是 | 否 | `早期 ready goal 出现 action success 但 /joint_states 未到位；已增加 final-target gate` |
+| 低速 cancel | 执行中 | `已验证` | cancel goal，记录结果和最终关节状态 | 是 | 否 | `ready->home 5s 轨迹，1s 后 cancel；action result CANCELED；最终状态仍在 reviewed home envelope 内` |
 | protective stop | 任意阶段 | `【请填写】` | 停止脚本，人工处理 | 是 | 否 | `【请填写】` |
 | driver 断连 | 任意阶段 | `【请填写】` | 停止脚本，记录日志 | 是 | 否 | `【请填写】` |
 
@@ -151,10 +152,47 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 - 8C：`robot_mode=RUNNING；safety_mode=NORMAL；program_running=true；remote_control=True；scaled_joint_trajectory_controller=active；/joint_states=502.9 Hz；speed_scaling=100.0；Task 8C gate result: PASS`
 - 复核：`2026-04-29 22:16 CST 再次运行 8C，/joint_states=503.2 Hz，Task 8C gate result: PASS`
 
+## 7.2 低速 cancel 路径
+
+执行前状态：
+
+- 8C：`PASS；robot_mode=RUNNING；safety_mode=NORMAL；program_running=true；remote_control=True；scaled_joint_trajectory_controller=active；/joint_states=503.0 Hz；speed_scaling=100.0`
+- 当前姿态：`接近 ready；wrist_3_joint=-0.049824062977926076`
+- cancel 测试策略：`target_name=home；min_trajectory_duration_sec=5.0；cancel_after_sec=1.0；max_joint_delta_rad=0.10`
+- 安全边界：`取消后不要求到达 home，只要求最终姿态仍在 reviewed home envelope 内`
+
+执行命令：
+
+```bash
+ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py \
+  execute:=true \
+  require_confirmation:=true \
+  human_confirmation:=I_CONFIRM_REAL_ROBOT_MOTION \
+  target_name:=home \
+  cancel_after_sec:=1.0
+```
+
+结果摘要：
+
+- 起点读取：`current_positions_rad=[1.537635, -1.618500, 1.408689, -2.942183, -1.592838, -0.049828]`
+- 起点门闩：`Current-home gate passed；wrist_3_joint current_minus_home=0.049981 rad`
+- goal：`Goal accepted by controller`
+- cancel：`Cancel test armed；Cancel response: return_code=0 goals_canceling=1`
+- action result：`status=5；error_code=0；error_string=''`
+- 最终读取：`current_positions_rad=[1.537575, -1.618468, 1.408661, -2.942152, -1.592877, -0.054685]`
+- 最终 envelope：`Current-home gate passed；wrist_3_joint current_minus_home=0.045124 rad`
+- 节点结论：`Task 8E cancel path finished with final state inside the reviewed home envelope.`
+
+执行后复核：
+
+- `/joint_states`：`[1.5376189947128296, -1.6185304127135218, 1.4087231794940394, -2.9421001873412074, -1.592809025441305, -0.05467397371401006]`
+- 8C：`PASS；/joint_states=502.9 Hz；scaled_joint_trajectory_controller=active；speed_scaling=100.0`
+- 处理原则：`cancel 后不自动补发 home/ready；是否回 home 由现场人工另行确认`
+
 ## 8. 你需要完成的判断
-- 本轮异常验证是否足够：`对目标名非法、缺少人工确认 token、External Control 生命周期残留与 controller inactive 路径足够；不覆盖保护停机类异常`
+- 本轮异常验证是否足够：`对目标名非法、缺少人工确认 token、delta 过大、/joint_states 缺失、External Control 生命周期残留、controller inactive 与低速 cancel 路径足够；不覆盖保护停机类异常`
 - 哪些异常不适合实测，只能写 runbook：`protective stop、safeguard stop、brake release、power cycle、restart safety`
-- 8F 收口前还缺哪些证据：`规范化关机顺序；必要时补充 controller_state speed_scaling_factor 与 speed_scaling topic 的差异说明；是否测试 cancel 路径需由现场人工再判断`
+- 8F 收口前还缺哪些证据：`规范化关机顺序；必要时补充 controller_state speed_scaling_factor 与 speed_scaling topic 的差异说明`
 
 ## 9. 完成标准
 - 至少一个执行前拒绝路径有证据。
@@ -163,5 +201,5 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 
 ## 10. 完成记录
 - 日期：`2026-04-29`
-- 最终结论：`已复现 PC bringup 与示教器 External Control 生命周期脱节导致的 8C BLOCK；Remote Control 模式下由 PC stop/load/play External Control 可恢复到 8C PASS`
-- 下一步：`固化 8D/8F 的标准启动与关机顺序：Remote Control 模式优先由 PC 管理 External Control 生命周期；关闭 bringup 前同步 stop program`
+- 最终结论：`已复现 PC bringup 与示教器 External Control 生命周期脱节导致的 8C BLOCK；Remote Control 模式下由 PC stop/load/play External Control 可恢复到 8C PASS；低速 cancel 路径可解释且最终姿态在 reviewed home envelope 内`
+- 下一步：`固化 8D/8F 的标准启动与关机顺序：Remote Control 模式优先由 PC 管理 External Control 生命周期；关闭 bringup 前同步 stop program；cancel 后是否回 home 必须另行人工确认`
