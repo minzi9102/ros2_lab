@@ -1,6 +1,12 @@
 task8d_guarded_joint_motion:
   ros__parameters:
-    # TODO(human): 这些点位必须由现场人工审核后填写，禁止直接沿用示例值。
+    # 示例只用于说明“6 个关节角、rad、按 joint_names 顺序排列”的格式。
+    # 禁止把 example_*_do_not_execute 直接用于真机执行。
+    example_home_positions_rad_do_not_execute: [0.00, -1.20, 1.80, -2.10, -1.57, 0.00]
+    example_ready_positions_rad_do_not_execute: [0.05, -1.15, 1.75, -2.05, -1.57, 0.05]
+
+    # TODO(human): 执行前将下面的 todo 字段替换为真实字段，例如：
+    # home_positions_rad: [0.00, -1.20, 1.80, -2.10, -1.57, 0.00]
     home_joint_names:
       - shoulder_pan_joint
       - shoulder_lift_joint
@@ -11,6 +17,8 @@ task8d_guarded_joint_motion:
     home_positions_rad_todo: "TODO(human): 填写 6 个经过现场审核的 home 关节角 rad"
     home_reviewed_by: "TODO(human): 填写现场审核人"
 
+    # TODO(human): 执行前将下面的 todo 字段替换为真实字段，例如：
+    # ready_positions_rad: [0.05, -1.15, 1.75, -2.05, -1.57, 0.05]
     ready_joint_names:
       - shoulder_pan_joint
       - shoulder_lift_joint

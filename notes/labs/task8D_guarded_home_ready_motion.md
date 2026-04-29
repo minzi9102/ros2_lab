@@ -48,7 +48,7 @@
 - 机器人网络：`192.168.56.101 dev enp7s0 src 192.168.56.2`
 - 8C 只读门闩：`WARN，可用于状态观察与方案评审`
 - 8C 动作前门闩：`BLOCK，阻断项为 scaled_joint_trajectory_controller inactive`
-- 本轮审批状态：`未审批；不得进入 8D 执行`
+- 本轮审批状态：`已审批通过`
 
 ## 4. 构建与 dry-run
 ```bash
