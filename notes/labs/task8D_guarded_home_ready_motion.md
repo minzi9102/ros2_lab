@@ -94,6 +94,25 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 
 预期：审批前该门闩仍可因 trajectory controller inactive 而 `BLOCK`；只有在 8D 审批允许激活 controller 后，才允许重新评估。
 
+### 8C 动作前门闩复核（2026-04-29）
+- 复核命令：`ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py require_trajectory_controller_active:=true`
+- 总结论：`BLOCK`
+- 通过项：
+  - `robot_mode=RUNNING`
+  - `safety_mode=NORMAL`
+  - `External Control program_running=true`
+  - `joint_state_broadcaster=active`
+  - `/joint_states=503.0 Hz，收到 1520 条样本`
+  - `speed_scaling=100.0`
+- warning 项：`remote_control=false；本阶段仍按示教器人工启动 External Control 策略处理，ROS 端不假设远程 load/play`
+- block 项：`scaled_joint_trajectory_controller=inactive；动作前要求 active`
+- controller 复核：`ros2 control list_controllers` 同步显示 `scaled_joint_trajectory_controller inactive`
+- calibration 复核：`当前 ros2_control_node 日志仍出现 calibration mismatch；连接机器人 checksum=calib_16756443741236045476，说明当前 bringup/description 仍未正确使用已归档 calibration`
+- 实时调度复核：`lowlatency 内核；minzi 在 realtime 组；ulimit -r=99；ulimit -l=unlimited；chrt -f 50 true 通过；powerprofilesctl=performance；12 个 CPU EPP=performance`
+- driver 日志复核：`Successful set up FIFO RT scheduling policy with priority 50；SCHED_FIFO OK, priority 99`
+- overrun 复核：`启动期间出现一次 controller switch overrun；未在本次复核中观察到持续刷屏，但激活 trajectory controller 后仍需重新观察`
+- 当前执行结论：`不得进入 execute:=true；先处理 calibration mismatch，并在明确策略后激活 scaled_joint_trajectory_controller 再重跑门闩`
+
 ## 5. 点位审核填写区
 - home 目标来源：`2026-04-29 /joint_states 当前姿态，按 8D joint_names 顺序重排`
 - home 目标关节值（rad）：`[1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.09980899492372686]`
