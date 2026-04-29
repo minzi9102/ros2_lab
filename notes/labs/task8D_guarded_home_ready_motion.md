@@ -198,6 +198,13 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 - 默认 `final_position_tolerance_rad=0.02`。
 - 任一关节 `final_minus_target` 超过阈值时，8D 节点返回失败。
 
+追加手动验证（Remote Control 模式，PC 端 stop/load/play External Control 后）：
+
+- ready：`Final-target gate passed；wrist_3_joint final_minus_target=-0.000036 rad`
+- home：`Final-target gate passed；wrist_3_joint final_minus_target=0.000021 rad`
+- ready：`Final-target gate passed；wrist_3_joint final_minus_target=0.000002 rad`
+- 结论：`新版最终位置门闩可作为 8D 真实到位判据；Remote Control + PC 端程序生命周期管理后，ready/home/ready 均通过。`
+
 ## 8. 你需要完成的判断
 - 这次动作是否足够保守：`点位与速度设置足够保守；但控制链路反馈异常，需要复盘`
 - 是否允许进行第二个目标：`不允许`
@@ -211,5 +218,5 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 
 ## 10. 完成记录
 - 日期：`2026-04-29`
-- 最终结论：`8D 单次 ready goal 已发送，但最终位置复核未通过；本次不验收为到位成功`
-- 下一步：`进入 8E，优先排查 speed_scaling_factor=0.0、External Control/控制器执行链路与 why action success does not imply motion`
+- 最终结论：`8D 早期单次 ready goal 暴露 action 成功但未到位异常；补充最终位置门闩后，在 Remote Control 模式下 ready/home/ready 手动验证通过`
+- 下一步：`进入 8E，固化 External Control 程序生命周期与 Remote Control 恢复 runbook`
