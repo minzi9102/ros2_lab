@@ -29,6 +29,13 @@ def generate_launch_description() -> LaunchDescription:
         default_value="false",
         description="Keep trajectory controllers inactive during Task 8B readonly bringup.",
     )
+    description_launchfile = PathJoinSubstitution(
+        [
+            FindPackageShare("ur3_real_bringup_lab"),
+            "launch",
+            "task8B_real_calibrated_rsp.launch.py",
+        ]
+    )
 
     driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -43,6 +50,7 @@ def generate_launch_description() -> LaunchDescription:
             "reverse_ip": LaunchConfiguration("reverse_ip"),
             "activate_joint_controller": LaunchConfiguration("activate_joint_controller"),
             "initial_joint_controller": "scaled_joint_trajectory_controller",
+            "description_launchfile": description_launchfile,
         }.items(),
     )
 

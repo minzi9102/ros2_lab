@@ -113,6 +113,19 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 - overrun 复核：`启动期间出现一次 controller switch overrun；未在本次复核中观察到持续刷屏，但激活 trajectory controller 后仍需重新观察`
 - 当前执行结论：`不得进入 execute:=true；先处理 calibration mismatch，并在明确策略后激活 scaled_joint_trajectory_controller 再重跑门闩`
 
+### calibration 接入与 controller 激活后复核（2026-04-29）
+- calibration 接入方式：`task8B_readonly_bringup.launch.py` 使用 `task8B_real_calibrated_rsp.launch.py` 作为 description launchfile，并将 `config/ur3e_real_calibration.yaml` 传给官方 `ur_rsp.launch.py` 的 `kinematics_params_file`
+- 重启命令：`ros2 launch ur3_real_bringup_lab task8B_readonly_bringup.launch.py ur_type:=ur3e robot_ip:=192.168.56.101 reverse_ip:=192.168.56.2 launch_rviz:=false activate_joint_controller:=true`
+- calibration 结果：`ros2_control_node 日志显示 Calibration checksum: calib_9781467669625414396；Calibration checked successfully`
+- controller 激活过程：`launch 阶段 scaled_joint_trajectory_controller 曾成功激活，但随后 controller_stopper 将其 deactive；在 External Control running 后手动执行 ros2 control switch_controllers --activate scaled_joint_trajectory_controller --strict，返回 Successfully switched controllers`
+- controller 复核：`ros2 control list_controllers 显示 scaled_joint_trajectory_controller active`
+- 8C 门闩复核命令：`ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py require_trajectory_controller_active:=true`
+- 8C 门闩复核结论：`WARN`
+- pass 项：`robot_mode=RUNNING；safety_mode=NORMAL；External Control program_running=true；joint_state_broadcaster=active；scaled_joint_trajectory_controller=active；/joint_states=503.1 Hz；speed_scaling=100.0`
+- warning 项：`remote_control=false；继续按示教器人工启动 External Control 策略处理，ROS 端不远程 load/play`
+- overrun 复核：`启动阶段仍出现一次 controller switch overrun；手动激活 scaled_joint_trajectory_controller 后未观察到新的持续 overrun 刷屏`
+- 当前执行结论：`8C 动作前门闩已从 BLOCK 变为 WARN；真实执行前仍需单次执行前记录与人工确认`
+
 ## 5. 点位审核填写区
 - home 目标来源：`2026-04-29 /joint_states 当前姿态，按 8D joint_names 顺序重排`
 - home 目标关节值（rad）：`[1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.09980899492372686]`
