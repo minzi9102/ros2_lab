@@ -22,6 +22,13 @@ using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
 using GoalHandleFollowJointTrajectory =
   rclcpp_action::ClientGoalHandle<FollowJointTrajectory>;
 
+enum class MotionOutcome
+{
+  kSucceeded,
+  kCanceled,
+  kFailed
+};
+
 struct JointTarget
 {
   std::vector<std::string> joint_names;
@@ -331,13 +338,14 @@ FollowJointTrajectory::Goal build_single_point_goal(
   return goal;
 }
 
-bool send_single_point_goal(
+MotionOutcome send_single_point_goal(
   const rclcpp::Node::SharedPtr & node,
   const std::string & action_name,
   const JointTarget & target,
   const double duration_sec,
   const double goal_time_tolerance_sec,
-  const double action_server_timeout_sec)
+  const double action_server_timeout_sec,
+  const double cancel_after_sec)
 {
   auto action_client = rclcpp_action::create_client<FollowJointTrajectory>(node, action_name);
   RCLCPP_INFO(
@@ -349,7 +357,7 @@ bool send_single_point_goal(
       node->get_logger(),
       "Action server unavailable: %s.",
       action_name.c_str());
-    return false;
+    return MotionOutcome::kFailed;
   }
 
   const auto goal = build_single_point_goal(target, duration_sec, goal_time_tolerance_sec);
@@ -364,15 +372,43 @@ bool send_single_point_goal(
     node, goal_handle_future, std::chrono::duration<double>(action_server_timeout_sec));
   if (goal_response_code != rclcpp::FutureReturnCode::SUCCESS) {
     RCLCPP_ERROR(node->get_logger(), "Timed out waiting for goal response.");
-    return false;
+    return MotionOutcome::kFailed;
   }
 
   const auto goal_handle = goal_handle_future.get();
   if (!goal_handle) {
     RCLCPP_ERROR(node->get_logger(), "Goal rejected by controller.");
-    return false;
+    return MotionOutcome::kFailed;
   }
   RCLCPP_INFO(node->get_logger(), "Goal accepted by controller.");
+
+  if (cancel_after_sec > 0.0) {
+    RCLCPP_WARN(
+      node->get_logger(),
+      "Cancel test armed: requesting goal cancel after %.2fs.",
+      cancel_after_sec);
+    rclcpp::sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::duration<double>(cancel_after_sec)));
+
+    auto cancel_future = action_client->async_cancel_goal(goal_handle);
+    const auto cancel_code = rclcpp::spin_until_future_complete(
+      node, cancel_future, std::chrono::duration<double>(action_server_timeout_sec));
+    if (cancel_code != rclcpp::FutureReturnCode::SUCCESS) {
+      RCLCPP_ERROR(node->get_logger(), "Timed out waiting for cancel response.");
+      return MotionOutcome::kFailed;
+    }
+
+    const auto cancel_response = cancel_future.get();
+    if (!cancel_response) {
+      RCLCPP_ERROR(node->get_logger(), "Cancel response is empty.");
+      return MotionOutcome::kFailed;
+    }
+    RCLCPP_WARN(
+      node->get_logger(),
+      "Cancel response: return_code=%d goals_canceling=%zu",
+      cancel_response->return_code,
+      cancel_response->goals_canceling.size());
+  }
 
   auto result_future = action_client->async_get_result(goal_handle);
   const auto result_timeout = duration_sec + goal_time_tolerance_sec + 10.0;
@@ -380,13 +416,13 @@ bool send_single_point_goal(
     node, result_future, std::chrono::duration<double>(result_timeout));
   if (result_code != rclcpp::FutureReturnCode::SUCCESS) {
     RCLCPP_ERROR(node->get_logger(), "Timed out waiting for action result.");
-    return false;
+    return MotionOutcome::kFailed;
   }
 
   const GoalHandleFollowJointTrajectory::WrappedResult wrapped_result = result_future.get();
   if (!wrapped_result.result) {
     RCLCPP_ERROR(node->get_logger(), "Action result is empty.");
-    return false;
+    return MotionOutcome::kFailed;
   }
 
   RCLCPP_INFO(
@@ -396,8 +432,21 @@ bool send_single_point_goal(
     wrapped_result.result->error_code,
     wrapped_result.result->error_string.c_str());
 
-  return wrapped_result.code == rclcpp_action::ResultCode::SUCCEEDED &&
-    wrapped_result.result->error_code == FollowJointTrajectory::Result::SUCCESSFUL;
+  if (cancel_after_sec > 0.0) {
+    if (wrapped_result.code == rclcpp_action::ResultCode::CANCELED) {
+      return MotionOutcome::kCanceled;
+    }
+    RCLCPP_ERROR(node->get_logger(), "Cancel test expected CANCELED action result.");
+    return MotionOutcome::kFailed;
+  }
+
+  if (wrapped_result.code == rclcpp_action::ResultCode::SUCCEEDED &&
+    wrapped_result.result->error_code == FollowJointTrajectory::Result::SUCCESSFUL)
+  {
+    return MotionOutcome::kSucceeded;
+  }
+
+  return MotionOutcome::kFailed;
 }
 }
 
@@ -422,6 +471,7 @@ int main(int argc, char ** argv)
     node->declare_parameter<double>("joint_state_timeout_sec", 3.0);
   const double final_position_tolerance_rad =
     node->declare_parameter<double>("final_position_tolerance_rad", 0.02);
+  const double cancel_after_sec = node->declare_parameter<double>("cancel_after_sec", -1.0);
   const std::string action_name = node->declare_parameter<std::string>(
     "action_name", "/scaled_joint_trajectory_controller/follow_joint_trajectory");
   const std::string joint_state_topic =
@@ -439,6 +489,7 @@ int main(int argc, char ** argv)
     node->get_logger(),
     "final_position_tolerance_rad=%.3f",
     final_position_tolerance_rad);
+  RCLCPP_INFO(node->get_logger(), "cancel_after_sec=%.3f", cancel_after_sec);
   RCLCPP_INFO(node->get_logger(), "action_name=%s", action_name.c_str());
 
   JointTarget home;
@@ -515,13 +566,15 @@ int main(int argc, char ** argv)
     return EXIT_FAILURE;
   }
 
-  if (!send_single_point_goal(
+  const MotionOutcome motion_outcome = send_single_point_goal(
       node,
       action_name,
       *selected_target,
       min_trajectory_duration_sec,
       goal_time_tolerance_sec,
-      action_server_timeout_sec))
+      action_server_timeout_sec,
+      cancel_after_sec);
+  if (motion_outcome == MotionOutcome::kFailed)
   {
     RCLCPP_ERROR(node->get_logger(), "Task 8D guarded motion execution failed.");
     rclcpp::shutdown();
@@ -533,6 +586,28 @@ int main(int argc, char ** argv)
   if (!final_positions.has_value()) {
     rclcpp::shutdown();
     return EXIT_FAILURE;
+  }
+
+  if (motion_outcome == MotionOutcome::kCanceled) {
+    if (!report_current_home_gate(
+        node,
+        selected_target->joint_names,
+        final_positions.value(),
+        home.positions_rad,
+        max_joint_delta_rad))
+    {
+      RCLCPP_ERROR(
+        node->get_logger(),
+        "Task 8E cancel final envelope verification failed.");
+      rclcpp::shutdown();
+      return EXIT_FAILURE;
+    }
+
+    RCLCPP_INFO(
+      node->get_logger(),
+      "Task 8E cancel path finished with final state inside the reviewed home envelope.");
+    rclcpp::shutdown();
+    return EXIT_SUCCESS;
   }
 
   if (!report_final_target_gate(

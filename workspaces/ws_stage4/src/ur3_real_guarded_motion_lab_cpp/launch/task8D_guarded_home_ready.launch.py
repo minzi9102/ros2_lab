@@ -36,6 +36,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="0.02",
         description="Allowed final joint error after the action result.",
     )
+    cancel_after_arg = DeclareLaunchArgument(
+        "cancel_after_sec",
+        default_value="-1.0",
+        description="When positive, request action cancel after this many seconds.",
+    )
 
     targets_file = PathJoinSubstitution(
         [
@@ -61,6 +66,7 @@ def generate_launch_description() -> LaunchDescription:
                 "final_position_tolerance_rad": LaunchConfiguration(
                     "final_position_tolerance_rad"
                 ),
+                "cancel_after_sec": LaunchConfiguration("cancel_after_sec"),
             },
         ],
     )
@@ -73,6 +79,7 @@ def generate_launch_description() -> LaunchDescription:
             target_name_arg,
             max_joint_delta_arg,
             final_position_tolerance_arg,
+            cancel_after_arg,
             guarded_node,
         ]
     )
