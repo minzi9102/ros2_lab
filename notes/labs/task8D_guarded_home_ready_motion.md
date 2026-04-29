@@ -81,26 +81,26 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 预期：审批前该门闩仍可因 trajectory controller inactive 而 `BLOCK`；只有在 8D 审批允许激活 controller 后，才允许重新评估。
 
 ## 5. 点位审核填写区
-- home 目标来源：`【请填写】`
-- home 目标关节值（rad）：`【请填写】`
-- ready 目标来源：`【请填写】`
-- ready 目标关节值（rad）：`【请填写】`
-- 点位审核人：`【请填写】`
-- 最大单关节 delta：`【请填写】`
-- 速度限制：`【请填写】`
-- 加速度限制：`【请填写】`
-- 最短执行时间：`【请填写】`
-- 你选择这些值的理由：`【请填写】`
+- home 目标来源：`已现场确认来源；具体记录待随 6 个关节角一并落表`
+- home 目标关节值（rad）：`待填写到 task8D_guarded_targets.yaml 后复核`
+- ready 目标来源：`已现场确认来源；具体记录待随 6 个关节角一并落表`
+- ready 目标关节值（rad）：`待填写到 task8D_guarded_targets.yaml 后复核`
+- 点位审核人：`已现场确认；具体姓名待随点位记录落表`
+- 最大单关节 delta：`0.10 rad，人工判断足够保守`
+- 速度限制：`0.10，人工判断足够保守`
+- 加速度限制：`0.10，人工判断足够保守`
+- 最短执行时间：`5.0 s，人工判断足够保守`
+- 你选择这些值的理由：`首轮真机动作只验证 home / ready 小范围关节空间动作；优先降低单关节位移、速度、加速度，并保留人工确认与状态门闩。`
 
 ### 方案审批填写区
-- 是否批准进入 8D：`【待人工审批：批准 / 不批准】`
-- 审批人：`【请填写】`
-- 审批时间：`【请填写】`
-- calibration 接入确认：`【请填写：已确认 / 未确认】`
-- 实时调度确认：`【请填写：已确认 / 未确认】`
-- Remote Control 策略确认：`【请填写：示教器人工启动 / Dashboard 远程】`
-- 是否允许显式激活 `scaled_joint_trajectory_controller`：`【请填写：允许 / 不允许】`
-- 是否允许 `execute:=true`：`【请填写：允许 / 不允许】`
+- 是否批准进入 8D：`批准`
+- 审批人：`用户现场确认`
+- 审批时间：`2026-04-29`
+- calibration 接入确认：`已确认`
+- 实时调度确认：`沿用 2026-04-28 lowlatency / realtime / performance 记录，执行前仍需复核 driver 日志`
+- Remote Control 策略确认：`示教器人工启动 External Control，ROS 端不远程 load/play`
+- 是否允许显式激活 `scaled_joint_trajectory_controller`：`允许`
+- 是否允许 `execute:=true`：`允许；但必须先完成具体点位落表、8C 动作前门闩和单次执行前记录`
 
 ## 6. 单次执行前记录
 
