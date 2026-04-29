@@ -50,6 +50,13 @@
 - 8C 动作前门闩：`BLOCK，阻断项为 scaled_joint_trajectory_controller inactive`
 - 本轮审批状态：`已审批通过`
 
+## 3.2 当前关节状态记录（2026-04-29）
+- `/joint_states` 读取结果：`已读取 1 条完整 JointState；首次 echo 提示 A message was lost，但有效消息完整`
+- `/joint_states` 频率：`约 499.8-500.0 Hz，窗口 3502 条时仍稳定`
+- 原始消息关节顺序：`elbow_joint, shoulder_lift_joint, shoulder_pan_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint`
+- 8D 配置重排顺序：`shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint`
+- 重排后的当前姿态 rad：`[1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.09980899492372686]`
+
 ## 4. 构建与 dry-run
 ```bash
 cd /home/minzi/ros2_lab/workspaces/ws_stage4
@@ -63,10 +70,10 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 ```
 
 ### dry-run 记录
-- 是否构建通过：`待审批后执行`
-- dry-run 是否运行：`待审批后执行`
-- 是否确认未发送 goal：`本轮未进入 8D，未发送 goal`
-- 输出的关键日志：`本轮仅完善方案文档`
+- 是否构建通过：`2026-04-29 通过，ur3_real_guarded_motion_lab_cpp 构建成功`
+- dry-run 是否运行：`2026-04-29 通过，execute:=false target_name:=ready`
+- 是否确认未发送 goal：`已确认未发送 FollowJointTrajectory goal`
+- 输出的关键日志：`Dry-run only. No FollowJointTrajectory goal will be sent.`
 
 ### 进入 8D 前必须重新执行的只读检查
 ```bash
@@ -81,16 +88,16 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 预期：审批前该门闩仍可因 trajectory controller inactive 而 `BLOCK`；只有在 8D 审批允许激活 controller 后，才允许重新评估。
 
 ## 5. 点位审核填写区
-- home 目标来源：`已现场确认来源；具体记录待随 6 个关节角一并落表`
-- home 目标关节值（rad）：`待填写到 task8D_guarded_targets.yaml 后复核`
-- ready 目标来源：`已现场确认来源；具体记录待随 6 个关节角一并落表`
-- ready 目标关节值（rad）：`待填写到 task8D_guarded_targets.yaml 后复核`
-- 点位审核人：`已现场确认；具体姓名待随点位记录落表`
+- home 目标来源：`2026-04-29 /joint_states 当前姿态，按 8D joint_names 顺序重排`
+- home 目标关节值（rad）：`[1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.09980899492372686]`
+- ready 目标来源：`home 基础上仅 wrist_3_joint +0.05 rad`
+- ready 目标关节值（rad）：`[1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.04980899492372686]`
+- 点位审核人：`用户现场确认`
 - 最大单关节 delta：`0.10 rad，人工判断足够保守`
 - 速度限制：`0.10，人工判断足够保守`
 - 加速度限制：`0.10，人工判断足够保守`
 - 最短执行时间：`5.0 s，人工判断足够保守`
-- 你选择这些值的理由：`首轮真机动作只验证 home / ready 小范围关节空间动作；优先降低单关节位移、速度、加速度，并保留人工确认与状态门闩。`
+- 你选择这些值的理由：`首轮真机动作只验证 home / ready 小范围关节空间动作；当前状态流稳定，home 取当前姿态，ready 仅让 wrist_3_joint 小幅移动 0.05 rad，小于 0.10 rad delta 门闩。`
 
 ### 方案审批填写区
 - 是否批准进入 8D：`批准`
