@@ -9,10 +9,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(control_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 
 add_executable(guarded_joint_motion_node src/guarded_joint_motion_node.cpp)
-ament_target_dependencies(guarded_joint_motion_node rclcpp)
+ament_target_dependencies(
+  guarded_joint_motion_node
+  control_msgs
+  rclcpp
+  rclcpp_action
+  sensor_msgs
+  trajectory_msgs
+)
 
 install(
   TARGETS guarded_joint_motion_node
