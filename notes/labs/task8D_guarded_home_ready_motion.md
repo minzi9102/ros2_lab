@@ -71,9 +71,16 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
 
 ### dry-run 记录
 - 是否构建通过：`2026-04-29 通过，ur3_real_guarded_motion_lab_cpp 构建成功`
-- dry-run 是否运行：`2026-04-29 通过，execute:=false target_name:=ready`
+- dry-run 是否运行：`2026-04-29 通过，execute:=false target_name:=ready 与 target_name:=home 均通过`
 - 是否确认未发送 goal：`已确认未发送 FollowJointTrajectory goal`
-- 输出的关键日志：`Dry-run only. No FollowJointTrajectory goal will be sent.`
+- 输出的关键日志：`ready delta_vector_rad=[0, 0, 0, 0, 0, 0.05]；home delta_vector_rad=[0, 0, 0, 0, 0, 0]；Delta gate passed；Dry-run only. No FollowJointTrajectory goal will be sent.`
+
+### dry-run 目标读取与 delta 检查
+- 目标读取：`节点已读取 home_joint_names/home_positions_rad/ready_positions_rad/reviewed_by`
+- ready 检查：`wrist_3_joint delta=0.05 rad，其余关节 delta=0`
+- home 检查：`所有关节 delta=0`
+- delta 门闩：`max_joint_delta_rad=0.10；home 与 ready 均通过`
+- 执行边界：`本轮仍不实现 FollowJointTrajectory Action Client，不发送真实动作 goal`
 
 ### 进入 8D 前必须重新执行的只读检查
 ```bash
