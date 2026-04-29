@@ -41,18 +41,63 @@ source install/setup.bash
 ros2 launch ur3_real_guarded_motion_lab_cpp task8E_fault_review.launch.py
 ```
 
-- 是否运行 dry-run fault review：`【请填写】`
-- 是否确认未发送 goal：`【请填写】`
-- 触发的拒绝原因：`【请填写】`
-- 日志摘要：`【请填写】`
+- 是否运行 dry-run fault review：`是；task8E_fault_review.launch.py 已运行`
+- 是否确认未发送 goal：`是；日志中没有 "Sending exactly one FollowJointTrajectory point"`
+- 触发的拒绝原因：`target_name=out_of_range_test 不属于 home / ready`
+- 日志摘要：`execute=false；Unsupported target_name=out_of_range_test. Expected home or ready.；进程 exit code 1`
+
+补充拒绝路径：
+
+```bash
+ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py \
+  execute:=true \
+  require_confirmation:=true \
+  target_name:=ready
+```
+
+- 是否确认未发送 goal：`是；拒绝发生在 action client 前，日志中没有发送 FollowJointTrajectory point`
+- 触发的拒绝原因：`缺少 human_confirmation=I_CONFIRM_REAL_ROBOT_MOTION`
+- 日志摘要：`Delta gate passed 后立即 Execution rejected: human_confirmation must be I_CONFIRM_REAL_ROBOT_MOTION after现场确认.`
+
+补充 delta 拒绝路径：
+
+```bash
+ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py \
+  execute:=false \
+  target_name:=ready \
+  max_joint_delta_rad:=0.01
+```
+
+- 是否确认未发送 goal：`是；delta gate 阶段拒绝，尚未进入 execute 分支`
+- 触发的拒绝原因：`ready 的 wrist_3_joint delta=0.050000 rad，大于临时阈值 0.010000 rad`
+- 日志摘要：`delta[wrist_3_joint]=0.050000 rad (block)；Delta gate failed`
+
+补充 `/joint_states` 缺失拒绝路径：
+
+```bash
+ros2 run ur3_real_guarded_motion_lab_cpp guarded_joint_motion_node --ros-args \
+  --params-file install/ur3_real_guarded_motion_lab_cpp/share/ur3_real_guarded_motion_lab_cpp/config/task8D_guarded_targets.yaml \
+  -p execute:=true \
+  -p require_confirmation:=true \
+  -p human_confirmation:=I_CONFIRM_REAL_ROBOT_MOTION \
+  -p target_name:=ready \
+  -p joint_state_topic:=/joint_states_missing_task8e \
+  -p joint_state_timeout_sec:=1.0
+```
+
+- 是否确认未发送 goal：`是；当前状态流门闩超时，尚未等待 action server`
+- 触发的拒绝原因：`无法在 1.0s 内从 /joint_states_missing_task8e 读取完整 JointState`
+- 日志摘要：`Timed out waiting for complete current joint state.；进程 exit code 1`
 
 ## 6. 异常处理矩阵
 
 | 异常 | 检测阶段 | 本轮是否验证 | 默认动作 | 是否人工确认 | 是否允许自动恢复 | 记录 |
 |---|---|---|---|---|---|---|
-| 目标越界 | 执行前 | `【请填写】` | 拒绝执行 | 否 | 否 | `【请填写】` |
-| delta 过大 | 执行前 | `【请填写】` | 拒绝执行 | 否 | 否 | `【请填写】` |
-| `/joint_states` 过期 | 执行前 | `【请填写】` | 拒绝执行 | 否 | 否 | `【请填写】` |
+| 目标名非法 | 执行前 | `已验证` | 拒绝执行 | 否 | 否 | `out_of_range_test 被拒绝；未发送 goal` |
+| 目标越界 | 执行前 | `未实测` | 拒绝执行 | 否 | 否 | `当前 8D 仅允许 home / ready 命名目标，任意未知目标先按目标名非法拒绝` |
+| delta 过大 | 执行前 | `已验证` | 拒绝执行 | 否 | 否 | `max_joint_delta_rad 临时设为 0.01；ready wrist_3_joint delta=0.05 被 block；未发送 goal` |
+| 缺少人工确认 token | 执行前 | `已验证` | 拒绝执行 | 是 | 否 | `execute=true 且 require_confirmation=true，但未传 token；delta gate 后拒绝，未发送 goal` |
+| `/joint_states` 过期 / 缺失 | 执行前 | `已验证` | 拒绝执行 | 否 | 否 | `joint_state_topic 指向缺失话题；1.0s 超时；未发送 goal` |
 | controller inactive | 执行前 | `已验证` | 拒绝执行 | 是 | 否 | `Local 模式下 External Control 显示 PLAYING、speed_scaling=100.0，但 scaled_joint_trajectory_controller=inactive，8C BLOCK` |
 | External Control 未运行 / 生命周期残留 | 执行前 | `已验证恢复路径` | 拒绝执行，人工切 Remote Control 后由 PC stop/load/play | 是 | 否 | `Remote Control=true 后 PC 调用 stop/load_program/play 成功，8C 恢复 PASS` |
 | Action 执行异常 | 执行中 | `已观察` | cancel / 停止观察 | 是 | 否 | `早期 ready goal 出现 action success 但 /joint_states 未到位；已增加 final-target gate` |
@@ -104,11 +149,12 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 - `/dashboard_client/play`：`success=True, message='Starting program'`
 - controller 激活：`scaled_joint_trajectory_controller is already active`
 - 8C：`robot_mode=RUNNING；safety_mode=NORMAL；program_running=true；remote_control=True；scaled_joint_trajectory_controller=active；/joint_states=502.9 Hz；speed_scaling=100.0；Task 8C gate result: PASS`
+- 复核：`2026-04-29 22:16 CST 再次运行 8C，/joint_states=503.2 Hz，Task 8C gate result: PASS`
 
 ## 8. 你需要完成的判断
-- 本轮异常验证是否足够：`对 External Control 生命周期残留与 controller inactive 路径足够；不覆盖保护停机类异常`
+- 本轮异常验证是否足够：`对目标名非法、缺少人工确认 token、External Control 生命周期残留与 controller inactive 路径足够；不覆盖保护停机类异常`
 - 哪些异常不适合实测，只能写 runbook：`protective stop、safeguard stop、brake release、power cycle、restart safety`
-- 8F 收口前还缺哪些证据：`规范化关机顺序；Remote Control PC 端启动顺序；8D 最终到位日志归档；必要时补充 controller_state speed_scaling_factor 与 speed_scaling topic 的差异说明`
+- 8F 收口前还缺哪些证据：`规范化关机顺序；必要时补充 controller_state speed_scaling_factor 与 speed_scaling topic 的差异说明；是否测试 cancel 路径需由现场人工再判断`
 
 ## 9. 完成标准
 - 至少一个执行前拒绝路径有证据。
