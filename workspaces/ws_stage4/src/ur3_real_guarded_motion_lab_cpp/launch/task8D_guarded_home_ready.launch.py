@@ -31,6 +31,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="0.10",
         description="Task 8D default conservative joint delta gate.",
     )
+    final_position_tolerance_arg = DeclareLaunchArgument(
+        "final_position_tolerance_rad",
+        default_value="0.02",
+        description="Allowed final joint error after the action result.",
+    )
 
     targets_file = PathJoinSubstitution(
         [
@@ -53,6 +58,9 @@ def generate_launch_description() -> LaunchDescription:
                 "human_confirmation": LaunchConfiguration("human_confirmation"),
                 "target_name": LaunchConfiguration("target_name"),
                 "max_joint_delta_rad": LaunchConfiguration("max_joint_delta_rad"),
+                "final_position_tolerance_rad": LaunchConfiguration(
+                    "final_position_tolerance_rad"
+                ),
             },
         ],
     )
@@ -64,6 +72,7 @@ def generate_launch_description() -> LaunchDescription:
             human_confirmation_arg,
             target_name_arg,
             max_joint_delta_arg,
+            final_position_tolerance_arg,
             guarded_node,
         ]
     )

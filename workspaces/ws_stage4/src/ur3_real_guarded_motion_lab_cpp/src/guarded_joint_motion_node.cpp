@@ -266,6 +266,54 @@ bool report_current_home_gate(
   return true;
 }
 
+bool report_final_target_gate(
+  const rclcpp::Node::SharedPtr & node,
+  const std::vector<std::string> & joint_names,
+  const std::vector<double> & final_positions,
+  const std::vector<double> & target_positions,
+  const double final_position_tolerance_rad)
+{
+  if (final_positions.size() != target_positions.size()) {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "final/target size mismatch: final=%zu target=%zu.",
+      final_positions.size(),
+      target_positions.size());
+    return false;
+  }
+
+  std::vector<double> errors;
+  errors.reserve(final_positions.size());
+  bool pass = true;
+  for (std::size_t index = 0; index < final_positions.size(); ++index) {
+    const double error = final_positions[index] - target_positions[index];
+    errors.push_back(error);
+    const bool joint_pass = std::abs(error) <= final_position_tolerance_rad;
+    pass = pass && joint_pass;
+    RCLCPP_INFO(
+      node->get_logger(),
+      "final_minus_target[%s]=%.6f rad (%s)",
+      joint_names[index].c_str(),
+      error,
+      joint_pass ? "pass" : "block");
+  }
+
+  RCLCPP_INFO(node->get_logger(), "final_minus_target_rad=%s", format_vector(errors).c_str());
+  if (!pass) {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "Final-target gate failed: at least one joint exceeds final_position_tolerance_rad=%.6f.",
+      final_position_tolerance_rad);
+    return false;
+  }
+
+  RCLCPP_INFO(
+    node->get_logger(),
+    "Final-target gate passed: every joint is within final_position_tolerance_rad=%.6f.",
+    final_position_tolerance_rad);
+  return true;
+}
+
 FollowJointTrajectory::Goal build_single_point_goal(
   const JointTarget & target,
   const double duration_sec,
@@ -372,6 +420,8 @@ int main(int argc, char ** argv)
     node->declare_parameter<double>("action_server_timeout_sec", 10.0);
   const double joint_state_timeout_sec =
     node->declare_parameter<double>("joint_state_timeout_sec", 3.0);
+  const double final_position_tolerance_rad =
+    node->declare_parameter<double>("final_position_tolerance_rad", 0.02);
   const std::string action_name = node->declare_parameter<std::string>(
     "action_name", "/scaled_joint_trajectory_controller/follow_joint_trajectory");
   const std::string joint_state_topic =
@@ -385,6 +435,10 @@ int main(int argc, char ** argv)
     node->get_logger(),
     "min_trajectory_duration_sec=%.3f",
     min_trajectory_duration_sec);
+  RCLCPP_INFO(
+    node->get_logger(),
+    "final_position_tolerance_rad=%.3f",
+    final_position_tolerance_rad);
   RCLCPP_INFO(node->get_logger(), "action_name=%s", action_name.c_str());
 
   JointTarget home;
@@ -470,6 +524,27 @@ int main(int argc, char ** argv)
       action_server_timeout_sec))
   {
     RCLCPP_ERROR(node->get_logger(), "Task 8D guarded motion execution failed.");
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
+
+  const auto final_positions = wait_for_current_positions(
+    node, selected_target->joint_names, joint_state_topic, joint_state_timeout_sec);
+  if (!final_positions.has_value()) {
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
+
+  if (!report_final_target_gate(
+      node,
+      selected_target->joint_names,
+      final_positions.value(),
+      selected_target->positions_rad,
+      final_position_tolerance_rad))
+  {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "Task 8D guarded motion final verification failed after action result.");
     rclcpp::shutdown();
     return EXIT_FAILURE;
   }

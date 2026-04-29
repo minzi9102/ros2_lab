@@ -154,8 +154,8 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 |---|---|
 | 时间 | `2026-04-29 21:26:41 CST` |
 | 操作者 | `用户现场操作；Codex 只读复核与记录` |
-| 旁站确认 | `待真实执行前现场再次确认` |
-| 8D 审批状态 | `已审批通过；本轮仅完成执行前记录，不发送 goal` |
+| 旁站确认 | `用户确认现场安全，允许实现并执行 8D 单次 ready goal` |
+| 8D 审批状态 | `已审批通过；允许单次 ready goal` |
 | calibration 文件 | `workspaces/ws_stage4/src/ur3_real_bringup_lab/config/ur3e_real_calibration.yaml` |
 | calibration mismatch 是否消失 | `是；日志显示 Calibration checked successfully，checksum=calib_9781467669625414396` |
 | 实时调度状态 | `lowlatency；SCHED_FIFO OK；powerprofilesctl=performance；CPU EPP=performance` |
@@ -167,7 +167,7 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 | 8C 状态门闩结果 | `WARN；唯一 warning 为 remote_control=false` |
 | controller 状态 | `scaled_joint_trajectory_controller=active；joint_state_broadcaster=active；speed_scaling_state_broadcaster=active` |
 | robot / safety / program 状态 | `robot_mode=RUNNING；safety_mode=NORMAL；External Control program_running=true；speed_scaling=100.0` |
-| 人工确认 | `待真实执行前输入确认 token 并现场确认急停可达` |
+| 人工确认 | `已输入确认 token；用户确认现场安全` |
 
 ## 7. 真实执行记录
 > 只有 8C 通过、点位审核完成、现场人工确认后，才允许填写并执行本节。
@@ -182,26 +182,34 @@ ros2 launch ur3_real_guarded_motion_lab_cpp task8D_guarded_home_ready.launch.py 
   target_name:=ready
 ```
 
-- 是否真实执行：`【请填写：是 / 否】`
-- goal 是否发送：`【请填写】`
-- goal 是否 accepted：`【请填写】`
-- result：`【请填写】`
-- 最终 joint state：`【请填写】`
-- 与目标误差：`【请填写】`
-- 执行中是否出现异常：`【请填写】`
-- 你的观察：`【请填写】`
+- 是否真实执行：`是，已发送 1 次 ready goal`
+- goal 是否发送：`是；节点日志显示 Sending exactly one FollowJointTrajectory point`
+- goal 是否 accepted：`是；Goal accepted by controller`
+- result：`Action result: status=4 error_code=0 error_string='Goal successfully reached!'`
+- 最终 joint state：`[1.5375601053237915, -1.6185037098326625, 1.408731762562887, -2.9421502552428187, -1.592776123677389, -0.0997846762286585]`
+- 与目标误差：`[-0.000075, 0.000050, -0.000028, -0.000029, 0.000053, -0.049976]`
+- 执行中是否出现异常：`是；action result 返回成功，但 /joint_states 显示 wrist_3_joint 未到 ready 目标。controller_state 中 reference 为 ready，feedback 仍接近 home，error wrist_3_joint 约 0.050020 rad，speed_scaling_factor=0.0。`
+- 异常后补充观测：`/speed_scaling_state_broadcaster/speed_scaling=100.0；/dashboard_client/program_running 返回 true；/scaled_joint_trajectory_controller/controller_state 仍显示 speed_scaling_factor=0.0。`
+- 你的观察：`不把本次记录为真实到位成功；停止重试，先进入异常复盘。`
+
+执行后补强：
+
+- 节点新增最终位置门闩：action result 后重新读取 `/joint_states`。
+- 默认 `final_position_tolerance_rad=0.02`。
+- 任一关节 `final_minus_target` 超过阈值时，8D 节点返回失败。
 
 ## 8. 你需要完成的判断
-- 这次动作是否足够保守：`【请填写】`
-- 是否允许进行第二个目标：`【请填写：允许 / 不允许】`
-- 是否需要进入 8E 复盘异常：`【请填写】`
+- 这次动作是否足够保守：`点位与速度设置足够保守；但控制链路反馈异常，需要复盘`
+- 是否允许进行第二个目标：`不允许`
+- 是否需要进入 8E 复盘异常：`需要`
 
 ## 9. 完成标准
 - dry-run 可运行且不发送 goal。
 - 点位、delta、速度、加速度经过人工审核。
 - 如真实执行，每次动作都有完整日志。
+- action result 成功后必须再以 `/joint_states` 做最终到位复核。
 
 ## 10. 完成记录
-- 日期：`【请填写】`
-- 最终结论：`【请填写】`
-- 下一步：`【请填写】`
+- 日期：`2026-04-29`
+- 最终结论：`8D 单次 ready goal 已发送，但最终位置复核未通过；本次不验收为到位成功`
+- 下一步：`进入 8E，优先排查 speed_scaling_factor=0.0、External Control/控制器执行链路与 why action success does not imply motion`
