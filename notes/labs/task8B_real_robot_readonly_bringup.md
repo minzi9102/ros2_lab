@@ -49,6 +49,22 @@ ros2 launch ur3_real_bringup_lab task8B_readonly_bringup.launch.py \
   activate_joint_controller:=false
 ```
 
+### 2026-05-02 启动顺序修复记录
+
+- 触发背景：当天系统更新后，`ros-jazzy-ur-client-library` 从 `2.6.1` 升到 `2.9.0`，`ros2_control` / `ros2_controllers` 同步更新；原 8B wrapper 继承官方默认 `launch_dashboard_client:=true` 后，`ros2_control_node` 稳定复现 `Could not get configuration package within timeout`。
+- A/B 结论：同样网络、robot IP、calibration 与 remote 状态下，官方 driver `launch_dashboard_client:=false` 可启动成功，`launch_dashboard_client:=true` 会在启动期触发 Primary Interface 竞态。
+- 修复策略：8B wrapper 传给官方 `ur_control.launch.py` 的 `launch_dashboard_client` 固定为 `false`；随后本包 `wait_for_hardware_ready.py` 等待 `/controller_manager/list_controllers` 可用、`joint_state_broadcaster=active`、`/joint_states` 收到 UR3e 六轴完整状态后，再启动官方 `ur_dashboard_client.launch.py`。
+- 关键边界：这不是固定 sleep，而是 ROS 可观测 hardware-ready 门闩；若门闩超时，dashboard client 不启动，避免重新引入启动竞态。
+- 新增参数：`launch_dashboard_client:=true`、`hardware_ready_timeout_sec:=30.0`、`dashboard_receive_timeout:=20.0`。
+
+回归结果：
+
+- 8B 限时只读回归：`通过；ros2_control_node 未再出现 configuration package timeout`
+- calibration：`Calibration checksum: calib_9781467669625414396；Calibration checked successfully`
+- ready gate：`Hardware ready gate passed: joint_state_broadcaster=active and complete JointState received`
+- dashboard：`ready gate 通过后 dashboard_client 才启动；Connected: Universal Robots Dashboard Server`
+- 8C 只读检查：`脚本运行正常；robot_mode=RUNNING、safety_mode=NORMAL、joint_state_broadcaster=active、/joint_states≈489.5 Hz；因 External Control 未运行、speed_scaling=0.0，按门闩设计返回 BLOCK`
+
 只读观察命令：
 
 ```bash

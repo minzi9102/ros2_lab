@@ -24,6 +24,13 @@
   - `workspaces/ws_stage4/src/ur3_real_bringup_lab`
   - `workspaces/ws_stage4/src/ur3_real_guarded_motion_lab_cpp`
 
+### 2026-05-02 回归前补充
+
+- 系统更新后暴露了 8B 启动期 Primary Interface 竞态：dashboard client、robot_state_helper 与 hardware interface 同时启动时，`ros2_control_node` 可能在 1 秒窗口内拿不到 configuration package。
+- 当前修复策略：8B 先关闭官方 dashboard client，待 controller manager、`joint_state_broadcaster` 和 `/joint_states` 均 ready 后再启动 dashboard client。
+- 验收关注点：修复后 8B 必须同时满足 calibration 通过、状态流稳定、dashboard 服务延后可用；8C/8D/8E 的既有门闩仍必须按原标准通过。
+- 当前回归状态：`8B ready gate 与 dashboard 延后启动通过；8C 程序可运行且因 External Control 未运行/speed_scaling=0.0 正确 BLOCK；8D ready/home dry-run 通过；8E 非法目标与缺少确认 token 拒绝路径通过；真实 execute:=true 等待现场安全确认后再执行`
+
 ## 3. 当前准备情况
 - 已准备：
   - 阶段 4 两个包骨架；

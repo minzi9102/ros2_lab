@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 install(
   PROGRAMS
     scripts/check_real_robot_state.py
+    scripts/wait_for_hardware_ready.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
