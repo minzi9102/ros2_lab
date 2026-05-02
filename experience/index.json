@@ -1,8 +1,75 @@
 {
   "schema_version": 1,
   "repository": "ros2_lab",
-  "updated_at": "2026-04-27T11:16:57+08:00",
+  "updated_at": "2026-05-02T20:37:01+08:00",
   "entries": [
+    {
+      "experience_key": "pitfall--task8b-dashboard-startup--dashboard-primary-client-race",
+      "title": "Task8B 中 dashboard client 可与 hardware interface 形成 Primary Interface 启动竞态",
+      "summary": "2026-05-02 系统更新后，ros-jazzy-ur-client-library 从 2.6.1 升到 2.9.0，原 8B wrapper 继承官方 launch_dashboard_client:=true 时，dashboard_client、robot_state_helper 与 ros2_control_node 会在启动期同时创建 PrimaryClient。A/B 复现显示 dashboard false 可启动，dashboard true 会让 ros2_control_node 在 1 秒窗口内拿不到 configuration package。",
+      "experience_type": "pitfall",
+      "topics": [
+        "real-robot-bringup",
+        "task8b-dashboard-startup",
+        "ur-robot-driver"
+      ],
+      "tasks": [
+        "task8B",
+        "task8F"
+      ],
+      "keywords": [
+        "Could not get configuration package within timeout",
+        "Primary Interface",
+        "PrimaryClient",
+        "dashboard_client",
+        "launch_dashboard_client",
+        "ur_client_library 2.9.0"
+      ],
+      "paths": [
+        "notes/labs/task8B_real_robot_readonly_bringup.md",
+        "notes/labs/task8F_real_robot_acceptance.md",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-05-02T20:37:01+08:00",
+      "session_refs": [
+        "sessions/20260502-203701--task8b-dashboard-startup.json"
+      ]
+    },
+    {
+      "experience_key": "workflow--task8b-dashboard-startup--hardware-ready-gate-before-dashboard",
+      "title": "Task8B 应在 hardware ready gate 通过后再启动 dashboard client",
+      "summary": "固定延迟能缓解启动竞态，但真机 bringup 更适合等待 ROS 可观测条件。最终修复是让 8B wrapper 传给官方 ur_control.launch.py 的 launch_dashboard_client 固定为 false，再用 wait_for_hardware_ready.py 等 /controller_manager/list_controllers、joint_state_broadcaster=active 与完整 UR3e /joint_states，gate 成功后再 include 官方 ur_dashboard_client.launch.py。",
+      "experience_type": "workflow",
+      "topics": [
+        "real-robot-bringup",
+        "ros2-launch",
+        "task8b-dashboard-startup"
+      ],
+      "tasks": [
+        "task8B",
+        "task8F"
+      ],
+      "keywords": [
+        "/joint_states",
+        "GroupAction scoped",
+        "OnProcessExit",
+        "dashboard delayed launch",
+        "hardware ready gate",
+        "joint_state_broadcaster active"
+      ],
+      "paths": [
+        "notes/labs/task8B_real_robot_readonly_bringup.md",
+        "notes/labs/task8F_real_robot_acceptance.md",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/scripts/wait_for_hardware_ready.py"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-05-02T20:37:01+08:00",
+      "session_refs": [
+        "sessions/20260502-203701--task8b-dashboard-startup.json"
+      ]
+    },
     {
       "experience_key": "workflow--task7e-moveit-servo--startup-gates-before-motion",
       "title": "Task7E MoveIt Servo 启动应先串联状态门闩再允许运动",

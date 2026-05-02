@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "session_id": "20260502-203701--task8b-dashboard-startup",
+  "captured_at": "2026-05-02T20:37:01+08:00",
+  "repository": "ros2_lab",
+  "repo_root": "/home/minzi/ros2_lab",
+  "context": {
+    "source": "current_codex_session",
+    "task_hint": "task8B",
+    "related_paths": [
+      "notes/labs/task8B_real_robot_readonly_bringup.md",
+      "notes/labs/task8F_real_robot_acceptance.md",
+      "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py"
+    ]
+  },
+  "experiences": [
+    {
+      "experience_key": "pitfall--task8b-dashboard-startup--dashboard-primary-client-race",
+      "title": "Task8B 中 dashboard client 可与 hardware interface 形成 Primary Interface 启动竞态",
+      "summary": "2026-05-02 系统更新后，ros-jazzy-ur-client-library 从 2.6.1 升到 2.9.0，原 8B wrapper 继承官方 launch_dashboard_client:=true 时，dashboard_client、robot_state_helper 与 ros2_control_node 会在启动期同时创建 PrimaryClient。A/B 复现显示 dashboard false 可启动，dashboard true 会让 ros2_control_node 在 1 秒窗口内拿不到 configuration package。",
+      "experience_type": "pitfall",
+      "topics": [
+        "task8b-dashboard-startup",
+        "ur-robot-driver",
+        "real-robot-bringup"
+      ],
+      "tasks": [
+        "task8B",
+        "task8F"
+      ],
+      "keywords": [
+        "launch_dashboard_client",
+        "Primary Interface",
+        "PrimaryClient",
+        "Could not get configuration package within timeout",
+        "ur_client_library 2.9.0",
+        "dashboard_client"
+      ],
+      "paths": [
+        "notes/labs/task8B_real_robot_readonly_bringup.md",
+        "notes/labs/task8F_real_robot_acceptance.md",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py"
+      ],
+      "applicability": "UR 真机 bringup 里如果 ros2_control_node 报 configuration package timeout，同时网络、端口、remote、calibration 都看似正常，应优先排查 dashboard client 是否与 hardware interface 同时启动，而不是先怀疑 MoveIt 或控制器配置。",
+      "evidence": [
+        "A/B 复现：官方 driver launch_dashboard_client:=false 成功，launch_dashboard_client:=true 失败。",
+        "失败日志关键句：Could not get configuration package within timeout, are you connected to the robot?",
+        "成功路径日志：Calibration checked successfully；System successfully started。",
+        "GitHub 源码确认 dashboard_client_ros、robot_state_helper、UrDriver 都会创建 PrimaryClient。"
+      ],
+      "commands": [
+        "ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur3e robot_ip:=192.168.56.101 reverse_ip:=192.168.56.2 launch_dashboard_client:=false",
+        "ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur3e robot_ip:=192.168.56.101 reverse_ip:=192.168.56.2 launch_dashboard_client:=true",
+        "sed -n '/Start-Date: 2026-05-02  13:19:57/,/End-Date: 2026-05-02  13:21:51/p' /var/log/apt/history.log | rg 'ros-jazzy-ur-client-library|ros-jazzy-ur-robot-driver|ros-jazzy-ros2-control'"
+      ],
+      "followups": [
+        "不要用 dashboard client 是否能连上来判断 hardware interface ready；两者使用不同链路，dashboard 成功不代表 ros2_control 初始化已完成。",
+        "系统更新后如果旧 launch 突然不稳，应记录 apt 版本差异，再做 launch 参数 A/B。"
+      ],
+      "confidence": "high"
+    },
+    {
+      "experience_key": "workflow--task8b-dashboard-startup--hardware-ready-gate-before-dashboard",
+      "title": "Task8B 应在 hardware ready gate 通过后再启动 dashboard client",
+      "summary": "固定延迟能缓解启动竞态，但真机 bringup 更适合等待 ROS 可观测条件。最终修复是让 8B wrapper 传给官方 ur_control.launch.py 的 launch_dashboard_client 固定为 false，再用 wait_for_hardware_ready.py 等 /controller_manager/list_controllers、joint_state_broadcaster=active 与完整 UR3e /joint_states，gate 成功后再 include 官方 ur_dashboard_client.launch.py。",
+      "experience_type": "workflow",
+      "topics": [
+        "task8b-dashboard-startup",
+        "ros2-launch",
+        "real-robot-bringup"
+      ],
+      "tasks": [
+        "task8B",
+        "task8F"
+      ],
+      "keywords": [
+        "hardware ready gate",
+        "joint_state_broadcaster active",
+        "/joint_states",
+        "GroupAction scoped",
+        "OnProcessExit",
+        "dashboard delayed launch"
+      ],
+      "paths": [
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/scripts/wait_for_hardware_ready.py",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+        "notes/labs/task8B_real_robot_readonly_bringup.md",
+        "notes/labs/task8F_real_robot_acceptance.md"
+      ],
+      "applicability": "适用于本仓库 Stage 4 UR3e 真机 bringup，也适用于后续需要把管理类 ROS 节点延后到 hardware interface ready 后再启动的 launch 设计。",
+      "evidence": [
+        "提交 18cb83a 实现 hardware ready gate 并修复同名 launch 参数泄漏。",
+        "8B 限时只读回归：Hardware ready gate passed 后 dashboard_client 才启动并连接 Dashboard Server。",
+        "8C 只读检查仍可访问 dashboard 服务；因 External Control 未运行与 speed_scaling=0.0 正确 BLOCK。"
+      ],
+      "commands": [
+        "colcon build --packages-select ur3_real_bringup_lab ur3_real_guarded_motion_lab_cpp",
+        "ros2 launch ur3_real_bringup_lab task8B_readonly_bringup.launch.py ur_type:=ur3e robot_ip:=192.168.56.101 reverse_ip:=192.168.56.2 launch_rviz:=false activate_joint_controller:=false",
+        "ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py require_external_control:=false require_trajectory_controller_active:=false"
+      ],
+      "followups": [
+        "如果 wrapper 和被 include 的官方 launch 有同名参数，必须用 GroupAction(scoped=True) 隔离参数上下文。",
+        "真实 execute:=true 前仍必须跑 8C 动作前门闩；hardware ready gate 只证明底层状态流 ready，不证明 External Control 与运动 controller ready。"
+      ],
+      "confidence": "high"
+    }
+  ]
+}
