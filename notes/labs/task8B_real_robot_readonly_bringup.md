@@ -57,6 +57,18 @@ ros2 launch ur3_real_bringup_lab task8B_readonly_bringup.launch.py \
 - 关键边界：这不是固定 sleep，而是 ROS 可观测 hardware-ready 门闩；若门闩超时，dashboard client 不启动，避免重新引入启动竞态。
 - 新增参数：`launch_dashboard_client:=true`、`hardware_ready_timeout_sec:=30.0`、`dashboard_receive_timeout:=20.0`。
 
+### 2026-05-02 External Control 生命周期集成记录
+
+- 触发背景：8D/8E 回归确认 Remote Control 模式下由 PC 端 `load_program` / `play` / `stop` 管理 External Control 生命周期更稳定，也能避免关闭 bringup 后示教器程序残留。
+- 默认策略：8B wrapper 在 hardware-ready gate 通过后启动 dashboard client，再启动本包 `manage_external_control.py`。
+- 启动行为：
+  - 若 `/dashboard_client/program_running=true`，记录已运行并不取得 ownership，退出时不自动 stop。
+  - 若未运行且 `/dashboard_client/is_in_remote_control=true`，自动加载 `external_control_program` 并调用 `/dashboard_client/play`。
+  - 若未运行且不在 Remote Control，打印“进入 Remote Control 模式后重启 bringup”的提示，并让本次 bringup 失败退出。
+- 退出行为：只有本次 `manage_external_control.py` 成功启动过 External Control 时，Ctrl-C 退出 8B bringup 才会自动调用 `/dashboard_client/stop`；人工或外部流程已启动的程序不由本节点停止。
+- 新增参数：`manage_external_control:=true`、`external_control_program:=/programs/external_control.urp`、`require_remote_control_for_external_control:=true`、`stop_external_control_on_shutdown:=true`。
+- 安全边界：该节点不调用 `unlock_protective_stop`、`restart_safety`、`brake_release`、`power_on`、`power_off` 或 `shutdown` 等恢复/电源类 Dashboard 服务。
+
 回归结果：
 
 - 8B 限时只读回归：`通过；ros2_control_node 未再出现 configuration package timeout`
