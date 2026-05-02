@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "session_id": "20260502-205822--task8-external-control",
+  "captured_at": "2026-05-02T20:58:22+08:00",
+  "repository": "ros2_lab",
+  "repo_root": "/home/minzi/ros2_lab",
+  "context": {
+    "source": "current_codex_session",
+    "task_hint": "task8B-task8E",
+    "related_paths": [
+      "notes/labs/task8B_real_robot_readonly_bringup.md",
+      "notes/labs/task8E_safe_stop_and_fault_handling.md",
+      "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py"
+    ]
+  },
+  "experiences": [
+    {
+      "experience_key": "decision--task8-external-control--remote-control-lifecycle-default",
+      "title": "External Control 默认按 Remote Control 生命周期管理",
+      "summary": "阶段四后续真机实验中，External Control 程序默认不依赖示教器手动启动后的残留状态，而是在现场确认 Remote Control 后由 PC 端按 stop、load_program('/programs/external_control.urp')、play 的顺序管理生命周期；随后必须重新检查 program_running、speed_scaling、controller active 与 /joint_states。",
+      "experience_type": "decision",
+      "topics": [
+        "task8-external-control",
+        "ur3e-real-robot",
+        "dashboard-client"
+      ],
+      "tasks": [
+        "task8B",
+        "task8C",
+        "task8D",
+        "task8E"
+      ],
+      "keywords": [
+        "External Control",
+        "Remote Control",
+        "dashboard_client",
+        "load_program",
+        "program_running",
+        "speed_scaling",
+        "scaled_joint_trajectory_controller"
+      ],
+      "paths": [
+        "notes/labs/task8B_real_robot_readonly_bringup.md",
+        "notes/labs/task8E_safe_stop_and_fault_handling.md",
+        "notes/labs/task8F_real_robot_acceptance.md",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/scripts/check_real_robot_state.py"
+      ],
+      "applicability": "用于阶段四及后续真机 bringup、动作前恢复、driver 重启后 External Control 生命周期重新对齐。若示教器不在 Remote Control，则只能记录为 warn 或交由现场人工处理，不能假设 PC 可远程 load/play。",
+      "evidence": [
+        "8E 已复现 PC bringup 与示教器 External Control 生命周期脱节：program_running=true 与 speed_scaling=100.0 不能单独证明 trajectory controller 可运动。",
+        "Remote Control=true 后，PC 端 stop/load_program/play external_control.urp 可恢复到 8C PASS，并重新使 scaled_joint_trajectory_controller active。",
+        "8B wrapper 已将 dashboard client 延后到 hardware-ready gate 之后启动，避免 driver 初始化期 Primary Interface 竞态；External Control 生命周期管理应发生在 bringup ready 之后。"
+      ],
+      "commands": [
+        "ros2 service call /dashboard_client/is_in_remote_control ur_dashboard_msgs/srv/IsInRemoteControl {}",
+        "ros2 service call /dashboard_client/stop std_srvs/srv/Trigger {}",
+        "ros2 service call /dashboard_client/load_program ur_dashboard_msgs/srv/Load \"{filename: '/programs/external_control.urp'}\"",
+        "ros2 service call /dashboard_client/play std_srvs/srv/Trigger {}",
+        "ros2 control switch_controllers --activate scaled_joint_trajectory_controller",
+        "ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py require_trajectory_controller_active:=true"
+      ],
+      "followups": [
+        "后续文档或控制器封装应把 Remote Control 管理路径作为默认启动/恢复流程。",
+        "任何恢复后都必须重新跑 8C，不用 program_running 或 speed_scaling 单点信号替代完整门闩。"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

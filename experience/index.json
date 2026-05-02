@@ -1,8 +1,46 @@
 {
   "schema_version": 1,
   "repository": "ros2_lab",
-  "updated_at": "2026-05-02T20:37:01+08:00",
+  "updated_at": "2026-05-02T20:58:22+08:00",
   "entries": [
+    {
+      "experience_key": "decision--task8-external-control--remote-control-lifecycle-default",
+      "title": "External Control 默认按 Remote Control 生命周期管理",
+      "summary": "阶段四后续真机实验中，External Control 程序默认不依赖示教器手动启动后的残留状态，而是在现场确认 Remote Control 后由 PC 端按 stop、load_program('/programs/external_control.urp')、play 的顺序管理生命周期；随后必须重新检查 program_running、speed_scaling、controller active 与 /joint_states。",
+      "experience_type": "decision",
+      "topics": [
+        "dashboard-client",
+        "task8-external-control",
+        "ur3e-real-robot"
+      ],
+      "tasks": [
+        "task8B",
+        "task8C",
+        "task8D",
+        "task8E"
+      ],
+      "keywords": [
+        "External Control",
+        "Remote Control",
+        "dashboard_client",
+        "load_program",
+        "program_running",
+        "scaled_joint_trajectory_controller",
+        "speed_scaling"
+      ],
+      "paths": [
+        "notes/labs/task8B_real_robot_readonly_bringup.md",
+        "notes/labs/task8E_safe_stop_and_fault_handling.md",
+        "notes/labs/task8F_real_robot_acceptance.md",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/scripts/check_real_robot_state.py"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-05-02T20:58:22+08:00",
+      "session_refs": [
+        "sessions/20260502-205822--task8-external-control.json"
+      ]
+    },
     {
       "experience_key": "pitfall--task8b-dashboard-startup--dashboard-primary-client-race",
       "title": "Task8B 中 dashboard client 可与 hardware interface 形成 Primary Interface 启动竞态",
