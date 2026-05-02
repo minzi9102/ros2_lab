@@ -1,0 +1,42 @@
+from pathlib import Path
+
+import yaml
+
+
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+CATALOG = PACKAGE_ROOT / 'config' / 'ur3e_named_targets.yaml'
+
+
+def load_catalog():
+    with CATALOG.open() as stream:
+        return yaml.safe_load(stream)
+
+
+def test_runtime_modes_are_present():
+    catalog = load_catalog()
+
+    assert catalog['schema_version'] == 1
+    assert set(catalog['runtime_modes']) == {'sim', 'real'}
+
+
+def test_targets_match_joint_count():
+    catalog = load_catalog()
+
+    for mode_name, mode in catalog['runtime_modes'].items():
+        joint_count = len(mode['joint_names'])
+        assert joint_count == 6, mode_name
+
+        for target_name, target in mode['targets'].items():
+            assert len(target['positions_rad']) == joint_count, target_name
+            assert 'reviewed_by' in target
+            assert isinstance(target['enabled'], bool)
+
+
+def test_real_targets_remain_disabled_until_human_review():
+    catalog = load_catalog()
+
+    real_targets = catalog['runtime_modes']['real']['targets']
+    assert real_targets
+    for target_name, target in real_targets.items():
+        assert not target['enabled'], target_name
+        assert 'TODO(human)' in target['reviewed_by']

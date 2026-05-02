@@ -1,0 +1,9 @@
+string target_name
+bool execute
+string human_confirmation
+---
+bool accepted
+bool planned
+bool executed
+string status
+string message

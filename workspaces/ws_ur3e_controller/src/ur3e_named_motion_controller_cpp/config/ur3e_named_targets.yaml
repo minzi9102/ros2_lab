@@ -1,0 +1,67 @@
+schema_version: 1
+
+runtime_modes:
+  sim:
+    planning_group: ur_manipulator
+    joint_names:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+    max_joint_delta_rad: 3.20
+    final_position_tolerance_rad: 0.03
+    final_state_timeout_sec: 5.0
+    planning_time_sec: 3.0
+    planning_attempts: 3
+    max_velocity_scaling: 0.10
+    max_acceleration_scaling: 0.10
+    require_joint_state_stamp: false
+    required_active_controllers:
+      - joint_state_broadcaster
+      - scaled_joint_trajectory_controller
+    targets:
+      home:
+        enabled: true
+        reviewed_by: "simulation baseline"
+        positions_rad: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+      ready:
+        enabled: true
+        reviewed_by: "simulation baseline"
+        positions_rad: [0.20, -1.45, 1.40, -1.55, -1.5708, 0.20]
+
+  real:
+    planning_group: ur_manipulator
+    joint_names:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+    max_joint_delta_rad: 0.10
+    final_position_tolerance_rad: 0.02
+    final_state_timeout_sec: 5.0
+    planning_time_sec: 3.0
+    planning_attempts: 3
+    max_velocity_scaling: 0.05
+    max_acceleration_scaling: 0.05
+    require_joint_state_stamp: true
+    require_remote_control: true
+    allow_reduced_safety_mode: false
+    min_speed_scaling: 0.01
+    required_active_controllers:
+      - joint_state_broadcaster
+      - scaled_joint_trajectory_controller
+    targets:
+      # TODO(human): 真机目标值必须由现场人员重新审核后才能 enabled=true；
+      # 这里保留 Task 8D 的 home/ready 作为迁移参考，但默认禁止执行。
+      home:
+        enabled: false
+        reviewed_by: "TODO(human): 现场复核后填写"
+        positions_rad: [1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.09980899492372686]
+      ready:
+        enabled: false
+        reviewed_by: "TODO(human): 现场复核后填写"
+        positions_rad: [1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.04980899492372686]
