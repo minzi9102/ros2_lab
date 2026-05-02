@@ -102,12 +102,14 @@ ros2 run ur3_real_guarded_motion_lab_cpp guarded_joint_motion_node --ros-args \
 | External Control 未运行 / 生命周期残留 | 执行前 | `已验证恢复路径` | 拒绝执行，人工切 Remote Control 后由 PC stop/load/play | 是 | 否 | `Remote Control=true 后 PC 调用 stop/load_program/play 成功，8C 恢复 PASS` |
 | Action 执行异常 | 执行中 | `已观察` | cancel / 停止观察 | 是 | 否 | `早期 ready goal 出现 action success 但 /joint_states 未到位；已增加 final-target gate` |
 | 低速 cancel | 执行中 | `已验证` | cancel goal，记录结果和最终关节状态 | 是 | 否 | `ready->home 5s 轨迹，1s 后 cancel；action result CANCELED；最终状态仍在 reviewed home envelope 内` |
-| protective stop | 任意阶段 | `【请填写】` | 停止脚本，人工处理 | 是 | 否 | `【请填写】` |
-| driver 断连 | 任意阶段 | `【请填写】` | 停止脚本，记录日志 | 是 | 否 | `【请填写】` |
+| protective stop | 任意阶段 | `不主动实测；仅定义 runbook 边界` | 停止脚本，保持现场安全姿态，等待现场负责人排查原因 | 是 | 否 | `禁止自动 unlock_protective_stop；只有现场负责人确认风险来源、机器人周边环境和示教器状态后，才允许人工恢复` |
+| safeguard stop | 任意阶段 | `不主动实测；仅定义 runbook 边界` | 停止脚本，保持停止状态，排查安全输入与现场人员位置 | 是 | 否 | `禁止自动 restart_safety / brake_release；必须由现场负责人确认安全输入恢复正常后再决定是否继续` |
+| driver 断连 | 任意阶段 | `不主动制造断连；仅定义 runbook 边界` | 停止脚本，记录 driver/dashboard/controller 日志，禁止继续发送 goal | 是 | 否 | `重连后必须重新执行 8C 状态门闩；若 /joint_states、robot_mode、safety_mode、controller 状态任一异常，则终止当天运动实验` |
 
 ## 7. 人工恢复 runbook 填写区
-- protective stop 后由谁判断恢复：`【请填写】`
-- safeguard stop 后由谁判断恢复：`【请填写】`
+- protective stop 后由谁判断恢复：`现场负责人 / 具备 UR 安全恢复权限的操作者判断；Codex 脚本只记录状态，不调用 unlock_protective_stop，不自动恢复`
+- safeguard stop 后由谁判断恢复：`现场负责人 / 具备安全输入排查权限的操作者判断；确认人员、夹具、急停/安全门等安全输入正常后，才允许人工恢复`
+- driver 断连后如何处理：`立即停止当前任务脚本并保存日志；不补发未完成 goal；重启 bringup 或恢复网络后必须重新跑 8C，确认 dashboard、controller、/joint_states 与 speed_scaling 全部正常，再由现场人工决定是否继续`
 - External Control program 停止后如何处理：`先停止 8D；确认示教器处于 Remote Control；PC 端依次调用 /dashboard_client/stop、/dashboard_client/load_program(filename='/programs/external_control.urp')、/dashboard_client/play；随后激活 scaled_joint_trajectory_controller 并重跑 8C`
 - 哪些 Dashboard 服务只允许人工调用：`unlock_protective_stop、restart_safety、brake_release、power_on、power_off、shutdown；stop/load_program/play 也必须在现场人工确认 Remote Control 与安全后调用`
 - 哪些情况必须终止当天实验：`protective stop/safeguard stop 原因不明；robot_mode 或 safety_mode 异常；/joint_states 丢失或频率异常；final-target gate 失败后无法解释；Remote Control 与 External Control 状态反复不一致`
