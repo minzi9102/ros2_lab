@@ -32,11 +32,22 @@ def test_targets_match_joint_count():
             assert isinstance(target['enabled'], bool)
 
 
-def test_real_targets_remain_disabled_until_human_review():
+def test_real_targets_require_explicit_human_review():
     catalog = load_catalog()
 
     real_targets = catalog['runtime_modes']['real']['targets']
     assert real_targets
+
+    enabled_targets = [
+        target_name
+        for target_name, target in real_targets.items()
+        if target['enabled']
+    ]
+    assert enabled_targets == ['home']
+    assert 'TODO(human)' not in real_targets['home']['reviewed_by']
+
     for target_name, target in real_targets.items():
+        if target_name == 'home':
+            continue
         assert not target['enabled'], target_name
         assert 'TODO(human)' in target['reviewed_by']

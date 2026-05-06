@@ -56,10 +56,10 @@ runtime_modes:
       - scaled_joint_trajectory_controller
     targets:
       # TODO(human): 真机目标值必须由现场人员重新审核后才能 enabled=true；
-      # 这里保留 Task 8D 的 home/ready 作为迁移参考，但默认禁止执行。
+      # 这里保留 Task 8D 的 home/ready 作为迁移参考，逐个审核后才允许启用。
       home:
-        enabled: false
-        reviewed_by: "TODO(human): 现场复核后填写"
+        enabled: true
+        reviewed_by: "minzi 2026-05-06 现场复核"
         positions_rad: [1.537635326385498, -1.6185537777342738, 1.408759895955221, -2.9421216450133265, -1.5928295294391077, -0.09980899492372686]
       ready:
         enabled: false
