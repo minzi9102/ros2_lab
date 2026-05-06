@@ -37,17 +37,18 @@ def test_real_targets_require_explicit_human_review():
 
     real_targets = catalog['runtime_modes']['real']['targets']
     assert real_targets
+    reviewed_targets = ['home', 'ready']
 
     enabled_targets = [
         target_name
         for target_name, target in real_targets.items()
         if target['enabled']
     ]
-    assert enabled_targets == ['home']
-    assert 'TODO(human)' not in real_targets['home']['reviewed_by']
+    assert enabled_targets == reviewed_targets
 
     for target_name, target in real_targets.items():
-        if target_name == 'home':
+        if target_name in reviewed_targets:
+            assert 'TODO(human)' not in target['reviewed_by']
             continue
         assert not target['enabled'], target_name
         assert 'TODO(human)' in target['reviewed_by']
