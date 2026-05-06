@@ -206,8 +206,8 @@ class ExternalControlManager(Node):
 
     def _call(self, client: Any, request: Any, timeout_sec: float) -> Any:
         future = client.call_async(request)
-        result = rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
-        if result != rclpy.FutureReturnCode.SUCCESS or not future.done():
+        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
+        if not future.done():
             return None
         return future.result()
 
