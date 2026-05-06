@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "session_id": "20260506-111821--ur3e-controller-moveit-readiness",
+  "captured_at": "2026-05-06T11:18:21+08:00",
+  "repository": "ros2_lab",
+  "repo_root": "/home/minzi/ros2_lab",
+  "context": {
+    "source": "current_codex_session",
+    "task_hint": "ws_ur3e_controller-real-plan-only",
+    "related_paths": [
+      "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+      "workspaces/ws_ur3e_controller/src/ur3e_named_motion_controller_cpp/launch/named_motion_controller.launch.py",
+      "workspaces/ws_ur3e_controller/src/ur3e_named_motion_controller_cpp/launch/sim_named_motion_bringup.launch.py"
+    ]
+  },
+  "experiences": [
+    {
+      "experience_key": "workflow--ur3e-controller-moveit-readiness--stage4-gates-do-not-start-moveit",
+      "title": "ws_ur3e_controller 真机规划前必须同时具备 Stage 4 门闩和 MoveIt 语义层",
+      "summary": "8B/8C 只负责真机 driver、Dashboard、External Control、controller、/joint_states 和 speed scaling 门闩；它们 PASS 不代表 MoveGroupInterface 已具备 robot_description_semantic。ws_ur3e_controller 在 real plan-only 前还需要启动 ur_moveit_config 的 move_group，使 SRDF/robot_description_semantic 可用，否则首次 service 请求创建 MoveGroupInterface 时会因缺 SRDF 崩溃。",
+      "experience_type": "workflow",
+      "topics": [
+        "ur3e-controller-moveit-readiness",
+        "ws_ur3e_controller",
+        "task8-real-robot"
+      ],
+      "tasks": [
+        "task8B",
+        "task8C",
+        "ws_ur3e_controller-real-plan-only"
+      ],
+      "keywords": [
+        "robot_description_semantic",
+        "MoveGroupInterface",
+        "move_group",
+        "SRDF",
+        "8B bringup",
+        "8C gate",
+        "ur_moveit_config",
+        "Unable to construct robot model"
+      ],
+      "paths": [
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8C_state_check.launch.py",
+        "workspaces/ws_ur3e_controller/src/ur3e_named_motion_controller_cpp/launch/named_motion_controller.launch.py",
+        "workspaces/ws_ur3e_controller/src/ur3e_named_motion_controller_cpp/launch/sim_named_motion_bringup.launch.py"
+      ],
+      "applicability": "适用于真实 UR3e 上复测 ws_ur3e_controller 或任何只启动自制 MoveGroup 客户端、但未同时启动 MoveIt move_group/语义描述发布者的场景。尤其用于区分硬件门闩 PASS 后仍无法 plan-only 的原因。",
+      "evidence": [
+        "2026-05-06 8C 动作前门闩已 PASS：robot RUNNING、safety NORMAL、External Control running、remote_control=True、joint_state_broadcaster active、scaled_joint_trajectory_controller active、/joint_states 约 500 Hz、speed scaling 100.0。",
+        "随后仅启动 named_motion_controller.launch.py runtime_mode:=real execute:=false，service 请求 home plan-only 时 delta gate 通过，最大关节差约 0.005231 rad。",
+        "节点随后报错：Could not find parameter robot_description_semantic；Unable to parse SRDF；Unable to construct robot model，并在 MoveGroupInterface 构造阶段退出。",
+        "sim_named_motion_bringup.launch.py 之所以可 plan-only，是因为它同时 include ur_moveit_config/ur_moveit.launch.py；单独 named_motion_controller.launch.py 只启动自制 controller 节点。"
+      ],
+      "commands": [
+        "ros2 launch ur3_real_bringup_lab task8B_readonly_bringup.launch.py ur_type:=ur3e robot_ip:=192.168.56.101 reverse_ip:=192.168.56.2 launch_rviz:=false activate_joint_controller:=false",
+        "ros2 control switch_controllers --activate scaled_joint_trajectory_controller",
+        "ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py require_trajectory_controller_active:=true",
+        "ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur3e launch_rviz:=false launch_servo:=false",
+        "ros2 launch ur3e_named_motion_controller_cpp named_motion_controller.launch.py runtime_mode:=real execute:=false",
+        "ros2 service call /ur3e_named_motion_controller/execute_named_target ur3e_controller_msgs/srv/ExecuteNamedTarget \"{target_name: home, execute: false, human_confirmation: ''}\""
+      ],
+      "followups": [
+        "后续可新增 real_named_motion_bringup.launch.py，把 Stage 4 driver、MoveIt move_group 和 named controller 的启动顺序显式编排，减少人工漏启 MoveIt 的概率。",
+        "如果仍使用分终端手动复测，顺序应固定为：8B bringup -> 8C 动作前门闩 PASS -> ur_moveit_config/ur_moveit.launch.py -> named_motion_controller.launch.py -> service plan-only。",
+        "看到 robot_description_semantic/SRDF 缺失错误时，优先检查 MoveIt 语义层是否在线，而不是回头怀疑 Dashboard、External Control 或 joint state 门闩。"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

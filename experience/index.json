@@ -1,8 +1,45 @@
 {
   "schema_version": 1,
   "repository": "ros2_lab",
-  "updated_at": "2026-05-02T20:58:22+08:00",
+  "updated_at": "2026-05-06T11:18:21+08:00",
   "entries": [
+    {
+      "experience_key": "workflow--ur3e-controller-moveit-readiness--stage4-gates-do-not-start-moveit",
+      "title": "ws_ur3e_controller 真机规划前必须同时具备 Stage 4 门闩和 MoveIt 语义层",
+      "summary": "8B/8C 只负责真机 driver、Dashboard、External Control、controller、/joint_states 和 speed scaling 门闩；它们 PASS 不代表 MoveGroupInterface 已具备 robot_description_semantic。ws_ur3e_controller 在 real plan-only 前还需要启动 ur_moveit_config 的 move_group，使 SRDF/robot_description_semantic 可用，否则首次 service 请求创建 MoveGroupInterface 时会因缺 SRDF 崩溃。",
+      "experience_type": "workflow",
+      "topics": [
+        "task8-real-robot",
+        "ur3e-controller-moveit-readiness",
+        "ws_ur3e_controller"
+      ],
+      "tasks": [
+        "task8B",
+        "task8C",
+        "ws_ur3e_controller-real-plan-only"
+      ],
+      "keywords": [
+        "8B bringup",
+        "8C gate",
+        "MoveGroupInterface",
+        "SRDF",
+        "Unable to construct robot model",
+        "move_group",
+        "robot_description_semantic",
+        "ur_moveit_config"
+      ],
+      "paths": [
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8B_readonly_bringup.launch.py",
+        "workspaces/ws_stage4/src/ur3_real_bringup_lab/launch/task8C_state_check.launch.py",
+        "workspaces/ws_ur3e_controller/src/ur3e_named_motion_controller_cpp/launch/named_motion_controller.launch.py",
+        "workspaces/ws_ur3e_controller/src/ur3e_named_motion_controller_cpp/launch/sim_named_motion_bringup.launch.py"
+      ],
+      "confidence": "high",
+      "updated_at": "2026-05-06T11:18:21+08:00",
+      "session_refs": [
+        "sessions/20260506-111821--ur3e-controller-moveit-readiness.json"
+      ]
+    },
     {
       "experience_key": "decision--task8-external-control--remote-control-lifecycle-default",
       "title": "External Control 默认按 Remote Control 生命周期管理",
