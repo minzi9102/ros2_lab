@@ -20,7 +20,7 @@
 本阶段遵守以下约束：
 
 - 只保留 `home` 和 `ready` 两个仿真目标。
-- `ready` 目标应比当前配置有更明显的运动幅度，用于观察规划和执行效果。
+- `ready` 目标应比当前配置有更明显的运动幅度，用于观察规划和执行效果，但仍控制在真机可接受范围内。
 - 不新增 catalog schema 字段，除非现有字段无法表达需求。
 - 不新增真机专用门闩。
 - 不删除已有真机门闩代码，但仿真 v1 不围绕它们做复杂测试。
@@ -64,7 +64,7 @@ final-target gate 是执行后的最终到位检查。
 目标：
 
 - 保持 catalog 只有 `home` 和 `ready`。
-- 让 `ready` 相对 `home` 有更明显但仍适合仿真的关节位移。
+- 让 `ready` 相对 `home` 有更明显但仍适合仿真、并且后续有机会迁移到真机的关节位移。
 
 预计修改：
 
@@ -75,7 +75,7 @@ final-target gate 是执行后的最终到位检查。
 
 - `ready` 应主要移动哪些关节。
 - 单关节最大位移是否仍受 `sim.max_joint_delta_rad` 约束。
-- 目标姿态是否适合之后迁移到真机作为参考。
+- 目标姿态是否在真机可接受范围内，避免只为仿真演示设计夸张姿态。
 
 验收：
 
@@ -87,7 +87,7 @@ final-target gate 是执行后的最终到位检查。
 
 目标：
 
-- 用接近真实使用方式的测试验证 service 行为。
+- 启动完整 MoveIt 仿真，用接近真实使用方式的测试验证 service 行为。
 
 优先覆盖：
 
@@ -123,6 +123,7 @@ final-target gate 是执行后的最终到位检查。
 
 设计约束：
 
+- 测试入口应优先复用 `sim_named_motion_bringup.launch.py`，避免维护第二套仿真启动流程。
 - 如果测试需要临时 catalog，优先使用测试专用 YAML 文件。
 - 不为了测试引入生产代码中的复杂测试开关。
 
@@ -180,19 +181,19 @@ final-target gate 是执行后的最终到位检查。
 
 Dashboard、External Control、Remote Control、speed scaling 是否继续作为硬性门闩，等仿真 v1 稳定后再根据实际风险决定。
 
-## 7. 当前开放问题
+## 7. 已确认决策
 
-- `sim.ready` 的新目标值如何选择：偏大幅度演示，还是偏真机可迁移姿态。
-- launch + service 测试是否直接启动完整 MoveIt 仿真，还是先做一个较轻的 service 集成测试。
-- final-target gate 的仿真容差是否继续使用 `0.03` rad。
-- 是否需要在文档中把真机已启用的 `home` / `ready` 状态和旧 TODO 对齐。
+- `sim.ready` 的新目标值选择真机可接受范围内的稍大范围运动。
+- launch + service 测试启动完整 MoveIt 仿真。
+- final-target gate 的仿真容差继续使用 `0.03` rad。
+- 文档需要把真机已启用的 `home` / `ready` 状态和旧 TODO 对齐。
 
 ## 8. 推荐下一步
 
 下一步先执行 4.2：
 
-1. 人类确定 `sim.ready` 想观察的运动方向和大致幅度。
+1. 人类确定 `sim.ready` 想主要移动的关节和大致幅度。
 2. 智能体修改 catalog 和 catalog 测试。
-3. 启动仿真，确认 `ready` plan-only 和 execute 均通过。
+3. 启动完整 MoveIt 仿真，确认 `ready` plan-only 和 execute 均通过。
 
 完成后再进入 launch + service 级测试建设。

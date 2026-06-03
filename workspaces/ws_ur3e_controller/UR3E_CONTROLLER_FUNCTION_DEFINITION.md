@@ -99,7 +99,7 @@ string message
   - 默认要求 non-zero joint state stamp。
   - 默认要求 Remote Control。
   - 默认不接受 `REDUCED` safety mode，除非人工审核后在 catalog 中显式设置 `allow_reduced_safety_mode=true`。
-  - catalog 中真机目标默认 `enabled=false`，必须由现场人员复核后才能启用。
+  - catalog 中 `home`、`ready` 已由现场人员在 2026-05-06 复核后启用；后续新增真机目标仍必须先保持禁用，复核后才能启用。
 
 ## 5. Launch 参数
 
@@ -246,7 +246,7 @@ status=rejected_real_gate
 当前控制器采用保守的单目标执行策略：
 
 - 默认 launch `execute=false`，优先 plan-only。
-- 真机 catalog 目标默认禁用。
+- 新增真机 catalog 目标默认禁用；当前 `home`、`ready` 已现场复核并启用。
 - 真机执行必须显式传入确认 token。
 - 真机执行前检查 Dashboard、controller、External Control、joint state 和 speed scaling。
 - 不从代码中恢复安全停机或重新启动机器人。
@@ -256,8 +256,8 @@ status=rejected_real_gate
 
 人工职责：
 
-- 审核 `real` catalog 中每个目标的 `positions_rad`。
-- 决定每个真机目标何时可以 `enabled=true`。
+- 审核 `real` catalog 中新增目标的 `positions_rad`。
+- 决定新增真机目标何时可以 `enabled=true`。
 - 根据现场风险确认 `max_joint_delta_rad`、速度缩放和加速度缩放。
 - 决定是否接受 `REDUCED` safety mode，并在文档或 commit 中记录理由。
 - 每次真实执行前确认机器人工作空间清空、示教器和急停可达、速度低且任务单一。
@@ -311,7 +311,7 @@ ros2 service call /ur3e_named_motion_controller/execute_named_target \
 
 - `runtime_mode:=real`
 - launch 参数 `execute:=true`
-- 目标在 real catalog 中 `enabled=true`
+- 目标在 real catalog 中 `enabled=true`，且 `reviewed_by` 已记录现场复核来源
 - service 请求中 `human_confirmation` 等于当前确认 token
 - 所有真机门闩通过
 
@@ -323,7 +323,7 @@ ros2 service call /ur3e_named_motion_controller/execute_named_target \
 - 检查 `sim` 和 `real` runtime mode 均存在。
 - 检查每个目标的 `positions_rad` 数量与六关节数量一致。
 - 检查每个目标包含 `reviewed_by` 和布尔型 `enabled`。
-- 检查 real targets 在人工审核前保持禁用，并保留 `TODO(human)`。
+- 检查 `real.home`、`real.ready` 已现场复核并启用；后续新增 real targets 在人工审核前应保持禁用，并保留 `TODO(human)`。
 
 建议继续补充的节点级测试：
 
@@ -351,7 +351,7 @@ ros2 service call /ur3e_named_motion_controller/execute_named_target \
 
 真机前置验收：
 
-- real catalog 的目标仍为禁用时，请求必须返回 `rejected_disabled_target`。
+- real catalog 中未复核且仍为禁用的目标，请求必须返回 `rejected_disabled_target`。
 - 未提供正确 `human_confirmation` 时，真实执行必须返回 `rejected_real_gate`。
 - Dashboard robot mode 非 `RUNNING` 时必须拒绝。
 - safety mode 非 `NORMAL` 且未允许 `REDUCED` 时必须拒绝。
@@ -368,10 +368,10 @@ ros2 service call /ur3e_named_motion_controller/execute_named_target \
 
 ## 13. 后续 TODO
 
-- TODO(human)：审核 `real` catalog 中 `home`、`ready` 的真实关节值。
 - TODO(human)：确认真机 `max_joint_delta_rad` 是否继续使用 `0.10` rad。
 - TODO(human)：确认真机速度缩放、加速度缩放是否足够保守。
 - TODO(human)：决定是否接受 `REDUCED` safety mode。
+- TODO(human)：如新增 real target，先保持禁用并完成现场姿态复核。
 - TODO(dev)：补充节点级 service 测试，覆盖拒绝路径和 plan-only 路径。
 - TODO(dev)：为真机门闩增加 mock service 测试。
 - TODO(dev)：考虑将更多内部参数外显到 launch 文件，便于实验记录。
