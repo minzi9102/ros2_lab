@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import yaml
@@ -52,3 +53,25 @@ def test_real_targets_require_explicit_human_review():
             continue
         assert not target['enabled'], target_name
         assert 'TODO(human)' in target['reviewed_by']
+
+
+def test_sim_ready_moves_first_and_third_joints_by_30_degrees():
+    catalog = load_catalog()
+
+    sim_targets = catalog['runtime_modes']['sim']['targets']
+    home = sim_targets['home']['positions_rad']
+    ready = sim_targets['ready']['positions_rad']
+    expected_delta = math.radians(30.0)
+
+    deltas = [ready_value - home_value for home_value, ready_value in zip(home, ready)]
+    expected_deltas = [
+        expected_delta,
+        0.0,
+        -expected_delta,
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+    for actual, expected in zip(deltas, expected_deltas):
+        assert math.isclose(actual, expected, abs_tol=1.0e-4)

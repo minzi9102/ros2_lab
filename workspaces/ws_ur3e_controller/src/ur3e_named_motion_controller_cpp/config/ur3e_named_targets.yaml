@@ -28,8 +28,8 @@ runtime_modes:
         positions_rad: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
       ready:
         enabled: true
-        reviewed_by: "simulation baseline"
-        positions_rad: [0.20, -1.45, 1.40, -1.55, -1.5708, 0.20]
+        reviewed_by: "simulation +30deg shoulder_pan and -30deg elbow"
+        positions_rad: [0.5236, -1.5708, 1.0472, -1.5708, -1.5708, 0.0]
 
   real:
     planning_group: ur_manipulator
