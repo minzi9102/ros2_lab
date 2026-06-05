@@ -88,3 +88,15 @@ def test_ready_plan_only_with_full_moveit_sim():
     assert response.planned
     assert not response.executed
     assert response.status == 'planned'
+
+
+def test_execute_request_is_rejected_when_launch_execution_disabled():
+    with sim_bringup(execute=False):
+        time.sleep(1.0)
+
+        response = call_execute_named_target('ready', execute=True)
+
+    assert not response.accepted
+    assert not response.planned
+    assert not response.executed
+    assert response.status == 'rejected_execution_disabled'
