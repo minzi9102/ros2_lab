@@ -173,6 +173,14 @@ final-target gate 是执行后的最终到位检查。
 - 两者都通过 final-target gate。
 - 执行过程不需要人工确认 token。
 
+状态：
+
+- 已完成。2026-06-05 使用完整 MoveIt fake hardware 仿真启动 RViz，执行顺序为 `ready -> home`。
+- `ready` execute 返回 `status=executed`，并通过 final-target gate。
+- `home` execute 返回 `status=executed`，并通过 final-target gate。
+- 两次执行均未使用人工确认 token。
+- 验收记录见 `SIM_EXECUTE_RVIZ_VALIDATION_2026-06-05.md`。
+
 ## 5. 暂不做的事项
 
 本阶段明确不做：
@@ -218,8 +226,8 @@ Dashboard、External Control、Remote Control、speed scaling 是否继续作为
 
 ## 8. 推荐下一步
 
-下一步进入 4.5：
+下一步：
 
-1. 确认 `home` execute 是否也需要自动测试覆盖。
-2. 根据测试耗时决定是否把完整仿真测试标记为慢测试。
-3. 梳理仿真 v1 完成标准，准备迁移真机前的最小清单。
+1. 梳理仿真 v1 完成标准。
+2. 准备迁移真机前的最小清单。
+3. 根据测试耗时决定是否把完整仿真测试标记为慢测试。
