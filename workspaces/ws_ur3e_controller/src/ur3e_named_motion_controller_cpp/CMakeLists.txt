@@ -48,6 +48,11 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_add_pytest_test(test_target_catalog test/test_target_catalog.py)
+  ament_add_pytest_test(
+    test_sim_launch_service
+    test/test_sim_launch_service.py
+    TIMEOUT 300
+  )
   ament_lint_auto_find_test_dependencies()
 endif()
 
