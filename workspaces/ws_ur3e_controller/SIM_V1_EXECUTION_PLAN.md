@@ -147,6 +147,19 @@ final-target gate 是执行后的最终到位检查。
 - 拒绝路径都有明确 `status`。
 - 测试不依赖真机服务。
 
+状态：
+
+- 已完成。`test_sim_launch_service.py` 当前覆盖：
+  - disabled target 返回 `rejected_disabled_target`。
+  - joint state 缺失返回 `rejected_joint_state`。
+  - joint state 关节名不完整返回 `rejected_joint_state`。
+  - 当前状态到目标 delta 超限返回 `rejected_delta`。
+- 2026-06-05 验证命令通过：
+
+  ```bash
+  source /opt/ros/jazzy/setup.bash && colcon test --packages-select ur3e_named_motion_controller_cpp --event-handlers console_direct+
+  ```
+
 ### 4.5 完成仿真 execute 验收
 
 目标：
@@ -205,8 +218,8 @@ Dashboard、External Control、Remote Control、speed scaling 是否继续作为
 
 ## 8. 推荐下一步
 
-下一步进入 4.4：
+下一步进入 4.5：
 
-1. 选择一个仿真关键拒绝路径作为第二版测试目标。
-2. 优先考虑 `disabled target` 或 `rejected_unknown_target`，因为它们不需要复杂状态注入。
-3. 暂缓 joint state 缺失、关节名不完整和 delta 超限，避免过早引入测试专用设施。
+1. 确认 `home` execute 是否也需要自动测试覆盖。
+2. 根据测试耗时决定是否把完整仿真测试标记为慢测试。
+3. 梳理仿真 v1 完成标准，准备迁移真机前的最小清单。
