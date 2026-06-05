@@ -5,7 +5,8 @@ import signal
 import subprocess
 import time
 
-import pytest
+import rclpy
+from ur3e_controller_msgs.srv import ExecuteNamedTarget
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
@@ -28,7 +29,7 @@ def sim_bringup(execute: bool):
         command,
         cwd=WORKSPACE_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
         start_new_session=True,
         text=True,
@@ -45,16 +46,38 @@ def sim_bringup(execute: bool):
 
 
 def call_execute_named_target(target_name: str, execute: bool):
-    # TODO(human): 用 rclpy 创建测试节点，等待 SERVICE_NAME 可用，
-    # 发送 ExecuteNamedTarget 请求，并返回 response。
-    # 这里是 launch + service 测试最关键的练习点：
-    # 需要处理 service 等待超时、future 完成超时，以及失败时打印清晰诊断。
-    raise NotImplementedError
+    rclpy.init()
+    node = rclpy.create_node('test_execute_named_target_client')
+    try:
+        client = node.create_client(ExecuteNamedTarget, SERVICE_NAME)
+
+        if not client.wait_for_service(timeout_sec=30.0):
+            raise RuntimeError(f'Service {SERVICE_NAME} is not available')
+
+        request = ExecuteNamedTarget.Request()
+        request.target_name = target_name
+        request.execute = execute
+        request.human_confirmation = ''
+
+        future = client.call_async(request)
+        rclpy.spin_until_future_complete(node, future, timeout_sec=30.0)
+
+        if not future.done():
+            raise RuntimeError(f'Service call to {SERVICE_NAME} did not complete in time')
+        error = future.exception()
+        if error is not None:
+            raise RuntimeError(f'Service call to {SERVICE_NAME} failed') from error
+
+        response = future.result()
+        if response is None:
+            raise RuntimeError(f'Service call to {SERVICE_NAME} failed: {future.exception()}')
+
+        return response
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
-@pytest.mark.skip(
-    reason='TODO(human): 补完 call_execute_named_target 后启用此测试。'
-)
 def test_ready_plan_only_with_full_moveit_sim():
     with sim_bringup(execute=False):
         time.sleep(1.0)
