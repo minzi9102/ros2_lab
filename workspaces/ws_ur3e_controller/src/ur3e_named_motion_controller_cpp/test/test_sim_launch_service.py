@@ -100,3 +100,16 @@ def test_execute_request_is_rejected_when_launch_execution_disabled():
     assert not response.planned
     assert not response.executed
     assert response.status == 'rejected_execution_disabled'
+
+
+def test_ready_execute_with_full_moveit_sim():
+    with sim_bringup(execute=True):
+        time.sleep(1.0)
+
+        response = call_execute_named_target('ready', execute=True)
+
+    assert response.accepted
+    assert response.planned
+    assert response.executed
+    assert response.status == 'executed'
+    assert 'final-target gate passed' in response.message
