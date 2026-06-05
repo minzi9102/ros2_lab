@@ -21,6 +21,8 @@
 - `execute=true` bringup 下，`ready` execute 成功。
 - `execute=false` bringup 下，请求 `execute=true` 返回 `rejected_execution_disabled`。
 
+状态：已完成。对应测试文件为 `src/ur3e_named_motion_controller_cpp/test/test_sim_launch_service.py`。
+
 暂不做：
 
 - Dashboard mock。
@@ -116,17 +118,20 @@ status == 'rejected_execution_disabled'
 
 ## 7. 下一步实现顺序
 
-1. 先实现 `execute=false` 下的 `ready` plan-only 自动测试。
-2. 再实现 `execute=false` 下的 `execute=true` 拒绝测试。
-3. 最后实现 `execute=true` 下的 `ready` execute 自动测试。
+已完成：
 
-每完成一个测试用例，都运行：
+1. `execute=false` 下的 `ready` plan-only 自动测试。
+2. `execute=false` 下的 `execute=true` 拒绝测试。
+3. `execute=true` 下的 `ready` execute 自动测试。
+
+最近一次通过验证：
 
 ```bash
 cd /home/minzi/ros2_lab/workspaces/ws_ur3e_controller
 source /opt/ros/jazzy/setup.bash
-source install/setup.bash
 colcon test --packages-select ur3e_named_motion_controller_cpp --event-handlers console_direct+
 ```
 
-如果完整 launch 测试耗时或稳定性不理想，再单独讨论是否拆分为慢测试标签。
+当前 `test_sim_launch_service` 包含三个完整仿真用例，最近一次 pytest 部分耗时约 `18.43s`。
+
+下一步转入第二版拒绝路径设计。优先选择不需要复杂 ROS 状态注入的路径，例如 `rejected_unknown_target` 或 disabled target。

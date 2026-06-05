@@ -95,10 +95,9 @@ final-target gate 是执行后的最终到位检查。
 
 优先覆盖：
 
-- `home` plan-only 成功。
 - `ready` plan-only 成功。
 - `execute=true` 且 launch `execute=false` 时返回 `rejected_execution_disabled`。
-- 未知目标返回 `rejected_unknown_target`。
+- `execute=true` 且 launch `execute=true` 时完成 `ready` execute，并返回 `status=executed`。
 
 暂缓覆盖：
 
@@ -111,6 +110,18 @@ final-target gate 是执行后的最终到位检查。
 
 - `colcon test --packages-select ur3e_named_motion_controller_cpp` 能运行新增测试。
 - 失败时日志能看出 service 返回的 `status` 和 `message`。
+
+状态：
+
+- 第一版已完成。`test_sim_launch_service.py` 当前覆盖：
+  - `execute=false` bringup 下 `ready` plan-only 成功。
+  - `execute=false` bringup 下请求 `execute=true` 返回 `rejected_execution_disabled`。
+  - `execute=true` bringup 下 `ready` execute 成功，并确认 `final-target gate passed`。
+- 2026-06-05 验证命令通过：
+
+  ```bash
+  source /opt/ros/jazzy/setup.bash && colcon test --packages-select ur3e_named_motion_controller_cpp --event-handlers console_direct+
+  ```
 
 ### 4.4 覆盖仿真关键拒绝路径
 
@@ -194,11 +205,8 @@ Dashboard、External Control、Remote Control、speed scaling 是否继续作为
 
 ## 8. 推荐下一步
 
-下一步先执行 4.2：
+下一步进入 4.4：
 
-1. 人类确定 `sim.ready` 想主要移动的关节和大致幅度。
-2. 智能体修改 catalog 和 catalog 测试。
-3. 启动完整 MoveIt 仿真，确认 `ready` plan-only 和 execute 均通过。
-
-完成后再进入 launch + service 级测试建设。
-当前 `sim.ready` 已完成手动仿真验收，下一步进入 4.3。测试设计见 `LAUNCH_SERVICE_TEST_DESIGN.md`。
+1. 选择一个仿真关键拒绝路径作为第二版测试目标。
+2. 优先考虑 `disabled target` 或 `rejected_unknown_target`，因为它们不需要复杂状态注入。
+3. 暂缓 joint state 缺失、关节名不完整和 delta 超限，避免过早引入测试专用设施。
