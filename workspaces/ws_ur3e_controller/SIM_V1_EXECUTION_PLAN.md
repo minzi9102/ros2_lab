@@ -83,6 +83,10 @@ final-target gate 是执行后的最终到位检查。
 - `ready` 规划成功。
 - `ready` execute 后 final-target gate 通过。
 
+状态：
+
+- 已完成。2026-06-05 手动仿真验收记录见 `SIM_READY_VALIDATION_2026-06-05.md`。
+
 ### 4.3 建立 launch + service 级测试
 
 目标：
@@ -197,3 +201,4 @@ Dashboard、External Control、Remote Control、speed scaling 是否继续作为
 3. 启动完整 MoveIt 仿真，确认 `ready` plan-only 和 execute 均通过。
 
 完成后再进入 launch + service 级测试建设。
+当前 `sim.ready` 已完成手动仿真验收，下一步进入 4.3。测试设计见 `LAUNCH_SERVICE_TEST_DESIGN.md`。
