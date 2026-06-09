@@ -11,9 +11,9 @@ ROS 2 Jazzy 机械臂开发学习仓库，以 UR3 为目标平台，按阶段推
 | 阶段 1 | ROS 2 基础能力与控制链路入门（Task 4A-4H） | 已完成 |
 | 阶段 2 | UR3 fake hardware / URSim 控制实践（Task 5A-6B） | 已完成 |
 | 阶段 3 | UR3 + MoveIt 2 运动规划与 Servo（Task 7A-7E） | 已完成 |
-| 阶段 4 | UR3e 真机接入、安全预检与只读状态门闩（Task 8A-8C） | 进行中 |
+| 阶段 4 | UR3e 真机接入、guarded 运动与阶段验收（Task 8A-8F） | 已完成 |
 
-阶段 3 已于 2026-04-27 收口。阶段 4 当前已完成 8A 网络与现场预检、8B 真机只读 bringup、8C Dashboard/controller 状态门闩；尚未进入真实运动执行。
+阶段 3 已于 2026-04-27 收口。阶段 4 已完成 8A-8F：网络与现场预检、真机只读 bringup、Dashboard/controller 状态门闩、低速 guarded `home/ready`、故障处理复核与阶段验收。`ws_ur3e_controller` 也已补齐 fake hardware、URSim 和真机 GUI 的首轮 HOME/READY 闭环验收。
 
 ## 仓库地图
 
@@ -85,10 +85,11 @@ ros2_lab/
 
 ### `workspaces/ws_stage4`
 
-阶段 4 工作区，面向真实 UR3e 接入。当前只允许安全预检、只读 bringup、Dashboard/controller 状态门闩与文档化记录；真实运动任务尚未放行。
+阶段 4 工作区，面向真实 UR3e 接入。当前已完成安全预检、只读 bringup、Dashboard/controller 状态门闩、低速 guarded `home/ready`、故障处理复核与阶段验收；这些入口仍服务于学习实验，不是生产控制系统。
 
 主要包：
 - `ur3_real_bringup_lab`：Task 8A-8C，真机网络/安全预检、只读 driver bringup、状态门闩检查。
+- `ur3_real_guarded_motion_lab_cpp`：Task 8D-8E，低速 guarded `home/ready`、取消与异常拒绝路径复核。
 
 真机 calibration 文件：
 - 主用文件：`workspaces/ws_stage4/src/ur3_real_bringup_lab/config/ur3e_real_calibration.yaml`
@@ -124,6 +125,15 @@ kinematics_params_file:=/home/minzi/ros2_lab/workspaces/ws_stage4/src/ur3_real_b
 - [Task 8A：真机接入前安全与网络清单](notes/labs/task8A_real_robot_preflight.md)
 - [Task 8B：只读启动 ur_control 并验证状态流](notes/labs/task8B_real_robot_readonly_bringup.md)
 - [Task 8C：Dashboard、controller 与 External Control 状态验证](notes/labs/task8C_dashboard_controller_state.md)
+- [Task 8D：低速 guarded HOME/READY 动作](notes/labs/task8D_guarded_home_ready_motion.md)
+- [Task 8E：安全停止与异常处理复核](notes/labs/task8E_safe_stop_and_fault_handling.md)
+- [Task 8F：阶段验收与操作规程](notes/labs/task8F_real_robot_acceptance.md)
+
+`ws_ur3e_controller` 补充记录：
+- [HOME/READY GUI 仿真优先执行方案](workspaces/ws_ur3e_controller/REAL_HOME_READY_GUI_PLAN.md)
+- [URSim GUI 验收记录](workspaces/ws_ur3e_controller/URSIM_GUI_VALIDATION_2026-06-05.md)
+- [真机 GUI 验收记录模板](workspaces/ws_ur3e_controller/REAL_GUI_VALIDATION_TEMPLATE.md)
+- [真机 GUI 验收记录](workspaces/ws_ur3e_controller/REAL_GUI_VALIDATION_2026-06-09.md)
 
 经验索引：
 - [experience/index.json](experience/index.json)
@@ -194,7 +204,7 @@ ros2 launch ur3_real_bringup_lab task8C_state_check.launch.py \
 ## 当前边界
 
 - 阶段 3 的主路径已完成，但 Task 7E 仅验收 fake hardware + RViz；URSim、真机、遥操作输入设备和视觉伺服留作后续独立任务。
-- 阶段 4 已进入真实 UR3e，但目前只完成 8A-8C：网络/安全预检、只读状态流和状态门闩。尚未允许真实运动。
-- 真机 calibration 文件已提取并归档，但进入 8D 前还需要接入 bringup/description wrapper，确认 `calibration mismatch` 消失后再讨论运动。
+- 阶段 4 的学习目标已经完成到 8F，当前仓库保留的真机入口覆盖只读 bringup、动作前门闩、低速 guarded `home/ready`、异常拒绝路径与阶段验收。
+- `ws_ur3e_controller` 已完成 fake hardware、URSim 和真机 GUI 的首轮 HOME/READY 闭环，但真机 GUI 仍只面向两个经过现场复核的命名目标。
 - Task 7B 的 `ros2 run` 直跑会绕过 launch 注入，可能复现本地 kinematics warning；当前推荐使用对应 launch 入口。
-- 本仓库是学习仓库，不是生产机器人控制系统。进入 URSim 或真机前，应重新审查速度、停止策略、控制器状态、网络与安全边界。
+- 本仓库是学习仓库，不是生产机器人控制系统。进入 URSim 或真机前，仍应重新审查速度、停止策略、控制器状态、网络与安全边界；protective stop、safeguard stop、自动恢复、无人值守执行等能力仍不在当前验证范围内。
