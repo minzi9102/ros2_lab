@@ -75,3 +75,41 @@ def test_sim_ready_moves_first_and_third_joints_by_30_degrees():
 
     for actual, expected in zip(deltas, expected_deltas):
         assert math.isclose(actual, expected, abs_tol=1.0e-4)
+
+
+def test_real_ready_matches_sim_ready_joint_deltas_and_gate():
+    catalog = load_catalog()
+
+    expected_delta = math.radians(30.0)
+    sim_mode = catalog['runtime_modes']['sim']
+    real_mode = catalog['runtime_modes']['real']
+
+    sim_home = sim_mode['targets']['home']['positions_rad']
+    sim_ready = sim_mode['targets']['ready']['positions_rad']
+    real_home = real_mode['targets']['home']['positions_rad']
+    real_ready = real_mode['targets']['ready']['positions_rad']
+
+    sim_deltas = [
+        ready_value - home_value
+        for home_value, ready_value in zip(sim_home, sim_ready)
+    ]
+    real_deltas = [
+        ready_value - home_value
+        for home_value, ready_value in zip(real_home, real_ready)
+    ]
+    expected_deltas = [
+        expected_delta,
+        0.0,
+        -expected_delta,
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+    for actual, expected in zip(sim_deltas, expected_deltas):
+        assert math.isclose(actual, expected, abs_tol=1.0e-4)
+
+    for actual, expected in zip(real_deltas, expected_deltas):
+        assert math.isclose(actual, expected, abs_tol=1.0e-4)
+
+    assert real_mode['max_joint_delta_rad'] >= expected_delta

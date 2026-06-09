@@ -368,7 +368,7 @@ ros2 service call /ur3e_named_motion_controller/execute_named_target \
 
 ## 13. 后续 TODO
 
-- TODO(human)：确认真机 `max_joint_delta_rad` 是否继续使用 `0.10` rad。
+- TODO(human)：若继续调整 `real.home` / `real.ready` 幅度，重新复核真机 `max_joint_delta_rad`、当前起始姿态和现场安全边界。
 - TODO(human)：确认真机速度缩放、加速度缩放是否足够保守。
 - TODO(human)：决定是否接受 `REDUCED` safety mode。
 - TODO(human)：如新增 real target，先保持禁用并完成现场姿态复核。
