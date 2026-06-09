@@ -99,7 +99,7 @@ string message
   - 默认要求 non-zero joint state stamp。
   - 默认要求 Remote Control。
   - 默认不接受 `REDUCED` safety mode，除非人工审核后在 catalog 中显式设置 `allow_reduced_safety_mode=true`。
-  - catalog 中 `home`、`ready` 已由现场人员在 2026-05-06 复核后启用；后续新增真机目标仍必须先保持禁用，复核后才能启用。
+  - catalog 中 `home`、`ready` 已由现场人员复核后启用；当前基线已在 2026-06-09 按真机当前姿态重录并保留 `reviewed_by` 来源。
 
 ## 5. Launch 参数
 
