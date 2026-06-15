@@ -12,6 +12,7 @@ class TerminalKeyReader:
         self._fd = stream.fileno()
         self._original_settings = None
         self._active = False
+        self._interactive = stream.isatty()
 
     def __enter__(self) -> 'TerminalKeyReader':
         self.start()
@@ -22,6 +23,9 @@ class TerminalKeyReader:
 
     def start(self) -> None:
         if self._active:
+            return
+
+        if not self._interactive:
             return
 
         self._original_settings = termios.tcgetattr(self._fd)
@@ -38,6 +42,9 @@ class TerminalKeyReader:
         self._active = False
 
     def read_key(self) -> Optional[str]:
+        if not self._interactive:
+            return None
+
         readable, _, _ = select.select([self._stream], [], [], 0.0)
         if not readable:
             return None

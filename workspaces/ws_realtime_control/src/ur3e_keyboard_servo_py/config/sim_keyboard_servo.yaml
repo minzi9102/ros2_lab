@@ -1,6 +1,7 @@
 ur3e_keyboard_servo:
   ros__parameters:
     command_topic: /servo_node/delta_twist_cmds
+    command_type_service: /servo_node/switch_command_type
     frame_id: base_link
     publish_rate_hz: 30.0
     key_timeout_sec: 0.20

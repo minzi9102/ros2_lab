@@ -1,0 +1,95 @@
+# Fake Hardware Smoke Test 记录
+
+日期：2026-06-15
+
+## 目标
+
+验证 `ur3e_keyboard_servo_py` 的 fake hardware 仿真启动链路能跑到 MoveIt Servo 和键盘控制节点。
+
+本轮不做 RViz 中的方向键人工验收，只做启动链路 smoke test。
+
+## 命令
+
+预检：
+
+```bash
+cd ~/ros2_lab/workspaces/ws_realtime_control
+source /opt/ros/jazzy/setup.bash
+source ../ws_stage3/install/setup.bash
+source install/setup.bash
+
+ros2 pkg prefix ur3e_keyboard_servo_py
+ros2 pkg prefix ur3_moveit_servo_lab_cpp
+ros2 pkg prefix ur_robot_driver
+ros2 pkg prefix ur_moveit_config
+```
+
+调试运行：
+
+```bash
+ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
+  use_mock_hardware:=true \
+  launch_rviz:=false
+```
+
+最终一次日志：
+
+```text
+workspaces/ws_realtime_control/logs/sim_keyboard_servo_console_20260615-171417.log
+workspaces/ws_realtime_control/logs/sim_keyboard_servo/20260615-171418/
+```
+
+## 结果
+
+通过的启动节点与门闩：
+
+- `ros2_control_node` 使用 fake hardware 启动。
+- `/joint_states` 出现。
+- `joint_state_broadcaster` 与 `forward_position_controller` active。
+- `move_group` 完成初始化并输出 `You can start planning now!`。
+- `servo_node` 完成初始化并发布 `/servo_node/status`。
+- `keyboard_servo_node` 启动。
+- `keyboard_servo_node` 请求并完成 MoveIt Servo TWIST command mode 切换。
+
+关键日志：
+
+```text
+Keyboard Servo node started. command_topic=/servo_node/delta_twist_cmds command_type_service=/servo_node/switch_command_type frame_id=base_link rate=30.0Hz speed=0.0200m/s timeout=0.20s
+Requested MoveIt Servo TWIST command mode.
+MoveIt Servo accepted TWIST command mode.
+```
+
+## 本轮发现并修复的问题
+
+1. `keyboard_servo_node` 启动时崩溃。
+   - 原因：`rclpy` logger 不支持 Python logging 风格的多参数格式化。
+   - 修复：改为预格式化字符串。
+
+2. 非交互终端运行 smoke test 时，终端按键读取可能无法进入 cbreak 模式。
+   - 修复：`TerminalKeyReader` 在非 TTY 环境下不启用 termios，并返回无按键输入。
+
+3. MoveIt Servo 未设置 command type 时拒绝 Twist 输入。
+   - 修复：`keyboard_servo_node` 启动后调用 `/servo_node/switch_command_type`，请求 TWIST mode，成功后再发布 Twist。
+
+4. 启动期日志不够完整。
+   - 修复：仿真 launch 将本包节点输出改为 `both`，并设置 ROS 日志相关环境变量。
+
+## 剩余验收
+
+仍需人工执行带 RViz 的方向键验收：
+
+```bash
+ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
+  use_mock_hardware:=true \
+  launch_rviz:=true
+```
+
+待确认：
+
+- ↑：末端沿 +x 小幅移动。
+- ↓：末端沿 -x 小幅移动。
+- ←：末端沿 +y 小幅移动。
+- →：末端沿 -y 小幅移动。
+- 松键自动停止。
+- 空格立即停止。
+- q 退出并停止。

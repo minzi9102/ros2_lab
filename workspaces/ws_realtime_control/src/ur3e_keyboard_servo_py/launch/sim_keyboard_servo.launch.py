@@ -128,7 +128,7 @@ def generate_launch_description() -> LaunchDescription:
         executable='rviz2',
         name='rviz2_moveit',
         condition=IfCondition(LaunchConfiguration('launch_rviz')),
-        output='log',
+        output='both',
         arguments=[
             '-d',
             PathJoinSubstitution([FindPackageShare('ur_moveit_config'), 'config', 'moveit.rviz']),
@@ -147,7 +147,7 @@ def generate_launch_description() -> LaunchDescription:
         package='ur3_moveit_servo_lab_cpp',
         executable='joint_state_stamp_relay_node',
         name='realtime_joint_state_stamp_relay',
-        output='screen',
+        output='both',
         respawn=True,
         respawn_delay=1.0,
         parameters=[
@@ -163,7 +163,7 @@ def generate_launch_description() -> LaunchDescription:
         package='moveit_servo',
         executable='servo_node',
         name='servo_node',
-        output='screen',
+        output='both',
         parameters=[
             moveit_config.to_dict(),
             servo_params,
@@ -175,7 +175,7 @@ def generate_launch_description() -> LaunchDescription:
         package='ur3_moveit_servo_lab_cpp',
         executable='wait_for_joint_states.py',
         name='realtime_joint_states_gate',
-        output='screen',
+        output='both',
         parameters=[
             {
                 'topic': '/joint_states',
@@ -192,7 +192,7 @@ def generate_launch_description() -> LaunchDescription:
         package='ur3_moveit_servo_lab_cpp',
         executable='wait_for_servo_status.py',
         name='realtime_servo_status_gate',
-        output='screen',
+        output='both',
         parameters=[
             {
                 'topic': '/servo_node/status',
@@ -205,7 +205,7 @@ def generate_launch_description() -> LaunchDescription:
         package='ur3e_keyboard_servo_py',
         executable='keyboard_servo_node',
         name='ur3e_keyboard_servo',
-        output='screen',
+        output='both',
         parameters=[
             PathJoinSubstitution(
                 [
@@ -277,6 +277,8 @@ def generate_launch_description() -> LaunchDescription:
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
             SetEnvironmentVariable(name='ROS_LOG_DIR', value=str(run_log_dir)),
+            SetEnvironmentVariable(name='RCUTILS_LOGGING_BUFFERED_STREAM', value='1'),
+            SetEnvironmentVariable(name='RCUTILS_LOGGING_USE_STDOUT', value='1'),
             LogInfo(msg=f'Realtime keyboard Servo logs will be written to: {run_log_dir}'),
             driver_launch,
             moveit_launch,

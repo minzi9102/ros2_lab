@@ -2,6 +2,7 @@ import time
 from typing import Optional
 
 from geometry_msgs.msg import TwistStamped
+from moveit_msgs.srv import ServoCommandType
 import rclpy
 from rclpy.node import Node
 
@@ -18,6 +19,10 @@ class KeyboardServoNode(Node):
             'command_topic',
             '/servo_node/delta_twist_cmds',
         ).value
+        self.command_type_service = self.declare_parameter(
+            'command_type_service',
+            '/servo_node/switch_command_type',
+        ).value
         self.frame_id = self.declare_parameter('frame_id', 'base_link').value
         self.publish_rate_hz = float(self.declare_parameter('publish_rate_hz', 30.0).value)
         self.key_timeout_sec = float(self.declare_parameter('key_timeout_sec', 0.20).value)
@@ -26,6 +31,12 @@ class KeyboardServoNode(Node):
         self.enable_rotation = bool(self.declare_parameter('enable_rotation', False).value)
 
         self._publisher = self.create_publisher(TwistStamped, self.command_topic, 10)
+        self._command_type_client = self.create_client(
+            ServoCommandType,
+            self.command_type_service,
+        )
+        self._command_type_future = None
+        self._twist_mode_ready = False
         self._limiter = SafetyLimiter(
             linear_speed_mps=self.linear_speed_mps,
             key_timeout_sec=self.key_timeout_sec,
@@ -39,12 +50,13 @@ class KeyboardServoNode(Node):
         self._timer = self.create_timer(period_sec, self._on_timer)
 
         self.get_logger().info(
-            'Keyboard Servo node started. command_topic=%s frame_id=%s rate=%.1fHz speed=%.4fm/s timeout=%.2fs',
-            self.command_topic,
-            self.frame_id,
-            self.publish_rate_hz,
-            self.linear_speed_mps,
-            self.key_timeout_sec,
+            'Keyboard Servo node started. '
+            f'command_topic={self.command_topic} '
+            f'command_type_service={self.command_type_service} '
+            f'frame_id={self.frame_id} '
+            f'rate={self.publish_rate_hz:.1f}Hz '
+            f'speed={self.linear_speed_mps:.4f}m/s '
+            f'timeout={self.key_timeout_sec:.2f}s'
         )
 
     @property
@@ -59,6 +71,9 @@ class KeyboardServoNode(Node):
         self._publish_twist(TwistCommand())
 
     def _on_timer(self) -> None:
+        if not self._ensure_twist_mode_ready():
+            return
+
         now_sec = time.monotonic()
         raw_key = self._key_reader.read_key()
         key_command = map_key(raw_key)
@@ -70,6 +85,36 @@ class KeyboardServoNode(Node):
             self._quit_requested = True
             self.get_logger().info('Quit requested. Publishing stop command before shutdown.')
             rclpy.shutdown()
+
+    def _ensure_twist_mode_ready(self) -> bool:
+        if self._twist_mode_ready:
+            return True
+
+        if self._command_type_future is None:
+            if not self._command_type_client.service_is_ready():
+                self.get_logger().info(
+                    f'Waiting for Servo command type service: {self.command_type_service}'
+                )
+                return False
+
+            request = ServoCommandType.Request()
+            request.command_type = ServoCommandType.Request.TWIST
+            self._command_type_future = self._command_type_client.call_async(request)
+            self.get_logger().info('Requested MoveIt Servo TWIST command mode.')
+            return False
+
+        if not self._command_type_future.done():
+            return False
+
+        response = self._command_type_future.result()
+        if response is None or not response.success:
+            self.get_logger().error('MoveIt Servo rejected TWIST command mode request.')
+            rclpy.shutdown()
+            return False
+
+        self._twist_mode_ready = True
+        self.get_logger().info('MoveIt Servo accepted TWIST command mode.')
+        return True
 
     def _publish_twist(self, command: TwistCommand) -> None:
         msg = TwistStamped()
