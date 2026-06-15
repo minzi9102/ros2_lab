@@ -6,7 +6,7 @@
 
 验证 `ur3e_keyboard_servo_py` 的 fake hardware 仿真启动链路能跑到 MoveIt Servo 和键盘控制节点。
 
-本轮不做 RViz 中的方向键人工验收，只做启动链路 smoke test。
+本轮先做启动链路 smoke test，随后补做 RViz 中的键盘输入人工验收。
 
 ## 命令
 
@@ -50,6 +50,8 @@ workspaces/ws_realtime_control/logs/sim_keyboard_servo/20260615-171418/
 - `servo_node` 完成初始化并发布 `/servo_node/status`。
 - `keyboard_servo_node` 启动。
 - `keyboard_servo_node` 请求并完成 MoveIt Servo TWIST command mode 切换。
+- `launch_rviz:=true` 能启动 RViz，并进入 MoveIt MotionPlanning 面板。
+- 启动 launch 的终端获得焦点后，`keyboard_servo_node` 能收到键盘输入并生成 move command。
 
 关键日志：
 
@@ -58,6 +60,23 @@ Keyboard Servo node started. command_topic=/servo_node/delta_twist_cmds command_
 Requested MoveIt Servo TWIST command mode.
 MoveIt Servo accepted TWIST command mode.
 ```
+
+人工键盘输入验收记录：
+
+```text
+[keyboard_servo_node-13] [INFO] [1781531634.643721568] [ur3e_keyboard_servo]: Key command received: action=move x=-1.0 y=0.0
+[keyboard_servo_node-13] [INFO] [1781531634.676777907] [ur3e_keyboard_servo]: Key command received: action=move x=-1.0 y=0.0
+[keyboard_servo_node-13] [INFO] [1781531634.743417258] [ur3e_keyboard_servo]: Key command received: action=move x=-1.0 y=0.0
+[keyboard_servo_node-13] [INFO] [1781531634.777014191] [ur3e_keyboard_servo]: Key command received: action=move x=-1.0 y=0.0
+[keyboard_servo_node-13] [INFO] [1781531634.810306771] [ur3e_keyboard_servo]: Key command received: action=move x=-1.0 y=0.0
+```
+
+结论：
+
+- fake hardware + RViz 启动链路通过。
+- MoveIt Servo TWIST mode 握手通过。
+- 键盘输入到 `keyboard_servo_node` 的读取链路通过。
+- `keyboard_servo_node` 能按键盘输入生成 x/y 平面速度命令。
 
 ## 本轮发现并修复的问题
 
@@ -88,7 +107,7 @@ MoveIt Servo accepted TWIST command mode.
 
 ## 剩余验收
 
-RViz 已确认能启动。仍需人工执行方向键运动验收：
+RViz 已确认能启动，键盘输入已确认能进入节点。后续可继续补充完整方向矩阵记录：
 
 ```bash
 ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
