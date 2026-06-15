@@ -13,7 +13,8 @@ fake hardware smoke test 已跑到 Servo + keyboard 节点，并完成 TWIST mod
 `launch_rviz:=true` 的顶层 RViz 启动已修复并验证能启动到 MoveIt MotionPlanning 面板。
 键盘输入已补充 `/dev/tty` fallback；下一次方向验收时需要保持启动终端获得焦点，并观察 `Key command received` 日志。
 fake hardware 下键盘输入与运动人工验收已成功记录：终端聚焦后可连续收到 `Key command received: action=move ...`，并在 RViz 中看到机械臂运动。
-仿真 launch、URSim 验收、真机 launch 和真机验证仍保留为后续独立任务。
+URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认机械臂响应键盘 Servo 输入并运动。
+仿真完整方向矩阵、真机 launch 和真机验证仍保留为后续独立任务。
 ```
 
 当前第一版只规划：
@@ -583,6 +584,13 @@ URSim 中 x/y 方向正确
 空格停止
 q 退出
 无持续异常
+```
+
+状态：
+
+```text
+已完成 URSim smoke test：launch_rviz:=false，通过 URSim 网页监视器确认机械臂响应键盘 Servo 输入并运动。
+仍可继续补充 URSim ↑ ↓ ← →、松键、空格、q 的完整验收矩阵。
 ```
 
 ### 任务 7：真机启动文件
