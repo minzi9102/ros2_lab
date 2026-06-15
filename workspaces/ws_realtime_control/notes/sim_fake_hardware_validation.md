@@ -80,6 +80,12 @@ MoveIt Servo accepted TWIST command mode.
    - 修复：在顶层 launch 中将用户输入缓存到 `realtime_launch_rviz`，RViz 节点条件读取该私有配置。
    - 验证：`logs/sim_keyboard_servo_console_20260615-172046_rviz.log` 中出现 `rviz2-7: process started`，且 RViz 日志出现 `Ready to take commands for planning group ur_manipulator.`。
 
+6. RViz 能启动，但按 `w/a/s/d` 和方向键没有运动。
+   - 原因：`ros2 launch` 启动的子进程 `stdin` 不一定是交互 TTY，原 `TerminalKeyReader` 会进入非交互模式并持续返回无按键。
+   - 修复：当 `stdin` 不是 TTY 时，`TerminalKeyReader` 尝试打开控制终端 `/dev/tty` 读取按键；同时启动日志会显示键盘输入来源。
+   - 操作要求：按键时焦点必须在启动 launch 的终端窗口；如果焦点在 RViz，按键会被 RViz 接收而不是键盘节点接收。
+   - 验证方式：终端或日志中应出现 `Keyboard input attached to ...`，按有效键时应出现 `Key command received: action=move ...`。
+
 ## 剩余验收
 
 RViz 已确认能启动。仍需人工执行方向键运动验收：

@@ -77,6 +77,11 @@ class KeyboardServoNode(Node):
         now_sec = time.monotonic()
         raw_key = self._key_reader.read_key()
         key_command = map_key(raw_key)
+        if key_command.action != KeyAction.IGNORE:
+            self.get_logger().info(
+                f'Key command received: action={key_command.action.value} '
+                f'x={key_command.x:.1f} y={key_command.y:.1f}'
+            )
 
         twist = self._limiter.apply_key_command(key_command, now_sec)
         self._publish_twist(twist)
@@ -135,6 +140,16 @@ def main(args=None) -> None:
 
     try:
         node._key_reader.start()
+        if node._key_reader.is_interactive:
+            node.get_logger().info(
+                f'Keyboard input attached to {node._key_reader.source_name}. '
+                'Keep this terminal focused while pressing keys.'
+            )
+        else:
+            node.get_logger().warn(
+                'Keyboard input is not interactive. Run from a real terminal or start '
+                'keyboard_servo_node separately to control motion.'
+            )
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info('Keyboard interrupt received. Publishing stop command.')
