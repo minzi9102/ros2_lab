@@ -9,10 +9,10 @@
 ```text
 核心包 v1 已进入实现：创建 ur3e_keyboard_servo_py，覆盖键盘映射、安全限幅、终端按键读取、TwistStamped 发布节点和单元测试。
 仿真 launch 切片已进入实现：新增 sim_keyboard_servo.launch.py 和 sim_keyboard_servo.yaml，复用 Stage 3 Task 7E 的 MoveIt Servo 启动门闩。
-fake hardware smoke test 已跑到 Servo + keyboard 节点，并完成 TWIST mode 握手；RViz 键盘输入验收已完成，四方向逐项运动矩阵仍可继续补充。
+fake hardware smoke test 已跑到 Servo + keyboard 节点，并完成 TWIST mode 握手；RViz 中已确认机械臂响应键盘输入并运动，四方向逐项运动矩阵仍可继续补充。
 `launch_rviz:=true` 的顶层 RViz 启动已修复并验证能启动到 MoveIt MotionPlanning 面板。
 键盘输入已补充 `/dev/tty` fallback；下一次方向验收时需要保持启动终端获得焦点，并观察 `Key command received` 日志。
-fake hardware 下键盘输入人工验收已成功记录：终端聚焦后可连续收到 `Key command received: action=move ...`，并生成 x/y 平面速度命令。
+fake hardware 下键盘输入与运动人工验收已成功记录：终端聚焦后可连续收到 `Key command received: action=move ...`，并在 RViz 中看到机械臂运动。
 仿真 launch、URSim 验收、真机 launch 和真机验证仍保留为后续独立任务。
 ```
 
@@ -563,7 +563,7 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 状态：
 
 ```text
-已完成 fake hardware smoke test：启动链路、RViz 启动、Servo TWIST mode 握手、键盘输入进入节点均已通过。
+已完成 fake hardware smoke test：启动链路、RViz 启动、Servo TWIST mode 握手、键盘输入进入节点、RViz 机械臂响应运动均已通过。
 仍可继续补充 ↑ ↓ ← → 四方向的逐项运动方向记录。
 ```
 

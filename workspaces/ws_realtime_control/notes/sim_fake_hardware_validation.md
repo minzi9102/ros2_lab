@@ -6,7 +6,7 @@
 
 验证 `ur3e_keyboard_servo_py` 的 fake hardware 仿真启动链路能跑到 MoveIt Servo 和键盘控制节点。
 
-本轮先做启动链路 smoke test，随后补做 RViz 中的键盘输入人工验收。
+本轮先做启动链路 smoke test，随后补做 RViz 中的键盘输入与机械臂运动人工验收。
 
 ## 命令
 
@@ -52,6 +52,7 @@ workspaces/ws_realtime_control/logs/sim_keyboard_servo/20260615-171418/
 - `keyboard_servo_node` 请求并完成 MoveIt Servo TWIST command mode 切换。
 - `launch_rviz:=true` 能启动 RViz，并进入 MoveIt MotionPlanning 面板。
 - 启动 launch 的终端获得焦点后，`keyboard_servo_node` 能收到键盘输入并生成 move command。
+- 用户确认 RViz 中可以看到机械臂响应键盘输入并运动。
 
 关键日志：
 
@@ -77,6 +78,7 @@ MoveIt Servo accepted TWIST command mode.
 - MoveIt Servo TWIST mode 握手通过。
 - 键盘输入到 `keyboard_servo_node` 的读取链路通过。
 - `keyboard_servo_node` 能按键盘输入生成 x/y 平面速度命令。
+- fake hardware 下键盘输入到 RViz 机械臂运动的闭环通过。
 
 ## 本轮发现并修复的问题
 
@@ -107,7 +109,7 @@ MoveIt Servo accepted TWIST command mode.
 
 ## 剩余验收
 
-RViz 已确认能启动，键盘输入已确认能进入节点。后续可继续补充完整方向矩阵记录：
+RViz 已确认能启动，键盘输入已确认能进入节点，机械臂已确认会响应按键运动。后续可继续补充完整方向矩阵记录：
 
 ```bash
 ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
