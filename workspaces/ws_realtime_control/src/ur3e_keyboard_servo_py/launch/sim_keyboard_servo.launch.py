@@ -13,6 +13,7 @@ from launch.actions import (
     LogInfo,
     RegisterEventHandler,
     SetEnvironmentVariable,
+    SetLaunchConfiguration,
     TimerAction,
 )
 from launch.conditions import IfCondition
@@ -127,7 +128,7 @@ def generate_launch_description() -> LaunchDescription:
         package='rviz2',
         executable='rviz2',
         name='rviz2_moveit',
-        condition=IfCondition(LaunchConfiguration('launch_rviz')),
+        condition=IfCondition(LaunchConfiguration('realtime_launch_rviz')),
         output='both',
         arguments=[
             '-d',
@@ -279,6 +280,10 @@ def generate_launch_description() -> LaunchDescription:
             SetEnvironmentVariable(name='ROS_LOG_DIR', value=str(run_log_dir)),
             SetEnvironmentVariable(name='RCUTILS_LOGGING_BUFFERED_STREAM', value='1'),
             SetEnvironmentVariable(name='RCUTILS_LOGGING_USE_STDOUT', value='1'),
+            SetLaunchConfiguration(
+                name='realtime_launch_rviz',
+                value=LaunchConfiguration('launch_rviz'),
+            ),
             LogInfo(msg=f'Realtime keyboard Servo logs will be written to: {run_log_dir}'),
             driver_launch,
             moveit_launch,

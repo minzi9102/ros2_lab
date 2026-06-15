@@ -74,9 +74,15 @@ MoveIt Servo accepted TWIST command mode.
 4. 启动期日志不够完整。
    - 修复：仿真 launch 将本包节点输出改为 `both`，并设置 ROS 日志相关环境变量。
 
+5. `launch_rviz:=true` 时没有看到 RViz 窗口。
+   - 原因：顶层 `launch_rviz` 与内层 `ur_control.launch.py` / `ur_moveit.launch.py` 使用同名 launch configuration；内层 include 传入的 `launch_rviz=false` 污染了顶层 RViz 条件判断。
+   - 历史参考：Task 7E 的 `b0d106e fix(task7E): restore rviz launch in nested moveit flow` 也修过同类问题。
+   - 修复：在顶层 launch 中将用户输入缓存到 `realtime_launch_rviz`，RViz 节点条件读取该私有配置。
+   - 验证：`logs/sim_keyboard_servo_console_20260615-172046_rviz.log` 中出现 `rviz2-7: process started`，且 RViz 日志出现 `Ready to take commands for planning group ur_manipulator.`。
+
 ## 剩余验收
 
-仍需人工执行带 RViz 的方向键验收：
+RViz 已确认能启动。仍需人工执行方向键运动验收：
 
 ```bash
 ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \

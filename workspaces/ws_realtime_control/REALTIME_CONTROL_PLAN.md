@@ -10,6 +10,7 @@
 核心包 v1 已进入实现：创建 ur3e_keyboard_servo_py，覆盖键盘映射、安全限幅、终端按键读取、TwistStamped 发布节点和单元测试。
 仿真 launch 切片已进入实现：新增 sim_keyboard_servo.launch.py 和 sim_keyboard_servo.yaml，复用 Stage 3 Task 7E 的 MoveIt Servo 启动门闩。
 fake hardware smoke test 已跑到 Servo + keyboard 节点，并完成 TWIST mode 握手；RViz 方向键人工验收尚未完成。
+`launch_rviz:=true` 的顶层 RViz 启动已修复并验证能启动到 MoveIt MotionPlanning 面板。
 仿真 launch、URSim 验收、真机 launch 和真机验证仍保留为后续独立任务。
 ```
 
