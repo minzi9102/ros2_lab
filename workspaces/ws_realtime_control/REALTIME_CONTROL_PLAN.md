@@ -18,7 +18,8 @@ URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认
 真机安全 launch 已进入实现：新增 real_keyboard_servo.launch.py 和 real_keyboard_servo.yaml，强制确认口令、低速、短超时、30 秒会话上限。
 真机 launch 启动顺序已调整为复用 Task 8B：driver hardware ready 后再启动 dashboard / External Control manager，再等待 forward_position_controller 后启动 Servo 和键盘节点。
 真机键盘输入链路已确认：短按按键时终端连续输出 `Key command received`，但 5 mm/s 默认速度下肉眼运动不明显；已计划通过 launch 参数进行保守调参。
-仿真完整方向矩阵和真机短按验证仍保留为后续独立任务。
+真机调速后人工验收已成功：`linear_speed_mps` 可覆盖上限提升到 0.050 m/s 后，用户报告实机键盘 Servo 运动可观察。
+仿真完整方向矩阵和真机四方向逐项验证仍保留为后续独立任务。
 ```
 
 当前第一版只规划：
