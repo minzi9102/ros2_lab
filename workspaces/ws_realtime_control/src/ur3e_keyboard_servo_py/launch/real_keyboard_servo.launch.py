@@ -99,6 +99,11 @@ def generate_launch_description() -> LaunchDescription:
                 description='Timeout passed to dashboard / External Control manager.',
             ),
             DeclareLaunchArgument(
+                'hardware_ready_timeout_sec',
+                default_value='30.0',
+                description='Timeout for waiting controller manager and /joint_states before dashboard startup.',
+            ),
+            DeclareLaunchArgument(
                 'stop_external_control_on_shutdown',
                 default_value='true',
                 description='Stop External Control on shutdown when this launch started it.',
@@ -162,8 +167,47 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             'initial_joint_controller': 'forward_position_controller',
             'activate_joint_controller': 'true',
             'launch_rviz': 'false',
-            'launch_dashboard_client': 'true',
+            'launch_dashboard_client': 'false',
             'description_launchfile': description_launchfile,
+        }.items(),
+    )
+
+    hardware_ready_gate = Node(
+        package='ur3_real_bringup_lab',
+        executable='wait_for_hardware_ready.py',
+        name='real_keyboard_hardware_ready_gate',
+        output='both',
+        parameters=[
+            {
+                'timeout_sec': ParameterValue(
+                    LaunchConfiguration('hardware_ready_timeout_sec'),
+                    value_type=float,
+                ),
+                'expected_joint_names': [
+                    'shoulder_pan_joint',
+                    'shoulder_lift_joint',
+                    'elbow_joint',
+                    'wrist_1_joint',
+                    'wrist_2_joint',
+                    'wrist_3_joint',
+                ],
+            }
+        ],
+    )
+
+    dashboard_client_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [
+                    FindPackageShare('ur_robot_driver'),
+                    'launch',
+                    'ur_dashboard_client.launch.py',
+                ]
+            )
+        ),
+        launch_arguments={
+            'robot_ip': LaunchConfiguration('robot_ip'),
+            'dashboard_receive_timeout': LaunchConfiguration('dashboard_receive_timeout'),
         }.items(),
     )
 
@@ -295,6 +339,42 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         ],
     )
 
+    def on_hardware_ready_gate_exit(event, _context):
+        if event.returncode == 0:
+            return [
+                LogInfo(
+                    msg=(
+                        'Real robot hardware ready gate passed; launching dashboard '
+                        'client and External Control manager.'
+                    )
+                ),
+                dashboard_client_launch,
+                external_control_manager,
+                moveit_launch,
+                rviz_node,
+                joint_state_relay,
+                TimerAction(
+                    period=2.0,
+                    actions=[
+                        LogInfo(
+                            msg=(
+                                'Waiting for /joint_states and forward_position_controller '
+                                'before starting MoveIt Servo...'
+                            )
+                        ),
+                        joint_states_gate,
+                    ],
+                ),
+            ]
+
+        return [
+            EmitEvent(
+                event=Shutdown(
+                    reason='Real keyboard hardware ready gate failed before dashboard startup.'
+                )
+            )
+        ]
+
     def on_external_control_manager_exit(event, _context):
         if event.returncode == 0:
             return []
@@ -376,17 +456,19 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             )
         ),
         driver_launch,
-        external_control_manager,
-        moveit_launch,
-        rviz_node,
-        joint_state_relay,
         LogInfo(
             msg=(
-                'Waiting for /joint_states and forward_position_controller before '
-                'starting MoveIt Servo...'
+                'Waiting for hardware ready gate before launching dashboard and '
+                'External Control manager...'
             )
         ),
-        joint_states_gate,
+        hardware_ready_gate,
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=hardware_ready_gate,
+                on_exit=on_hardware_ready_gate_exit,
+            )
+        ),
         RegisterEventHandler(
             OnProcessExit(
                 target_action=external_control_manager,

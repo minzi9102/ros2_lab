@@ -16,6 +16,7 @@ fake hardware 下键盘输入与运动人工验收已成功记录：终端聚焦
 URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认机械臂响应键盘 Servo 输入并运动。
 真机前置只读检查已通过：RUNNING/NORMAL、External Control running、remote_control=True、/joint_states 约 501 Hz、speed scaling 100.0。
 真机安全 launch 已进入实现：新增 real_keyboard_servo.launch.py 和 real_keyboard_servo.yaml，强制确认口令、低速、短超时、30 秒会话上限。
+真机 launch 启动顺序已调整为复用 Task 8B：driver hardware ready 后再启动 dashboard / External Control manager，再等待 forward_position_controller 后启动 Servo 和键盘节点。
 仿真完整方向矩阵和真机短按验证仍保留为后续独立任务。
 ```
 
@@ -618,6 +619,7 @@ real_keyboard_servo.yaml
 ```text
 已实现 real_keyboard_servo.launch.py 和 real_keyboard_servo.yaml。
 真机入口要求 human_confirmation:=I_CONFIRM_REAL_ROBOT_MOTION，默认速度 0.005 m/s，会话 30 秒自动停止。
+首版并发启动 External Control manager 过早会导致 driver configure 时序风险；已改为先通过 hardware ready gate，再启动 dashboard / External Control。
 ```
 
 ### 任务 8：真机低速验证

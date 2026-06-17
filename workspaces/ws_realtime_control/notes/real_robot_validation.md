@@ -42,6 +42,26 @@ enable_rotation=false
 max_session_duration_sec=30.0
 ```
 
+启动顺序要求：
+
+```text
+1. 启动真实 UR driver，暂不启动 dashboard client。
+2. 等待 hardware ready gate：controller manager 可用、joint_state_broadcaster active、/joint_states 完整。
+3. hardware ready 后再启动 dashboard client 和 External Control manager。
+4. 等待 forward_position_controller active。
+5. 启动 MoveIt Servo。
+6. 等待 /servo_node/status。
+7. 启动 keyboard_servo_node。
+```
+
+历史问题：
+
+```text
+2026-06-17 首版 real_keyboard_servo.launch.py 曾同时启动 driver 和 External Control manager。
+结果 UR driver 在 configure 阶段报错：Could not get configuration package within timeout。
+修正：复用 Task 8B 时序，先 hardware ready，再 dashboard / External Control。
+```
+
 ## 待验证矩阵
 
 | 操作 | 预期 | 结果 |
