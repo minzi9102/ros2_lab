@@ -45,7 +45,7 @@ max_session_duration_sec=45.0
 `real_keyboard_servo.launch.py` 允许临时覆盖低速验证参数，但带有硬上限：
 
 ```text
-linear_speed_mps <= 0.020
+linear_speed_mps <= 0.050
 key_timeout_sec <= 0.50
 max_session_duration_sec <= 90.0
 ```
@@ -93,6 +93,6 @@ max_session_duration_sec <= 90.0
 ## 禁止事项
 
 - 不使用 `sim_keyboard_servo.launch.py` 连接真机。
-- 不超过 `linear_speed_mps:=0.020`。
+- 不超过 `linear_speed_mps:=0.050`。
 - 不启用 z 轴或旋转。
 - 不在安全模式异常、External Control 未运行、speed scaling 为 0 时启动。

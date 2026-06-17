@@ -392,7 +392,7 @@ ros2 launch ur3e_keyboard_servo_py real_keyboard_servo.launch.py \
 真机 launch 允许临时覆盖低速验证参数，但必须通过硬上限：
 
 ```text
-linear_speed_mps <= 0.020
+linear_speed_mps <= 0.050
 key_timeout_sec <= 0.50
 max_session_duration_sec <= 90.0
 ```
@@ -449,7 +449,7 @@ speed scaling 非零
 | 空格 | 立即归零 |
 | q | 退出前归零 |
 | ↑ ↓ ← → | 方向正确 |
-| 速度 | 默认 0.010 m/s，最高只允许覆盖到 0.020 m/s |
+| 速度 | 默认 0.010 m/s，最高只允许覆盖到 0.050 m/s |
 | z 轴 | 永远为 0 |
 | 旋转 | 永远为 0 |
 | 会话时长 | 默认 45 秒，最高只允许覆盖到 90 秒 |
