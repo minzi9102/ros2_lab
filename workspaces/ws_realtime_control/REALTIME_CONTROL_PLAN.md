@@ -14,7 +14,9 @@ fake hardware smoke test 已跑到 Servo + keyboard 节点，并完成 TWIST mod
 键盘输入已补充 `/dev/tty` fallback；下一次方向验收时需要保持启动终端获得焦点，并观察 `Key command received` 日志。
 fake hardware 下键盘输入与运动人工验收已成功记录：终端聚焦后可连续收到 `Key command received: action=move ...`，并在 RViz 中看到机械臂运动。
 URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认机械臂响应键盘 Servo 输入并运动。
-仿真完整方向矩阵、真机 launch 和真机验证仍保留为后续独立任务。
+真机前置只读检查已通过：RUNNING/NORMAL、External Control running、remote_control=True、/joint_states 约 501 Hz、speed scaling 100.0。
+真机安全 launch 已进入实现：新增 real_keyboard_servo.launch.py 和 real_keyboard_servo.yaml，强制确认口令、低速、短超时、30 秒会话上限。
+仿真完整方向矩阵和真机短按验证仍保留为后续独立任务。
 ```
 
 当前第一版只规划：
@@ -609,6 +611,13 @@ real_keyboard_servo.yaml
 传入确认口令后才启动键盘控制
 默认速度 0.005 m/s
 会话 30 秒自动停止
+```
+
+状态：
+
+```text
+已实现 real_keyboard_servo.launch.py 和 real_keyboard_servo.yaml。
+真机入口要求 human_confirmation:=I_CONFIRM_REAL_ROBOT_MOTION，默认速度 0.005 m/s，会话 30 秒自动停止。
 ```
 
 ### 任务 8：真机低速验证

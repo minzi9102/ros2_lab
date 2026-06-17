@@ -11,6 +11,20 @@ from .safety_limiter import SafetyLimiter, TwistCommand
 from .terminal_key_reader import TerminalKeyReader
 
 
+REQUIRED_REAL_CONFIRMATION = 'I_CONFIRM_REAL_ROBOT_MOTION'
+
+
+def is_motion_confirmation_valid(
+    *,
+    require_confirmation: bool,
+    human_confirmation: str,
+    required_confirmation_text: str = REQUIRED_REAL_CONFIRMATION,
+) -> bool:
+    if not require_confirmation:
+        return True
+    return human_confirmation == required_confirmation_text
+
+
 class KeyboardServoNode(Node):
     def __init__(self, key_reader: Optional[TerminalKeyReader] = None) -> None:
         super().__init__('ur3e_keyboard_servo')
@@ -29,6 +43,30 @@ class KeyboardServoNode(Node):
         self.linear_speed_mps = float(self.declare_parameter('linear_speed_mps', 0.02).value)
         self.enable_z = bool(self.declare_parameter('enable_z', False).value)
         self.enable_rotation = bool(self.declare_parameter('enable_rotation', False).value)
+        self.require_confirmation = bool(
+            self.declare_parameter('require_confirmation', False).value
+        )
+        self.human_confirmation = self.declare_parameter('human_confirmation', '').value
+        self.required_confirmation_text = self.declare_parameter(
+            'required_confirmation_text',
+            REQUIRED_REAL_CONFIRMATION,
+        ).value
+        self.max_session_duration_sec = float(
+            self.declare_parameter('max_session_duration_sec', 0.0).value
+        )
+
+        if self.max_session_duration_sec < 0.0:
+            raise ValueError('max_session_duration_sec must be non-negative')
+
+        if not is_motion_confirmation_valid(
+            require_confirmation=self.require_confirmation,
+            human_confirmation=str(self.human_confirmation),
+            required_confirmation_text=str(self.required_confirmation_text),
+        ):
+            self.get_logger().error(
+                'Motion confirmation rejected. Refusing to start keyboard Servo control.'
+            )
+            raise RuntimeError('motion confirmation rejected')
 
         self._publisher = self.create_publisher(TwistStamped, self.command_topic, 10)
         self._command_type_client = self.create_client(
@@ -45,6 +83,7 @@ class KeyboardServoNode(Node):
         )
         self._key_reader = key_reader or TerminalKeyReader()
         self._quit_requested = False
+        self._session_start_time = time.monotonic()
 
         period_sec = 1.0 / self.publish_rate_hz
         self._timer = self.create_timer(period_sec, self._on_timer)
@@ -56,7 +95,9 @@ class KeyboardServoNode(Node):
             f'frame_id={self.frame_id} '
             f'rate={self.publish_rate_hz:.1f}Hz '
             f'speed={self.linear_speed_mps:.4f}m/s '
-            f'timeout={self.key_timeout_sec:.2f}s'
+            f'timeout={self.key_timeout_sec:.2f}s '
+            f'max_session={self.max_session_duration_sec:.1f}s '
+            f'require_confirmation={self.require_confirmation}'
         )
 
     @property
@@ -75,6 +116,15 @@ class KeyboardServoNode(Node):
             return
 
         now_sec = time.monotonic()
+        if self._session_expired(now_sec):
+            self.get_logger().warn(
+                'Maximum keyboard Servo session duration reached. '
+                'Publishing stop command before shutdown.'
+            )
+            self.publish_stop()
+            rclpy.shutdown()
+            return
+
         raw_key = self._key_reader.read_key()
         key_command = map_key(raw_key)
         if key_command.action != KeyAction.IGNORE:
@@ -133,12 +183,18 @@ class KeyboardServoNode(Node):
         msg.twist.angular.z = command.angular_z
         self._publisher.publish(msg)
 
+    def _session_expired(self, now_sec: float) -> bool:
+        if self.max_session_duration_sec <= 0.0:
+            return False
+        return now_sec - self._session_start_time >= self.max_session_duration_sec
+
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = KeyboardServoNode()
+    node = None
 
     try:
+        node = KeyboardServoNode()
         node._key_reader.start()
         if node._key_reader.is_interactive:
             node.get_logger().info(
@@ -152,11 +208,15 @@ def main(args=None) -> None:
             )
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info('Keyboard interrupt received. Publishing stop command.')
+        if node is not None:
+            node.get_logger().info('Keyboard interrupt received. Publishing stop command.')
+    except RuntimeError as exc:
+        print(f'Keyboard Servo node refused to start: {exc}')
     finally:
-        if rclpy.ok():
+        if node is not None and rclpy.ok():
             node.publish_stop()
-        node.close()
-        node.destroy_node()
+        if node is not None:
+            node.close()
+            node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
