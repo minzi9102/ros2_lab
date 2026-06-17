@@ -29,6 +29,9 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 REQUIRED_REAL_CONFIRMATION = 'I_CONFIRM_REAL_ROBOT_MOTION'
+MAX_REAL_LINEAR_SPEED_MPS = 0.020
+MAX_REAL_KEY_TIMEOUT_SEC = 0.50
+MAX_REAL_SESSION_DURATION_SEC = 90.0
 
 
 def load_yaml(package_name: str, file_path: str):
@@ -37,6 +40,25 @@ def load_yaml(package_name: str, file_path: str):
 
     with open(absolute_file_path) as file:
         return yaml.safe_load(file)
+
+
+def parse_positive_bounded_float(
+    *,
+    context: LaunchContext,
+    argument_name: str,
+    max_value: float,
+):
+    raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return None, f'{argument_name} must be a number, got {raw_value!r}'
+
+    if value <= 0.0:
+        return None, f'{argument_name} must be greater than 0.0, got {value}'
+    if value > max_value:
+        return None, f'{argument_name} must be <= {max_value}, got {value}'
+    return value, None
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -108,6 +130,21 @@ def generate_launch_description() -> LaunchDescription:
                 default_value='true',
                 description='Stop External Control on shutdown when this launch started it.',
             ),
+            DeclareLaunchArgument(
+                'linear_speed_mps',
+                default_value='0.010',
+                description='Real keyboard x/y linear speed. Hard limit: 0.020 m/s.',
+            ),
+            DeclareLaunchArgument(
+                'key_timeout_sec',
+                default_value='0.25',
+                description='Stop command timeout after the last key event. Hard limit: 0.50s.',
+            ),
+            DeclareLaunchArgument(
+                'max_session_duration_sec',
+                default_value='45.0',
+                description='Maximum real keyboard Servo session duration. Hard limit: 90.0s.',
+            ),
             OpaqueFunction(function=launch_setup),
         ]
     )
@@ -127,6 +164,24 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             ),
             EmitEvent(event=Shutdown(reason='Missing real robot motion confirmation')),
         ]
+
+    checked_params = {}
+    for argument_name, max_value in (
+        ('linear_speed_mps', MAX_REAL_LINEAR_SPEED_MPS),
+        ('key_timeout_sec', MAX_REAL_KEY_TIMEOUT_SEC),
+        ('max_session_duration_sec', MAX_REAL_SESSION_DURATION_SEC),
+    ):
+        value, error = parse_positive_bounded_float(
+            context=context,
+            argument_name=argument_name,
+            max_value=max_value,
+        )
+        if error is not None:
+            return [
+                LogInfo(msg=f'Refusing real robot keyboard Servo launch: {error}'),
+                EmitEvent(event=Shutdown(reason='Invalid real keyboard Servo safety parameter')),
+            ]
+        checked_params[argument_name] = value
 
     log_root_dir = Path.cwd() / 'logs' / 'real_keyboard_servo'
     run_log_dir = log_root_dir / datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -335,6 +390,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             ),
             {
                 'human_confirmation': LaunchConfiguration('human_confirmation'),
+                'linear_speed_mps': checked_params['linear_speed_mps'],
+                'key_timeout_sec': checked_params['key_timeout_sec'],
+                'max_session_duration_sec': checked_params['max_session_duration_sec'],
             },
         ],
     )
@@ -417,7 +475,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 LogInfo(
                     msg=(
                         'Detected Servo status traffic. Starting real keyboard Servo node. '
-                        'Session is limited to 30 seconds by node parameters.'
+                        f"speed={checked_params['linear_speed_mps']:.3f}m/s "
+                        f"timeout={checked_params['key_timeout_sec']:.2f}s "
+                        f"session={checked_params['max_session_duration_sec']:.1f}s."
                     )
                 ),
                 keyboard_node,

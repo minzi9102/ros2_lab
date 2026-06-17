@@ -35,11 +35,19 @@ ros2 launch ur3e_keyboard_servo_py real_keyboard_servo.launch.py \
 真机默认安全参数：
 
 ```text
-linear_speed_mps=0.005
-key_timeout_sec=0.15
+linear_speed_mps=0.010
+key_timeout_sec=0.25
 enable_z=false
 enable_rotation=false
-max_session_duration_sec=30.0
+max_session_duration_sec=45.0
+```
+
+`real_keyboard_servo.launch.py` 允许临时覆盖低速验证参数，但带有硬上限：
+
+```text
+linear_speed_mps <= 0.020
+key_timeout_sec <= 0.50
+max_session_duration_sec <= 90.0
 ```
 
 启动顺序要求：
@@ -60,6 +68,12 @@ max_session_duration_sec=30.0
 2026-06-17 首版 real_keyboard_servo.launch.py 曾同时启动 driver 和 External Control manager。
 结果 UR driver 在 configure 阶段报错：Could not get configuration package within timeout。
 修正：复用 Task 8B 时序，先 hardware ready，再 dashboard / External Control。
+
+2026-06-17 真机 launch 修正后，键盘节点已能进入 TWIST mode 并读取终端按键。
+短按 `w` 时日志连续输出 `Key command received: action=move x=1.0 y=0.0`。
+随后触发 30 秒会话上限并自动发布 stop 退出，这是安全参数导致的预期行为。
+机械臂运动情况不明显，判断与原默认速度 `0.005 m/s` 过低和会话窗口较短有关。
+修正：将真机 launch 改为可覆盖 `linear_speed_mps`、`key_timeout_sec`、`max_session_duration_sec`，默认保持低速但提升到更易观察的 `0.010 m/s`。
 ```
 
 ## 待验证矩阵
@@ -71,14 +85,14 @@ max_session_duration_sec=30.0
 | s / ↓ 短按 | 末端沿 -x 微动 | 待验证 |
 | a / ← 短按 | 末端沿 +y 微动 | 待验证 |
 | d / → 短按 | 末端沿 -y 微动 | 待验证 |
-| 松键 | 0.15 秒内停止 | 待验证 |
+| 松键 | 0.25 秒内停止 | 待验证 |
 | 空格 | 立即停止 | 待验证 |
 | q | 退出前发布零速度 | 待验证 |
-| 30 秒会话上限 | 超时自动停止并退出 | 待验证 |
+| 45 秒会话上限 | 超时自动停止并退出 | 待验证 |
 
 ## 禁止事项
 
 - 不使用 `sim_keyboard_servo.launch.py` 连接真机。
-- 不提高 `linear_speed_mps`。
+- 不超过 `linear_speed_mps:=0.020`。
 - 不启用 z 轴或旋转。
 - 不在安全模式异常、External Control 未运行、speed scaling 为 0 时启动。

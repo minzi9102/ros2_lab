@@ -17,6 +17,7 @@ URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认
 真机前置只读检查已通过：RUNNING/NORMAL、External Control running、remote_control=True、/joint_states 约 501 Hz、speed scaling 100.0。
 真机安全 launch 已进入实现：新增 real_keyboard_servo.launch.py 和 real_keyboard_servo.yaml，强制确认口令、低速、短超时、30 秒会话上限。
 真机 launch 启动顺序已调整为复用 Task 8B：driver hardware ready 后再启动 dashboard / External Control manager，再等待 forward_position_controller 后启动 Servo 和键盘节点。
+真机键盘输入链路已确认：短按按键时终端连续输出 `Key command received`，但 5 mm/s 默认速度下肉眼运动不明显；已计划通过 launch 参数进行保守调参。
 仿真完整方向矩阵和真机短按验证仍保留为后续独立任务。
 ```
 
@@ -370,13 +371,13 @@ launch/real_keyboard_servo.launch.py
 command_topic: /servo_node/delta_twist_cmds
 frame_id: base_link
 publish_rate_hz: 30.0
-key_timeout_sec: 0.15
-linear_speed_mps: 0.005
+key_timeout_sec: 0.25
+linear_speed_mps: 0.010
 enable_z: false
 enable_rotation: false
 require_confirmation: true
 human_confirmation: ""
-max_session_duration_sec: 30.0
+max_session_duration_sec: 45.0
 ```
 
 必须显式传入确认口令才允许运动：
@@ -387,6 +388,16 @@ ros2 launch ur3e_keyboard_servo_py real_keyboard_servo.launch.py \
 ```
 
 这个设计参考阶段 4 guarded motion 的做法：真机执行需要 `human_confirmation`，并且对动作范围和最终状态有门闩参数。
+
+真机 launch 允许临时覆盖低速验证参数，但必须通过硬上限：
+
+```text
+linear_speed_mps <= 0.020
+key_timeout_sec <= 0.50
+max_session_duration_sec <= 90.0
+```
+
+超过硬上限或传入非正数时，launch 必须拒绝启动。
 
 ### 8.2 真机前置检查
 
@@ -438,10 +449,10 @@ speed scaling 非零
 | 空格 | 立即归零 |
 | q | 退出前归零 |
 | ↑ ↓ ← → | 方向正确 |
-| 速度 | 0.005 m/s 起步 |
+| 速度 | 默认 0.010 m/s，最高只允许覆盖到 0.020 m/s |
 | z 轴 | 永远为 0 |
 | 旋转 | 永远为 0 |
-| 会话时长 | 超过 30 秒自动停止 |
+| 会话时长 | 默认 45 秒，最高只允许覆盖到 90 秒 |
 | 异常恢复 | 第一版不做自动恢复 |
 
 ## 9. 新工作区与旧工作区的关系
