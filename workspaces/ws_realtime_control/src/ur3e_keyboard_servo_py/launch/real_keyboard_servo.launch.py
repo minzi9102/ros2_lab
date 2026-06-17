@@ -29,7 +29,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 REQUIRED_REAL_CONFIRMATION = 'I_CONFIRM_REAL_ROBOT_MOTION'
-MAX_REAL_LINEAR_SPEED_MPS = 0.050
+MAX_REAL_LINEAR_SPEED_MPS = 0.100
 MAX_REAL_KEY_TIMEOUT_SEC = 0.50
 MAX_REAL_SESSION_DURATION_SEC = 90.0
 
@@ -133,7 +133,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 'linear_speed_mps',
                 default_value='0.010',
-                description='Real keyboard x/y linear speed. Hard limit: 0.050 m/s.',
+                description='Real keyboard x/y linear speed. Hard limit: 0.100 m/s.',
             ),
             DeclareLaunchArgument(
                 'key_timeout_sec',

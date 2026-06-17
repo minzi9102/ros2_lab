@@ -19,6 +19,7 @@ URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认
 真机 launch 启动顺序已调整为复用 Task 8B：driver hardware ready 后再启动 dashboard / External Control manager，再等待 forward_position_controller 后启动 Servo 和键盘节点。
 真机键盘输入链路已确认：短按按键时终端连续输出 `Key command received`，但 5 mm/s 默认速度下肉眼运动不明显；已计划通过 launch 参数进行保守调参。
 真机调速后人工验收已成功：`linear_speed_mps` 可覆盖上限提升到 0.050 m/s 后，用户报告实机键盘 Servo 运动可观察。
+当前真机 `linear_speed_mps` 可覆盖硬上限已提升到 0.100 m/s；默认速度仍保持 0.010 m/s。
 仿真完整方向矩阵和真机四方向逐项验证仍保留为后续独立任务。
 ```
 
@@ -393,7 +394,7 @@ ros2 launch ur3e_keyboard_servo_py real_keyboard_servo.launch.py \
 真机 launch 允许临时覆盖低速验证参数，但必须通过硬上限：
 
 ```text
-linear_speed_mps <= 0.050
+linear_speed_mps <= 0.100
 key_timeout_sec <= 0.50
 max_session_duration_sec <= 90.0
 ```
@@ -450,7 +451,7 @@ speed scaling 非零
 | 空格 | 立即归零 |
 | q | 退出前归零 |
 | ↑ ↓ ← → | 方向正确 |
-| 速度 | 默认 0.010 m/s，最高只允许覆盖到 0.050 m/s |
+| 速度 | 默认 0.010 m/s，最高只允许覆盖到 0.100 m/s |
 | z 轴 | 永远为 0 |
 | 旋转 | 永远为 0 |
 | 会话时长 | 默认 45 秒，最高只允许覆盖到 90 秒 |

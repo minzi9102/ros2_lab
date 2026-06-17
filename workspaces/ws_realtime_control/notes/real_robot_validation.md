@@ -45,7 +45,7 @@ max_session_duration_sec=45.0
 `real_keyboard_servo.launch.py` 允许临时覆盖低速验证参数，但带有硬上限：
 
 ```text
-linear_speed_mps <= 0.050
+linear_speed_mps <= 0.100
 key_timeout_sec <= 0.50
 max_session_duration_sec <= 90.0
 ```
@@ -77,6 +77,9 @@ max_session_duration_sec <= 90.0
 
 2026-06-17 将 `linear_speed_mps` 可覆盖硬上限提升到 `0.050 m/s` 后，用户报告实机键盘 Servo 验证成功。
 本轮未粘贴完整启动日志和实际使用速度，记录为“调速后人工观察成功”；四方向逐项矩阵仍待单独补齐。
+
+2026-06-17 按用户要求，将当前 `linear_speed_mps` 可覆盖硬上限继续提升到 `0.100 m/s`。
+默认值仍保持 `0.010 m/s`，只有显式传参时才使用更高速度。
 ```
 
 ## 待验证矩阵
@@ -96,6 +99,6 @@ max_session_duration_sec <= 90.0
 ## 禁止事项
 
 - 不使用 `sim_keyboard_servo.launch.py` 连接真机。
-- 不超过 `linear_speed_mps:=0.050`。
+- 不超过 `linear_speed_mps:=0.100`。
 - 不启用 z 轴或旋转。
 - 不在安全模式异常、External Control 未运行、speed scaling 为 0 时启动。
