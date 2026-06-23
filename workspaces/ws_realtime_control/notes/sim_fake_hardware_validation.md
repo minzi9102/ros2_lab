@@ -126,3 +126,60 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 - 松键自动停止。
 - 空格立即停止。
 - q 退出并停止。
+
+## 高速流畅 evdev 切片
+
+日期：2026-06-23
+
+已实现但尚未完成人工 RViz 验收：
+
+```text
+evdev 真实 key-down / key-up
+自动重复事件忽略
+100 Hz TwistStamped 发布
+0.20 m/s 目标速度
+0.50 m/s² 加速度
+0.80 m/s² 减速度
+base_link / tool0 参考坐标系选择
+多方向冲突归零
+方向反转先减速到零
+空格和 q 立即归零
+```
+
+系统准备：
+
+```bash
+sudo apt install python3-evdev
+sudo usermod -aG input minzi
+```
+
+注销并重新登录后检查：
+
+```bash
+id
+python3 -c "import evdev"
+test -r /dev/input/by-id/usb-ITE_Tech._Inc._ITE_Device_8910_-event-kbd
+```
+
+计划中的 fake hardware 验收命令：
+
+```bash
+ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
+  use_mock_hardware:=true \
+  launch_rviz:=true \
+  input_backend:=evdev \
+  input_device:=/dev/input/by-id/usb-ITE_Tech._Inc._ITE_Device_8910_-event-kbd \
+  command_frame:=base_link \
+  linear_speed_mps:=0.20
+```
+
+当前状态：
+
+```text
+pytest 与 colcon test 均为 28 passed，colcon build 通过。
+terminal fake hardware 回归 smoke test 已到达 MoveIt Servo TWIST mode 握手。
+非法坐标系、缺失 evdev 设备、非正速度均在 driver 启动前拒绝。
+当前系统尚未安装 python3-evdev，minzi 尚未加入 input 组；ITE 设备存在但不可读。
+人工 RViz 验收未执行，不记录为通过。
+加入 input 组后，用户可以读取系统输入设备事件。
+```

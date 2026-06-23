@@ -21,6 +21,8 @@ URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认
 真机调速后人工验收已成功：`linear_speed_mps` 可覆盖上限提升到 0.050 m/s 后，用户报告实机键盘 Servo 运动可观察。
 当前真机 `linear_speed_mps` 可覆盖硬上限已提升到 0.100 m/s；默认速度仍保持 0.010 m/s。
 0.100 m/s 真机试验已成功触发可观察运动，但用户反馈机械臂运动有卡顿；后续应优先调查平滑性和 Servo 状态，而不是继续升速。
+fake hardware 高速流畅控制已进入实现：新增 evdev 真实按下/松开、100 Hz 发布、0.20 m/s 目标速度和限加减速度曲线，并支持 `base_link` / `tool0` 参考坐标系。
+高速 evdev 自动测试已补充；安装 `python3-evdev`、加入 `input` 组和 RViz 人工验收仍待用户执行。
 仿真完整方向矩阵和真机四方向逐项验证仍保留为后续独立任务。
 ```
 
@@ -278,12 +280,19 @@ config/sim_keyboard_servo.yaml
 ```yaml
 command_topic: /servo_node/delta_twist_cmds
 frame_id: base_link
-publish_rate_hz: 30.0
+input_backend: terminal
+input_device: ""
+publish_rate_hz: 100.0
 key_timeout_sec: 0.20
-linear_speed_mps: 0.02
+linear_speed_mps: 0.20
+acceleration_mps2: 0.50
+deceleration_mps2: 0.80
 enable_z: false
 enable_rotation: false
 ```
+
+高速流畅模式显式使用 `input_backend:=evdev`。`command_frame` 只允许
+`base_link` 或 `tool0`；默认 `base_link`。
 
 ### 7.3 启动顺序
 
@@ -313,7 +322,11 @@ source install/setup.bash
 
 ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
   use_mock_hardware:=true \
-  launch_rviz:=true
+  launch_rviz:=true \
+  input_backend:=evdev \
+  input_device:=/dev/input/by-id/usb-ITE_Tech._Inc._ITE_Device_8910_-event-kbd \
+  command_frame:=base_link \
+  linear_speed_mps:=0.20
 ```
 
 验收：
@@ -321,11 +334,11 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 | 操作 | 通过标准 |
 | --- | --- |
 | 不按键 | 机械臂不动 |
-| ↑ | 末端沿 +x 小幅移动 |
-| ↓ | 末端沿 -x 小幅移动 |
-| ← | 末端沿 +y 小幅移动 |
-| → | 末端沿 -y 小幅移动 |
-| 松开按键 | 自动停止 |
+| 长按 ↑ / w | 约 0.4 秒平滑加速到 0.20 m/s，无周期性停顿 |
+| ↓ / s | 沿参考坐标系 -x 连续运动 |
+| ← / a | 沿参考坐标系 +y 连续运动 |
+| → / d | 沿参考坐标系 -y 连续运动 |
+| 松开按键 | 约 0.25 秒平滑停止 |
 | 空格 | 立即停止 |
 | q | 退出并停止 |
 
@@ -582,7 +595,8 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 
 ```text
 已完成 fake hardware smoke test：启动链路、RViz 启动、Servo TWIST mode 握手、键盘输入进入节点、RViz 机械臂响应运动均已通过。
-仍可继续补充 ↑ ↓ ← → 四方向的逐项运动方向记录。
+已实现 evdev 高速流畅控制核心、速度曲线和 base_link/tool0 参考坐标系参数。
+仍需完成系统 evdev 权限准备，以及 0.20 m/s RViz 流畅性和四方向人工验收。
 ```
 
 ### 任务 6：URSim 验收

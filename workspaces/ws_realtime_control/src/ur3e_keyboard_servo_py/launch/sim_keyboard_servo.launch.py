@@ -5,12 +5,14 @@ from datetime import datetime
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
-from launch import LaunchDescription
+from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
+    GroupAction,
     IncludeLaunchDescription,
     LogInfo,
+    OpaqueFunction,
     RegisterEventHandler,
     SetEnvironmentVariable,
     SetLaunchConfiguration,
@@ -22,8 +24,13 @@ from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
+
+
+SUPPORTED_INPUT_BACKENDS = ('terminal', 'evdev')
+SUPPORTED_COMMAND_FRAMES = ('base_link', 'tool0')
 
 
 def load_yaml(package_name: str, file_path: str):
@@ -32,6 +39,58 @@ def load_yaml(package_name: str, file_path: str):
 
     with open(absolute_file_path) as file:
         return yaml.safe_load(file)
+
+
+def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
+    input_backend = context.perform_substitution(LaunchConfiguration('input_backend'))
+    input_device = context.perform_substitution(LaunchConfiguration('input_device'))
+    command_frame = context.perform_substitution(LaunchConfiguration('command_frame'))
+
+    if input_backend not in SUPPORTED_INPUT_BACKENDS:
+        return _refuse_launch(
+            f'input_backend must be one of {SUPPORTED_INPUT_BACKENDS}, got {input_backend!r}'
+        )
+    if command_frame not in SUPPORTED_COMMAND_FRAMES:
+        return _refuse_launch(
+            f'command_frame must be one of {SUPPORTED_COMMAND_FRAMES}, got {command_frame!r}'
+        )
+    if input_backend == 'evdev':
+        if not input_device:
+            return _refuse_launch('input_device is required when input_backend=evdev')
+        if not os.path.exists(input_device):
+            return _refuse_launch(f'evdev input device does not exist: {input_device}')
+        if not os.access(input_device, os.R_OK):
+            return _refuse_launch(
+                f'evdev input device is not readable: {input_device}; '
+                'check input group membership'
+            )
+
+    for argument_name in (
+        'linear_speed_mps',
+        'publish_rate_hz',
+        'acceleration_mps2',
+        'deceleration_mps2',
+    ):
+        raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
+        try:
+            value = float(raw_value)
+        except ValueError:
+            return _refuse_launch(
+                f'{argument_name} must be a number, got {raw_value!r}'
+            )
+        if value <= 0.0:
+            return _refuse_launch(
+                f'{argument_name} must be greater than 0.0, got {value}'
+            )
+    return [SetLaunchConfiguration(name='sim_args_valid', value='true')]
+
+
+def _refuse_launch(reason: str):
+    return [
+        SetLaunchConfiguration(name='sim_args_valid', value='false'),
+        LogInfo(msg=f'Refusing realtime keyboard Servo launch: {reason}'),
+        EmitEvent(event=Shutdown(reason='Invalid realtime keyboard Servo argument')),
+    ]
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -78,6 +137,41 @@ def generate_launch_description() -> LaunchDescription:
         'servo_status_wait_timeout_sec',
         default_value='15.0',
         description='Maximum time to wait for /servo_node/status before starting keyboard input.',
+    )
+    input_backend_arg = DeclareLaunchArgument(
+        'input_backend',
+        default_value='terminal',
+        description='Keyboard input backend: terminal or evdev.',
+    )
+    input_device_arg = DeclareLaunchArgument(
+        'input_device',
+        default_value='',
+        description='Readable /dev/input event device required by the evdev backend.',
+    )
+    command_frame_arg = DeclareLaunchArgument(
+        'command_frame',
+        default_value='base_link',
+        description='Twist command reference frame: base_link or tool0.',
+    )
+    linear_speed_arg = DeclareLaunchArgument(
+        'linear_speed_mps',
+        default_value='0.20',
+        description='Target x/y linear speed for fake hardware testing.',
+    )
+    publish_rate_arg = DeclareLaunchArgument(
+        'publish_rate_hz',
+        default_value='100.0',
+        description='Twist command publish rate.',
+    )
+    acceleration_arg = DeclareLaunchArgument(
+        'acceleration_mps2',
+        default_value='0.50',
+        description='Linear acceleration limit for evdev smooth control.',
+    )
+    deceleration_arg = DeclareLaunchArgument(
+        'deceleration_mps2',
+        default_value='0.80',
+        description='Linear deceleration limit for evdev smooth control.',
     )
 
     moveit_config = (
@@ -214,7 +308,28 @@ def generate_launch_description() -> LaunchDescription:
                     'config',
                     'sim_keyboard_servo.yaml',
                 ]
-            )
+            ),
+            {
+                'input_backend': LaunchConfiguration('input_backend'),
+                'input_device': LaunchConfiguration('input_device'),
+                'frame_id': LaunchConfiguration('command_frame'),
+                'linear_speed_mps': ParameterValue(
+                    LaunchConfiguration('linear_speed_mps'),
+                    value_type=float,
+                ),
+                'publish_rate_hz': ParameterValue(
+                    LaunchConfiguration('publish_rate_hz'),
+                    value_type=float,
+                ),
+                'acceleration_mps2': ParameterValue(
+                    LaunchConfiguration('acceleration_mps2'),
+                    value_type=float,
+                ),
+                'deceleration_mps2': ParameterValue(
+                    LaunchConfiguration('deceleration_mps2'),
+                    value_type=float,
+                ),
+            },
         ],
     )
 
@@ -277,39 +392,65 @@ def generate_launch_description() -> LaunchDescription:
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
-            SetEnvironmentVariable(name='ROS_LOG_DIR', value=str(run_log_dir)),
-            SetEnvironmentVariable(name='RCUTILS_LOGGING_BUFFERED_STREAM', value='1'),
-            SetEnvironmentVariable(name='RCUTILS_LOGGING_USE_STDOUT', value='1'),
-            SetLaunchConfiguration(
-                name='realtime_launch_rviz',
-                value=LaunchConfiguration('launch_rviz'),
-            ),
-            LogInfo(msg=f'Realtime keyboard Servo logs will be written to: {run_log_dir}'),
-            driver_launch,
-            moveit_launch,
-            rviz_node,
-            joint_state_relay,
-            LogInfo(
-                msg='Waiting for /joint_states and active controllers before starting MoveIt Servo...'
-            ),
-            joint_states_gate,
-            RegisterEventHandler(
-                OnProcessExit(
-                    target_action=joint_states_gate,
-                    on_exit=on_joint_states_gate_exit,
-                )
-            ),
-            RegisterEventHandler(
-                OnProcessExit(
-                    target_action=servo_status_gate,
-                    on_exit=on_servo_status_gate_exit,
-                )
-            ),
-            RegisterEventHandler(
-                OnProcessExit(
-                    target_action=keyboard_node,
-                    on_exit=on_keyboard_node_exit,
-                )
+            input_backend_arg,
+            input_device_arg,
+            command_frame_arg,
+            linear_speed_arg,
+            publish_rate_arg,
+            acceleration_arg,
+            deceleration_arg,
+            SetLaunchConfiguration(name='sim_args_valid', value='false'),
+            OpaqueFunction(function=validate_sim_arguments),
+            GroupAction(
+                scoped=False,
+                condition=IfCondition(LaunchConfiguration('sim_args_valid')),
+                actions=[
+                    SetEnvironmentVariable(name='ROS_LOG_DIR', value=str(run_log_dir)),
+                    SetEnvironmentVariable(
+                        name='RCUTILS_LOGGING_BUFFERED_STREAM',
+                        value='1',
+                    ),
+                    SetEnvironmentVariable(
+                        name='RCUTILS_LOGGING_USE_STDOUT',
+                        value='1',
+                    ),
+                    SetLaunchConfiguration(
+                        name='realtime_launch_rviz',
+                        value=LaunchConfiguration('launch_rviz'),
+                    ),
+                    LogInfo(
+                        msg=f'Realtime keyboard Servo logs will be written to: {run_log_dir}'
+                    ),
+                    driver_launch,
+                    moveit_launch,
+                    rviz_node,
+                    joint_state_relay,
+                    LogInfo(
+                        msg=(
+                            'Waiting for /joint_states and active controllers before '
+                            'starting MoveIt Servo...'
+                        )
+                    ),
+                    joint_states_gate,
+                    RegisterEventHandler(
+                        OnProcessExit(
+                            target_action=joint_states_gate,
+                            on_exit=on_joint_states_gate_exit,
+                        )
+                    ),
+                    RegisterEventHandler(
+                        OnProcessExit(
+                            target_action=servo_status_gate,
+                            on_exit=on_servo_status_gate_exit,
+                        )
+                    ),
+                    RegisterEventHandler(
+                        OnProcessExit(
+                            target_action=keyboard_node,
+                            on_exit=on_keyboard_node_exit,
+                        )
+                    ),
+                ],
             ),
         ]
     )
