@@ -29,7 +29,7 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
-SUPPORTED_INPUT_BACKENDS = ('terminal', 'evdev')
+SUPPORTED_INPUT_BACKENDS = ('terminal', 'evdev', 'joy')
 SUPPORTED_COMMAND_FRAMES = ('base_link', 'tool0')
 
 
@@ -70,6 +70,8 @@ def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
         'publish_rate_hz',
         'acceleration_mps2',
         'deceleration_mps2',
+        'joy_deadzone',
+        'joy_autorepeat_rate',
     ):
         raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
         try:
@@ -78,11 +80,27 @@ def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
             return _refuse_launch(
                 f'{argument_name} must be a number, got {raw_value!r}'
             )
+        if argument_name == 'joy_deadzone':
+            if value < 0.0 or value >= 1.0:
+                return _refuse_launch(
+                    f'{argument_name} must be in [0.0, 1.0), got {value}'
+                )
+            continue
         if value <= 0.0:
             return _refuse_launch(
                 f'{argument_name} must be greater than 0.0, got {value}'
             )
     return [SetLaunchConfiguration(name='sim_args_valid', value='true')]
+
+
+def set_realtime_launch_joy(context: LaunchContext, *_args, **_kwargs):
+    input_backend = context.perform_substitution(LaunchConfiguration('input_backend'))
+    return [
+        SetLaunchConfiguration(
+            name='realtime_launch_joy',
+            value='true' if input_backend == 'joy' else 'false',
+        )
+    ]
 
 
 def _refuse_launch(reason: str):
@@ -141,12 +159,37 @@ def generate_launch_description() -> LaunchDescription:
     input_backend_arg = DeclareLaunchArgument(
         'input_backend',
         default_value='terminal',
-        description='Keyboard input backend: terminal or evdev.',
+        description='Realtime input backend: terminal, evdev, or joy.',
     )
     input_device_arg = DeclareLaunchArgument(
         'input_device',
         default_value='',
         description='Readable /dev/input event device required by the evdev backend.',
+    )
+    joy_topic_arg = DeclareLaunchArgument(
+        'joy_topic',
+        default_value='/joy',
+        description='sensor_msgs/Joy topic used by the joy input backend.',
+    )
+    joy_device_id_arg = DeclareLaunchArgument(
+        'joy_device_id',
+        default_value='0',
+        description='Joystick device id passed to joy_node.',
+    )
+    joy_device_name_arg = DeclareLaunchArgument(
+        'joy_device_name',
+        default_value='',
+        description='Optional joystick device name passed to joy_node.',
+    )
+    joy_deadzone_arg = DeclareLaunchArgument(
+        'joy_deadzone',
+        default_value='0.08',
+        description='Joystick deadzone used by joy_node and command mapping.',
+    )
+    joy_autorepeat_rate_arg = DeclareLaunchArgument(
+        'joy_autorepeat_rate',
+        default_value='100.0',
+        description='Joystick autorepeat rate passed to joy_node.',
     )
     command_frame_arg = DeclareLaunchArgument(
         'command_frame',
@@ -296,6 +339,33 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    joy_node = Node(
+        package='joy',
+        executable='joy_node',
+        name='realtime_joy_node',
+        output='both',
+        condition=IfCondition(LaunchConfiguration('realtime_launch_joy')),
+        parameters=[
+            {
+                'device_id': ParameterValue(
+                    LaunchConfiguration('joy_device_id'),
+                    value_type=int,
+                ),
+                'device_name': LaunchConfiguration('joy_device_name'),
+                'deadzone': ParameterValue(
+                    LaunchConfiguration('joy_deadzone'),
+                    value_type=float,
+                ),
+                'autorepeat_rate': ParameterValue(
+                    LaunchConfiguration('joy_autorepeat_rate'),
+                    value_type=float,
+                ),
+                'sticky_buttons': False,
+            }
+        ],
+        remappings=[('/joy', LaunchConfiguration('joy_topic'))],
+    )
+
     keyboard_node = Node(
         package='ur3e_keyboard_servo_py',
         executable='keyboard_servo_node',
@@ -312,6 +382,11 @@ def generate_launch_description() -> LaunchDescription:
             {
                 'input_backend': LaunchConfiguration('input_backend'),
                 'input_device': LaunchConfiguration('input_device'),
+                'joy_topic': LaunchConfiguration('joy_topic'),
+                'joy_deadzone': ParameterValue(
+                    LaunchConfiguration('joy_deadzone'),
+                    value_type=float,
+                ),
                 'frame_id': LaunchConfiguration('command_frame'),
                 'linear_speed_mps': ParameterValue(
                     LaunchConfiguration('linear_speed_mps'),
@@ -344,7 +419,7 @@ def generate_launch_description() -> LaunchDescription:
                     actions=[
                         LogInfo(msg='Starting MoveIt Servo node.'),
                         servo_node,
-                        LogInfo(msg='Waiting for /servo_node/status before keyboard input.'),
+                        LogInfo(msg='Waiting for /servo_node/status before realtime input.'),
                         servo_status_gate,
                     ],
                 ),
@@ -361,7 +436,8 @@ def generate_launch_description() -> LaunchDescription:
     def on_servo_status_gate_exit(event, _context):
         if event.returncode == 0:
             return [
-                LogInfo(msg='Detected Servo status traffic. Starting keyboard Servo node.'),
+                LogInfo(msg='Detected Servo status traffic. Starting realtime input node.'),
+                joy_node,
                 keyboard_node,
             ]
 
@@ -394,6 +470,11 @@ def generate_launch_description() -> LaunchDescription:
             servo_status_wait_timeout_arg,
             input_backend_arg,
             input_device_arg,
+            joy_topic_arg,
+            joy_device_id_arg,
+            joy_device_name_arg,
+            joy_deadzone_arg,
+            joy_autorepeat_rate_arg,
             command_frame_arg,
             linear_speed_arg,
             publish_rate_arg,
@@ -418,8 +499,13 @@ def generate_launch_description() -> LaunchDescription:
                         name='realtime_launch_rviz',
                         value=LaunchConfiguration('launch_rviz'),
                     ),
+                    SetLaunchConfiguration(
+                        name='realtime_launch_joy',
+                        value='false',
+                    ),
+                    OpaqueFunction(function=set_realtime_launch_joy),
                     LogInfo(
-                        msg=f'Realtime keyboard Servo logs will be written to: {run_log_dir}'
+                        msg=f'Realtime Servo input logs will be written to: {run_log_dir}'
                     ),
                     driver_launch,
                     moveit_launch,

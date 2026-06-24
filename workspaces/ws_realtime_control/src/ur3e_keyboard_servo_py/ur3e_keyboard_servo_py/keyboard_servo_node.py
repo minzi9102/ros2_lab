@@ -5,8 +5,10 @@ from geometry_msgs.msg import TwistStamped
 from moveit_msgs.srv import ServoCommandType
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import Joy
 
 from .evdev_key_reader import EvdevKeyReader, KeyEventValue
+from .joy_mapping import JoyControl, JoyMapper
 from .key_mapping import KeyAction, map_key
 from .pressed_key_state import PressedKeyState
 from .safety_limiter import SafetyLimiter, TwistCommand
@@ -15,7 +17,7 @@ from .terminal_key_reader import TerminalKeyReader
 
 
 REQUIRED_REAL_CONFIRMATION = 'I_CONFIRM_REAL_ROBOT_MOTION'
-SUPPORTED_INPUT_BACKENDS = ('terminal', 'evdev')
+SUPPORTED_INPUT_BACKENDS = ('terminal', 'evdev', 'joy')
 SUPPORTED_COMMAND_FRAMES = ('base_link', 'tool0')
 
 
@@ -51,6 +53,8 @@ class KeyboardServoNode(Node):
             self.declare_parameter('input_backend', 'terminal').value
         )
         self.input_device = str(self.declare_parameter('input_device', '').value)
+        self.joy_topic = str(self.declare_parameter('joy_topic', '/joy').value)
+        self.joy_deadzone = float(self.declare_parameter('joy_deadzone', 0.08).value)
         self.publish_rate_hz = float(self.declare_parameter('publish_rate_hz', 30.0).value)
         self.key_timeout_sec = float(self.declare_parameter('key_timeout_sec', 0.20).value)
         self.linear_speed_mps = float(self.declare_parameter('linear_speed_mps', 0.02).value)
@@ -114,6 +118,17 @@ class KeyboardServoNode(Node):
         self._key_reader = key_reader or TerminalKeyReader()
         self._evdev_reader = evdev_reader or EvdevKeyReader(self.input_device)
         self._pressed_key_state = PressedKeyState()
+        self._joy_mapper = JoyMapper(deadzone=self.joy_deadzone)
+        self._latest_joy_control = JoyControl()
+        self._last_joy_msg_time = 0.0
+        self._joy_subscription = None
+        if self.input_backend == 'joy':
+            self._joy_subscription = self.create_subscription(
+                Joy,
+                self.joy_topic,
+                self._on_joy_message,
+                10,
+            )
         self._smooth_velocity = SmoothVelocityController(
             linear_speed_mps=self.linear_speed_mps,
             acceleration_mps2=self.acceleration_mps2,
@@ -133,6 +148,7 @@ class KeyboardServoNode(Node):
             f'command_type_service={self.command_type_service} '
             f'frame_id={self.frame_id} '
             f'input_backend={self.input_backend} '
+            f'joy_topic={self.joy_topic} '
             f'rate={self.publish_rate_hz:.1f}Hz '
             f'speed={self.linear_speed_mps:.4f}m/s '
             f'timeout={self.key_timeout_sec:.2f}s '
@@ -171,6 +187,9 @@ class KeyboardServoNode(Node):
 
         if self.input_backend == 'evdev':
             self._on_evdev_timer(dt_sec)
+            return
+        if self.input_backend == 'joy':
+            self._on_joy_timer(dt_sec, now_sec)
             return
 
         self._on_terminal_timer(now_sec)
@@ -216,6 +235,31 @@ class KeyboardServoNode(Node):
         if quit_requested:
             self._quit_requested = True
             self.get_logger().info('Quit requested. Publishing stop command before shutdown.')
+            rclpy.shutdown()
+
+    def _on_joy_message(self, msg: Joy) -> None:
+        self._latest_joy_control = self._joy_mapper.map(msg.axes, msg.buttons)
+        self._last_joy_msg_time = time.monotonic()
+
+    def _on_joy_timer(self, dt_sec: float, now_sec: float) -> None:
+        control = self._latest_joy_control
+        if self._last_joy_msg_time == 0.0:
+            self._publish_twist(self._smooth_velocity.update(0.0, 0.0, dt_sec))
+            return
+
+        if now_sec - self._last_joy_msg_time > self.key_timeout_sec:
+            control = JoyControl()
+
+        if control.emergency_stop:
+            self._publish_twist(self._smooth_velocity.stop_immediately())
+        else:
+            self._publish_twist(
+                self._smooth_velocity.update(control.target_x, control.target_y, dt_sec)
+            )
+
+        if control.quit_requested:
+            self._quit_requested = True
+            self.get_logger().info('Joy quit requested. Publishing stop command before shutdown.')
             rclpy.shutdown()
 
     def _ensure_twist_mode_ready(self) -> bool:
@@ -281,7 +325,7 @@ def main(args=None) -> None:
             node.get_logger().info(
                 f'Evdev keyboard input attached to {node._evdev_reader.source_name}.'
             )
-        else:
+        elif node.input_backend == 'terminal':
             node._key_reader.start()
             if node._key_reader.is_interactive:
                 node.get_logger().info(
@@ -293,6 +337,10 @@ def main(args=None) -> None:
                     'Keyboard input is not interactive. Run from a real terminal or start '
                     'keyboard_servo_node separately to control motion.'
                 )
+        else:
+            node.get_logger().info(
+                f'Joy input enabled. Waiting for sensor_msgs/Joy on {node.joy_topic}.'
+            )
         rclpy.spin(node)
     except KeyboardInterrupt:
         if node is not None:

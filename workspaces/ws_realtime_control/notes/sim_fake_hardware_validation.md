@@ -201,3 +201,54 @@ W+S+A -> X 抵消，只沿 +Y
 W+A 运动时松开 A -> 平滑回到 +X
 空格 -> 立即停止
 ```
+
+## Xbox 手柄 fake hardware 切片
+
+日期：2026-06-24
+
+本轮新增但尚未完成人工 RViz 验收：
+
+```text
+input_backend:=joy
+标准 ROS 2 joy_node 读取 USB Xbox 手柄
+/joy -> x/y 平面 TwistStamped
+左摇杆上/下 -> +X/-X
+左摇杆左/右 -> +Y/-Y
+对角线输入按向量归一化，合速度不超过 linear_speed_mps
+A 按钮 -> 立即停止
+B 按钮 -> 立即停止并退出
+真机手柄控制不在本切片范围内
+```
+
+系统识别结果：
+
+```text
+ros2 run joy joy_enumerate_devices
+ID 0: Xbox Series X Controller
+
+/dev/input/js0 exists=True readable=True
+/dev/input/by-id/usb-Microsoft_Controller_30394F4730303638343936333038-joystick exists=True readable=True
+```
+
+计划中的 fake hardware 验收命令：
+
+```bash
+ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
+  use_mock_hardware:=true \
+  launch_rviz:=true \
+  input_backend:=joy \
+  command_frame:=base_link \
+  linear_speed_mps:=0.20
+```
+
+人工验收矩阵：
+
+```text
+左摇杆轻推 -> 低速连续移动
+左摇杆推到底 -> 明显连续移动
+左摇杆对角线 -> 合速度不暴涨
+松开左摇杆 -> 平滑停止
+A -> 立即停止
+B -> 停止并退出
+出现 singularity warning -> 立即松杆或按 A，记录为 MoveIt Servo 安全保护
+```

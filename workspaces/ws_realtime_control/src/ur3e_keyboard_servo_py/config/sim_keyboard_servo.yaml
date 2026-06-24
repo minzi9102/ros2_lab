@@ -5,6 +5,8 @@ ur3e_keyboard_servo:
     frame_id: base_link
     input_backend: terminal
     input_device: ""
+    joy_topic: /joy
+    joy_deadzone: 0.08
     publish_rate_hz: 100.0
     key_timeout_sec: 0.20
     linear_speed_mps: 0.20
