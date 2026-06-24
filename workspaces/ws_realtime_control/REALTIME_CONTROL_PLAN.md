@@ -22,7 +22,9 @@ URSim smoke test 已通过：不启动 RViz，通过 URSim 网页监视器确认
 当前真机 `linear_speed_mps` 可覆盖硬上限已提升到 0.100 m/s；默认速度仍保持 0.010 m/s。
 0.100 m/s 真机试验已成功触发可观察运动，但用户反馈机械臂运动有卡顿；后续应优先调查平滑性和 Servo 状态，而不是继续升速。
 fake hardware 高速流畅控制已进入实现：新增 evdev 真实按下/松开、100 Hz 发布、0.20 m/s 目标速度和限加减速度曲线，并支持 `base_link` / `tool0` 参考坐标系。
-高速 evdev 自动测试已补充；安装 `python3-evdev`、加入 `input` 组和 RViz 人工验收仍待用户执行。
+高速 evdev 系统准备和单轴 RViz 人工验收已通过；连续运动最终由 MoveIt Servo 奇异位形保护停止。
+evdev 多方向输入已扩展为归一化对角线运动：合速度保持 0.20 m/s，同轴相反按键按轴抵消，单轴与对角线之间平滑转向。
+对角线自动测试已补充，RViz 人工验收仍待执行。
 仿真完整方向矩阵和真机四方向逐项验证仍保留为后续独立任务。
 ```
 
@@ -596,7 +598,8 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 ```text
 已完成 fake hardware smoke test：启动链路、RViz 启动、Servo TWIST mode 握手、键盘输入进入节点、RViz 机械臂响应运动均已通过。
 已实现 evdev 高速流畅控制核心、速度曲线和 base_link/tool0 参考坐标系参数。
-仍需完成系统 evdev 权限准备，以及 0.20 m/s RViz 流畅性和四方向人工验收。
+已完成 evdev 权限准备和 0.20 m/s 单轴 RViz 流畅性验收。
+已实现归一化对角线合成和二维向量平滑转向，仍需完成对角线 RViz 人工验收。
 ```
 
 ### 任务 6：URSim 验收

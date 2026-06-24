@@ -141,8 +141,10 @@ evdev 真实 key-down / key-up
 0.50 m/s² 加速度
 0.80 m/s² 减速度
 base_link / tool0 参考坐标系选择
-多方向冲突归零
-方向反转先减速到零
+垂直方向组合为归一化对角线，总速度保持 0.20 m/s
+同轴相反按键按轴抵消
+单轴与对角线之间平滑转向
+180 度方向反转先减速到零
 空格和 q 立即归零
 ```
 
@@ -176,10 +178,26 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 当前状态：
 
 ```text
-pytest 与 colcon test 均为 28 passed，colcon build 通过。
 terminal fake hardware 回归 smoke test 已到达 MoveIt Servo TWIST mode 握手。
 非法坐标系、缺失 evdev 设备、非正速度均在 driver 启动前拒绝。
-当前系统尚未安装 python3-evdev，minzi 尚未加入 input 组；ITE 设备存在但不可读。
-人工 RViz 验收未执行，不记录为通过。
+python3-evdev 已安装，minzi 已加入 input 组，ITE 键盘设备可读。
+0.20 m/s 单轴连续运动已由用户在 RViz 中确认成功。
+持续运动最终接近奇异位形，MoveIt Servo 正常触发 emergency stop。
+pytest 与 colcon test 均为 37 passed，colcon build 通过。
+对角线采样结果为 x=y=0.141421356 m/s，合速度为 0.200000000 m/s。
+对角线 RViz 人工验收未执行，不记录为通过。
 加入 input 组后，用户可以读取系统输入设备事件。
+```
+
+对角线人工验收矩阵：
+
+```text
+W+A -> +X/+Y，每轴约 +0.1414 m/s
+W+D -> +X/-Y
+S+A -> -X/+Y
+S+D -> -X/-Y
+W+S+A -> X 抵消，只沿 +Y
+保持 W 后按 A -> 从 +X 平滑转向 +X/+Y
+W+A 运动时松开 A -> 平滑回到 +X
+空格 -> 立即停止
 ```

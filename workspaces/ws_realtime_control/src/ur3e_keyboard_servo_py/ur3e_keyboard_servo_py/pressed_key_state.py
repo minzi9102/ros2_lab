@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import math
 from typing import Dict, Set, Tuple
 
 from .evdev_key_reader import EvdevKeyEvent, KeyEventValue
@@ -60,14 +61,15 @@ class PressedKeyState:
 
     def target_axes(self) -> Tuple[float, float]:
         directions = {KEY_DIRECTIONS[key] for key in self._pressed_keys}
-        if len(directions) != 1:
+        x = float(
+            (Direction.X_POSITIVE in directions)
+            - (Direction.X_NEGATIVE in directions)
+        )
+        y = float(
+            (Direction.Y_POSITIVE in directions)
+            - (Direction.Y_NEGATIVE in directions)
+        )
+        magnitude = math.hypot(x, y)
+        if magnitude == 0.0:
             return 0.0, 0.0
-
-        direction = next(iter(directions))
-        if direction == Direction.X_POSITIVE:
-            return 1.0, 0.0
-        if direction == Direction.X_NEGATIVE:
-            return -1.0, 0.0
-        if direction == Direction.Y_POSITIVE:
-            return 0.0, 1.0
-        return 0.0, -1.0
+        return x / magnitude, y / magnitude

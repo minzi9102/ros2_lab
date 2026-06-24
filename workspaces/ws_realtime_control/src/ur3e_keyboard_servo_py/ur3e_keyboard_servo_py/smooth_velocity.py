@@ -1,3 +1,5 @@
+import math
+
 from .safety_limiter import TwistCommand
 
 
@@ -26,15 +28,18 @@ class SmoothVelocityController:
         if dt_sec <= 0.0:
             return self.current_command()
 
-        target_x = self._clamp_unit(target_x) * self.linear_speed_mps
-        target_y = self._clamp_unit(target_y) * self.linear_speed_mps
+        target_x, target_y = self._target_velocity(target_x, target_y)
+        if self._is_opposite_direction(target_x, target_y):
+            target_x, target_y = 0.0, 0.0
 
-        if self._must_stop_before_changing_direction(target_x, target_y):
-            target_x = 0.0
-            target_y = 0.0
-
-        self._linear_x = self._step_axis(self._linear_x, target_x, dt_sec)
-        self._linear_y = self._step_axis(self._linear_y, target_y, dt_sec)
+        target_is_zero = target_x == 0.0 and target_y == 0.0
+        rate = self.deceleration_mps2 if target_is_zero else self.acceleration_mps2
+        self._linear_x, self._linear_y = self._step_vector(
+            target_x,
+            target_y,
+            rate * dt_sec,
+        )
+        self._clamp_current_speed()
         return self.current_command()
 
     def stop_immediately(self) -> TwistCommand:
@@ -45,41 +50,49 @@ class SmoothVelocityController:
     def current_command(self) -> TwistCommand:
         return TwistCommand(linear_x=self._linear_x, linear_y=self._linear_y)
 
-    def _must_stop_before_changing_direction(
+    def _target_velocity(
         self,
         target_x: float,
         target_y: float,
-    ) -> bool:
-        current_is_zero = self._linear_x == 0.0 and self._linear_y == 0.0
-        target_is_zero = target_x == 0.0 and target_y == 0.0
-        if current_is_zero or target_is_zero:
+    ) -> tuple[float, float]:
+        magnitude = math.hypot(target_x, target_y)
+        if magnitude == 0.0:
+            return 0.0, 0.0
+        scale = self.linear_speed_mps / magnitude
+        return target_x * scale, target_y * scale
+
+    def _is_opposite_direction(self, target_x: float, target_y: float) -> bool:
+        current_magnitude = math.hypot(self._linear_x, self._linear_y)
+        target_magnitude = math.hypot(target_x, target_y)
+        if current_magnitude == 0.0 or target_magnitude == 0.0:
             return False
 
-        current_axis = 'x' if self._linear_x != 0.0 else 'y'
-        target_axis = 'x' if target_x != 0.0 else 'y'
-        if current_axis != target_axis:
-            return True
+        dot = self._linear_x * target_x + self._linear_y * target_y
+        cross = self._linear_x * target_y - self._linear_y * target_x
+        return dot < 0.0 and abs(cross) <= 1e-9
 
-        current_value = self._linear_x if current_axis == 'x' else self._linear_y
-        target_value = target_x if target_axis == 'x' else target_y
-        return current_value * target_value < 0.0
+    def _step_vector(
+        self,
+        target_x: float,
+        target_y: float,
+        max_step: float,
+    ) -> tuple[float, float]:
+        delta_x = target_x - self._linear_x
+        delta_y = target_y - self._linear_y
+        delta_magnitude = math.hypot(delta_x, delta_y)
+        if delta_magnitude <= max_step + 1e-12:
+            return target_x, target_y
 
-    def _step_axis(self, current: float, target: float, dt_sec: float) -> float:
-        if current == target:
-            return current
-
-        speeding_up = (
-            current == 0.0
-            or current * target > 0.0
-            and abs(target) > abs(current)
+        scale = max_step / delta_magnitude
+        return (
+            self._linear_x + delta_x * scale,
+            self._linear_y + delta_y * scale,
         )
-        rate = self.acceleration_mps2 if speeding_up else self.deceleration_mps2
-        max_step = rate * dt_sec
-        delta = target - current
-        if abs(delta) <= max_step:
-            return target
-        return current + max_step if delta > 0.0 else current - max_step
 
-    @staticmethod
-    def _clamp_unit(value: float) -> float:
-        return max(-1.0, min(1.0, float(value)))
+    def _clamp_current_speed(self) -> None:
+        magnitude = math.hypot(self._linear_x, self._linear_y)
+        if magnitude <= self.linear_speed_mps:
+            return
+        scale = self.linear_speed_mps / magnitude
+        self._linear_x *= scale
+        self._linear_y *= scale

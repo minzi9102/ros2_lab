@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from ur3e_keyboard_servo_py.evdev_key_reader import EvdevKeyEvent, KeyEventValue
 from ur3e_keyboard_servo_py.pressed_key_state import PressedKeyState
 
@@ -37,16 +41,53 @@ def test_duplicate_keys_for_same_direction_do_not_conflict():
     assert state.target_axes() == (1.0, 0.0)
 
 
-def test_multiple_logical_directions_stop_motion():
+@pytest.mark.parametrize(
+    ('x_key', 'y_key', 'expected_x', 'expected_y'),
+    [
+        ('KEY_W', 'KEY_A', 1.0, 1.0),
+        ('KEY_W', 'KEY_D', 1.0, -1.0),
+        ('KEY_S', 'KEY_A', -1.0, 1.0),
+        ('KEY_S', 'KEY_D', -1.0, -1.0),
+    ],
+)
+def test_perpendicular_directions_form_normalized_diagonal(
+    x_key,
+    y_key,
+    expected_x,
+    expected_y,
+):
     state = PressedKeyState()
-    state.apply(event('KEY_W', KeyEventValue.DOWN))
-    state.apply(event('KEY_A', KeyEventValue.DOWN))
-    assert state.target_axes() == (0.0, 0.0)
+    state.apply(event(x_key, KeyEventValue.DOWN))
+    state.apply(event(y_key, KeyEventValue.DOWN))
 
-    state.clear()
+    x, y = state.target_axes()
+
+    assert x == pytest.approx(expected_x / math.sqrt(2.0))
+    assert y == pytest.approx(expected_y / math.sqrt(2.0))
+    assert math.hypot(x, y) == pytest.approx(1.0)
+
+
+def test_opposite_directions_cancel_per_axis():
+    state = PressedKeyState()
     state.apply(event('KEY_W', KeyEventValue.DOWN))
     state.apply(event('KEY_S', KeyEventValue.DOWN))
     assert state.target_axes() == (0.0, 0.0)
+
+    state.apply(event('KEY_A', KeyEventValue.DOWN))
+    assert state.target_axes() == (0.0, 1.0)
+
+    state.apply(event('KEY_D', KeyEventValue.DOWN))
+    assert state.target_axes() == (0.0, 0.0)
+
+
+def test_releasing_one_diagonal_key_keeps_remaining_direction():
+    state = PressedKeyState()
+    state.apply(event('KEY_W', KeyEventValue.DOWN))
+    state.apply(event('KEY_A', KeyEventValue.DOWN))
+
+    state.apply(event('KEY_A', KeyEventValue.UP))
+
+    assert state.target_axes() == (1.0, 0.0)
 
 
 def test_space_and_q_clear_motion_and_request_immediate_stop():
