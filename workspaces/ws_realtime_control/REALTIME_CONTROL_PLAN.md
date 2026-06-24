@@ -26,7 +26,8 @@ fake hardware 高速流畅控制已进入实现：新增 evdev 真实按下/松�
 evdev 多方向输入已扩展为归一化对角线运动：合速度保持 0.20 m/s，同轴相反按键按轴抵消，单轴与对角线之间平滑转向。
 对角线自动测试已补充，RViz 人工验收仍待执行。
 Xbox 手柄 fake hardware 控制已进入实现：复用 ROS 2 `joy_node`，新增 `input_backend:=joy`，左摇杆映射 x/y 平面速度，A 急停，B 停止并退出。
-当前手柄设备已识别为 `Xbox Series X Controller`，`/dev/input/js0` 可读；真机手柄控制仍需另开安全任务。
+当前手柄设备已识别为 `Xbox Series X Controller`，`/dev/input/js0` 可读；fake hardware + RViz 人工验收已由用户确认成功。
+真机手柄控制仍需另开安全任务，不能直接沿用 fake hardware 速度参数。
 仿真完整方向矩阵和真机四方向逐项验证仍保留为后续独立任务。
 ```
 

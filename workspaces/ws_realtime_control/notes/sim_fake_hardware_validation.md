@@ -206,7 +206,7 @@ W+A 运动时松开 A -> 平滑回到 +X
 
 日期：2026-06-24
 
-本轮新增但尚未完成人工 RViz 验收：
+本轮新增，并已完成人工 RViz 验收：
 
 ```text
 input_backend:=joy
@@ -239,6 +239,14 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
   input_backend:=joy \
   command_frame:=base_link \
   linear_speed_mps:=0.20
+```
+
+人工验收结果：
+
+```text
+用户已使用 Xbox 手柄在 fake hardware + RViz 环境下完成控制闭环验收。
+MoveIt Servo 启动、joy_node 手柄输入、/joy 到 TwistStamped 转换、机械臂响应均确认成功。
+本结论仅覆盖 fake hardware，不覆盖 URSim 或真机。
 ```
 
 人工验收矩阵：
