@@ -41,6 +41,18 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
   linear_speed_mps:=0.20
 ```
 
+启用末端姿态随运动自动反向 yaw：
+
+```bash
+ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
+  use_mock_hardware:=true \
+  launch_rviz:=true \
+  input_backend:=joy \
+  command_frame:=base_link \
+  linear_speed_mps:=0.20 \
+  enable_auto_yaw:=true
+```
+
 控制语义：
 
 | 输入 | 行为 |
@@ -53,6 +65,8 @@ ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
 | B | 停止并退出 |
 
 手柄输入由 ROS 2 标准 `joy_node` 发布到 `/joy`，本包只负责将 `/joy` 转换为 `/servo_node/delta_twist_cmds`。
+
+`enable_auto_yaw:=true` 时，节点读取 `base_link -> tool0` TF，并让工具 yaw 以保守角速度追向运动方向的反方向。该模式只支持 `input_backend:=joy` 与 `command_frame:=base_link`。
 
 ## 其他输入后端
 
@@ -87,6 +101,7 @@ tool0
 ## 安全边界
 
 - fake hardware 手柄控制已完成 RViz 人工验收。
+- 自动反向 yaw 仅为 fake hardware 手柄功能，默认关闭，需要显式传入 `enable_auto_yaw:=true`。
 - 手柄真机控制未实现、未验收，不能直接用于真实机器人。
 - 真机实时控制必须另走安全 launch、人工确认、低速限幅和只读状态门闩。
 - 出现 MoveIt Servo singularity、collision 或 emergency stop 日志时，应立即松开输入或按停止键，并记录现象。

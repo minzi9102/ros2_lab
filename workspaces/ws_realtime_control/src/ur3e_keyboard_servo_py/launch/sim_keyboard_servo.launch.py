@@ -45,6 +45,12 @@ def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
     input_backend = context.perform_substitution(LaunchConfiguration('input_backend'))
     input_device = context.perform_substitution(LaunchConfiguration('input_device'))
     command_frame = context.perform_substitution(LaunchConfiguration('command_frame'))
+    enable_auto_yaw = _as_bool(
+        context.perform_substitution(LaunchConfiguration('enable_auto_yaw'))
+    )
+    auto_yaw_base_frame = context.perform_substitution(
+        LaunchConfiguration('auto_yaw_base_frame')
+    )
 
     if input_backend not in SUPPORTED_INPUT_BACKENDS:
         return _refuse_launch(
@@ -64,6 +70,16 @@ def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
                 f'evdev input device is not readable: {input_device}; '
                 'check input group membership'
             )
+    if enable_auto_yaw:
+        if input_backend != 'joy':
+            return _refuse_launch(
+                'enable_auto_yaw=true is only supported when input_backend=joy'
+            )
+        if command_frame != auto_yaw_base_frame:
+            return _refuse_launch(
+                'enable_auto_yaw=true requires command_frame to match '
+                f'auto_yaw_base_frame, got {command_frame!r} and {auto_yaw_base_frame!r}'
+            )
 
     for argument_name in (
         'linear_speed_mps',
@@ -72,6 +88,9 @@ def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
         'deceleration_mps2',
         'joy_deadzone',
         'joy_autorepeat_rate',
+        'auto_yaw_gain',
+        'max_angular_speed_radps',
+        'auto_yaw_min_linear_speed_mps',
     ):
         raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
         try:
@@ -84,6 +103,12 @@ def validate_sim_arguments(context: LaunchContext, *_args, **_kwargs):
             if value < 0.0 or value >= 1.0:
                 return _refuse_launch(
                     f'{argument_name} must be in [0.0, 1.0), got {value}'
+                )
+            continue
+        if argument_name == 'auto_yaw_min_linear_speed_mps':
+            if value < 0.0:
+                return _refuse_launch(
+                    f'{argument_name} must be non-negative, got {value}'
                 )
             continue
         if value <= 0.0:
@@ -109,6 +134,10 @@ def _refuse_launch(reason: str):
         LogInfo(msg=f'Refusing realtime keyboard Servo launch: {reason}'),
         EmitEvent(event=Shutdown(reason='Invalid realtime keyboard Servo argument')),
     ]
+
+
+def _as_bool(value: str) -> bool:
+    return value.lower() in ('1', 'true', 'yes', 'on')
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -215,6 +244,36 @@ def generate_launch_description() -> LaunchDescription:
         'deceleration_mps2',
         default_value='0.80',
         description='Linear deceleration limit for evdev smooth control.',
+    )
+    enable_auto_yaw_arg = DeclareLaunchArgument(
+        'enable_auto_yaw',
+        default_value='false',
+        description='Enable joy-only automatic yaw toward the reverse motion direction.',
+    )
+    auto_yaw_base_frame_arg = DeclareLaunchArgument(
+        'auto_yaw_base_frame',
+        default_value='base_link',
+        description='Base frame used for automatic yaw TF lookup.',
+    )
+    auto_yaw_tool_frame_arg = DeclareLaunchArgument(
+        'auto_yaw_tool_frame',
+        default_value='tool0',
+        description='Tool frame used for automatic yaw TF lookup.',
+    )
+    auto_yaw_gain_arg = DeclareLaunchArgument(
+        'auto_yaw_gain',
+        default_value='1.5',
+        description='Proportional gain from yaw error to angular z speed.',
+    )
+    max_angular_speed_arg = DeclareLaunchArgument(
+        'max_angular_speed_radps',
+        default_value='0.60',
+        description='Maximum absolute automatic yaw angular speed.',
+    )
+    auto_yaw_min_linear_speed_arg = DeclareLaunchArgument(
+        'auto_yaw_min_linear_speed_mps',
+        default_value='0.02',
+        description='Minimum x/y speed required before automatic yaw is applied.',
     )
 
     moveit_config = (
@@ -404,6 +463,24 @@ def generate_launch_description() -> LaunchDescription:
                     LaunchConfiguration('deceleration_mps2'),
                     value_type=float,
                 ),
+                'enable_auto_yaw': ParameterValue(
+                    LaunchConfiguration('enable_auto_yaw'),
+                    value_type=bool,
+                ),
+                'auto_yaw_base_frame': LaunchConfiguration('auto_yaw_base_frame'),
+                'auto_yaw_tool_frame': LaunchConfiguration('auto_yaw_tool_frame'),
+                'auto_yaw_gain': ParameterValue(
+                    LaunchConfiguration('auto_yaw_gain'),
+                    value_type=float,
+                ),
+                'max_angular_speed_radps': ParameterValue(
+                    LaunchConfiguration('max_angular_speed_radps'),
+                    value_type=float,
+                ),
+                'auto_yaw_min_linear_speed_mps': ParameterValue(
+                    LaunchConfiguration('auto_yaw_min_linear_speed_mps'),
+                    value_type=float,
+                ),
             },
         ],
     )
@@ -480,6 +557,12 @@ def generate_launch_description() -> LaunchDescription:
             publish_rate_arg,
             acceleration_arg,
             deceleration_arg,
+            enable_auto_yaw_arg,
+            auto_yaw_base_frame_arg,
+            auto_yaw_tool_frame_arg,
+            auto_yaw_gain_arg,
+            max_angular_speed_arg,
+            auto_yaw_min_linear_speed_arg,
             SetLaunchConfiguration(name='sim_args_valid', value='false'),
             OpaqueFunction(function=validate_sim_arguments),
             GroupAction(

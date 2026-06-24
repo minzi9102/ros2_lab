@@ -260,3 +260,45 @@ A -> 立即停止
 B -> 停止并退出
 出现 singularity warning -> 立即松杆或按 A，记录为 MoveIt Servo 安全保护
 ```
+
+## Xbox 手柄自动反向 yaw 切片
+
+日期：2026-06-24
+
+本轮新增但尚未完成人工 RViz 验收：
+
+```text
+enable_auto_yaw:=true
+仅支持 input_backend:=joy
+仅支持 command_frame:=base_link
+读取 base_link -> tool0 TF
+根据平滑后的 x/y 速度计算运动反方向 yaw
+angular.z 按 yaw 误差闭环输出，并限制在 0.60 rad/s 内
+平移速度低于 0.02 m/s、A/B 急停或 TF 不可用时不输出角速度
+真机手柄 yaw 控制不在本切片范围内
+```
+
+计划中的 fake hardware 验收命令：
+
+```bash
+ros2 launch ur3e_keyboard_servo_py sim_keyboard_servo.launch.py \
+  use_mock_hardware:=true \
+  launch_rviz:=true \
+  input_backend:=joy \
+  command_frame:=base_link \
+  linear_speed_mps:=0.20 \
+  enable_auto_yaw:=true
+```
+
+人工验收矩阵：
+
+```text
+左摇杆 +X -> 末端 yaw 追向 -X
+左摇杆 +Y -> 末端 yaw 追向 -Y
+左摇杆 -X -> 末端 yaw 追向 +X
+左摇杆 -Y -> 末端 yaw 追向 +Y
+对角线移动 -> yaw 追向对角线反方向
+松开左摇杆 -> 平移和旋转停止
+A -> 立即停止
+B -> 停止并退出
+```

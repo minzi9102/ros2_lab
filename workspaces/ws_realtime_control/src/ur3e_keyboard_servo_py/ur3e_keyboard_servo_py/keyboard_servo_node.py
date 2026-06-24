@@ -6,7 +6,9 @@ from moveit_msgs.srv import ServoCommandType
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
+from tf2_ros import Buffer, TransformException, TransformListener
 
+from .auto_yaw_controller import AutoYawController, Quaternion, yaw_from_quaternion
 from .evdev_key_reader import EvdevKeyReader, KeyEventValue
 from .joy_mapping import JoyControl, JoyMapper
 from .key_mapping import KeyAction, map_key
@@ -64,6 +66,24 @@ class KeyboardServoNode(Node):
         self.deceleration_mps2 = float(
             self.declare_parameter('deceleration_mps2', 0.80).value
         )
+        self.enable_auto_yaw = bool(
+            self.declare_parameter('enable_auto_yaw', False).value
+        )
+        self.auto_yaw_base_frame = str(
+            self.declare_parameter('auto_yaw_base_frame', 'base_link').value
+        )
+        self.auto_yaw_tool_frame = str(
+            self.declare_parameter('auto_yaw_tool_frame', 'tool0').value
+        )
+        self.auto_yaw_gain = float(
+            self.declare_parameter('auto_yaw_gain', 1.5).value
+        )
+        self.max_angular_speed_radps = float(
+            self.declare_parameter('max_angular_speed_radps', 0.60).value
+        )
+        self.auto_yaw_min_linear_speed_mps = float(
+            self.declare_parameter('auto_yaw_min_linear_speed_mps', 0.02).value
+        )
         self.enable_z = bool(self.declare_parameter('enable_z', False).value)
         self.enable_rotation = bool(self.declare_parameter('enable_rotation', False).value)
         self.require_confirmation = bool(
@@ -90,6 +110,12 @@ class KeyboardServoNode(Node):
         if self.frame_id not in SUPPORTED_COMMAND_FRAMES:
             raise ValueError(
                 f'frame_id must be one of {SUPPORTED_COMMAND_FRAMES}, got {self.frame_id!r}'
+            )
+        if self.enable_auto_yaw and self.input_backend != 'joy':
+            raise ValueError('enable_auto_yaw is only supported when input_backend=joy')
+        if self.enable_auto_yaw and self.frame_id != self.auto_yaw_base_frame:
+            raise ValueError(
+                'enable_auto_yaw requires frame_id to match auto_yaw_base_frame'
             )
 
         if not is_motion_confirmation_valid(
@@ -134,6 +160,18 @@ class KeyboardServoNode(Node):
             acceleration_mps2=self.acceleration_mps2,
             deceleration_mps2=self.deceleration_mps2,
         )
+        self._auto_yaw_controller = AutoYawController(
+            yaw_gain=self.auto_yaw_gain,
+            max_angular_speed_radps=self.max_angular_speed_radps,
+            min_linear_speed_mps=self.auto_yaw_min_linear_speed_mps,
+        )
+        self._tf_buffer = Buffer() if self.enable_auto_yaw else None
+        self._tf_listener = (
+            TransformListener(self._tf_buffer, self)
+            if self._tf_buffer is not None
+            else None
+        )
+        self._last_tf_warn_time = 0.0
         self._quit_requested = False
         self._session_start_time = time.monotonic()
         self._last_timer_time = self._session_start_time
@@ -152,6 +190,7 @@ class KeyboardServoNode(Node):
             f'rate={self.publish_rate_hz:.1f}Hz '
             f'speed={self.linear_speed_mps:.4f}m/s '
             f'timeout={self.key_timeout_sec:.2f}s '
+            f'auto_yaw={self.enable_auto_yaw} '
             f'max_session={self.max_session_duration_sec:.1f}s '
             f'require_confirmation={self.require_confirmation}'
         )
@@ -253,14 +292,51 @@ class KeyboardServoNode(Node):
         if control.emergency_stop:
             self._publish_twist(self._smooth_velocity.stop_immediately())
         else:
-            self._publish_twist(
-                self._smooth_velocity.update(control.target_x, control.target_y, dt_sec)
+            command = self._smooth_velocity.update(
+                control.target_x,
+                control.target_y,
+                dt_sec,
             )
+            self._publish_twist(self._apply_auto_yaw(command))
 
         if control.quit_requested:
             self._quit_requested = True
             self.get_logger().info('Joy quit requested. Publishing stop command before shutdown.')
             rclpy.shutdown()
+
+    def _apply_auto_yaw(self, command: TwistCommand) -> TwistCommand:
+        if not self.enable_auto_yaw:
+            return command
+        return self._auto_yaw_controller.apply(command, self._lookup_tool_yaw())
+
+    def _lookup_tool_yaw(self) -> float | None:
+        if self._tf_buffer is None:
+            return None
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self.auto_yaw_base_frame,
+                self.auto_yaw_tool_frame,
+                rclpy.time.Time(),
+            )
+        except TransformException as exc:
+            now_sec = time.monotonic()
+            if now_sec - self._last_tf_warn_time >= 1.0:
+                self.get_logger().warn(
+                    'Auto yaw waiting for TF '
+                    f'{self.auto_yaw_base_frame}->{self.auto_yaw_tool_frame}: {exc}'
+                )
+                self._last_tf_warn_time = now_sec
+            return None
+
+        rotation = transform.transform.rotation
+        return yaw_from_quaternion(
+            Quaternion(
+                x=rotation.x,
+                y=rotation.y,
+                z=rotation.z,
+                w=rotation.w,
+            )
+        )
 
     def _ensure_twist_mode_ready(self) -> bool:
         if self._twist_mode_ready:
