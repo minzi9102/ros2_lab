@@ -23,6 +23,10 @@ from .pen_math import (
 from .pose_math import Point3, pose_target_from_pen_pose
 
 
+def has_planar_motion_intent(control: JoyControl) -> bool:
+    return math.hypot(control.target_x, control.target_y) > 1e-9
+
+
 @dataclass(frozen=True)
 class RuntimeFrames:
     base_frame: str
@@ -66,6 +70,9 @@ class PenFakeHardwareServoNode(Node):
         )
         self.start_from_current_tool0 = bool(
             self.declare_parameter("start_from_current_tool0", True).value
+        )
+        self.require_motion_before_pose_command = bool(
+            self.declare_parameter("require_motion_before_pose_command", True).value
         )
         self.tf_lookup_warn_period_sec = float(
             self.declare_parameter("tf_lookup_warn_period_sec", 1.0).value
@@ -127,6 +134,7 @@ class PenFakeHardwareServoNode(Node):
         )
         self._command_type_future = None
         self._pose_mode_ready = False
+        self._pose_command_armed = not self.require_motion_before_pose_command
         self._paper_origin = (
             None if self.start_from_current_tool0 else self._configured_paper_origin()
         )
@@ -168,7 +176,8 @@ class PenFakeHardwareServoNode(Node):
             f"base_frame={self.frames.base_frame} tool_frame={self.frames.tool_frame} "
             f"pose_topic={self.pose_command_topic} marker_topic={self.marker_topic} "
             f"joy_topic={self.joy_topic} rate={self.publish_rate_hz:.1f}Hz "
-            "servo_command_type=POSE"
+            f"servo_command_type=POSE "
+            f"require_motion_before_pose_command={self.require_motion_before_pose_command}"
         )
 
     def _declare_float_list(
@@ -224,13 +233,20 @@ class PenFakeHardwareServoNode(Node):
         self._last_timer_time = now_sec
 
         control = self._current_control(now_sec)
+        if has_planar_motion_intent(control) and not self._pose_command_armed:
+            self._pose_command_armed = True
+            self.get_logger().info("Motion input received. Arming POSE commands.")
+
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
         else:
             velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
 
         self._pen_state.update(velocity, dt_sec)
-        self._publish_tf_markers_and_pose(velocity)
+        self._publish_tf_markers_and_pose(
+            velocity,
+            publish_pose=self._pose_command_armed,
+        )
 
         if control.quit_requested:
             self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
@@ -296,7 +312,12 @@ class PenFakeHardwareServoNode(Node):
             return JoyControl()
         return self._latest_joy_control
 
-    def _publish_tf_markers_and_pose(self, velocity: PlanarVelocity) -> None:
+    def _publish_tf_markers_and_pose(
+        self,
+        velocity: PlanarVelocity,
+        *,
+        publish_pose: bool,
+    ) -> None:
         stamp = self.get_clock().now().to_msg()
         self._tf_broadcaster.sendTransform(
             [
@@ -305,7 +326,8 @@ class PenFakeHardwareServoNode(Node):
             ]
         )
         self._marker_publisher.publish(self._make_marker_array(velocity))
-        self._pose_publisher.publish(self._make_pose_stamped(stamp))
+        if publish_pose:
+            self._pose_publisher.publish(self._make_pose_stamped(stamp))
 
     def _paper_transform(self, stamp) -> TransformStamped:
         transform = TransformStamped()

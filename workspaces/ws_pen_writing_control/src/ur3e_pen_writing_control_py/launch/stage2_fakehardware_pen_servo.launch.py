@@ -328,6 +328,7 @@ def generate_launch_description() -> LaunchDescription:
                     value_type=float,
                 ),
                 "start_from_current_tool0": True,
+                "require_motion_before_pose_command": True,
             },
         ],
     )
