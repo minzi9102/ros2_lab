@@ -18,13 +18,23 @@ from .pen_math import (
     PlanarVelocity,
     SmoothPlanarVelocity,
     VirtualPenState,
-    pen_axis_vector,
 )
-from .pose_math import Point3, pose_target_from_pen_pose
+from .pose_math import (
+    Point3,
+    Quaternion,
+    rotate_vector,
+    tool_pose_from_pen_tip_pose,
+    transform_point,
+)
 
 
 def has_planar_motion_intent(control: JoyControl) -> bool:
     return math.hypot(control.target_x, control.target_y) > 1e-9
+
+
+def rotate_tool_offset(quaternion: Quaternion, offset: Point3) -> Point3:
+    rotated = rotate_vector(quaternion, (offset.x, offset.y, offset.z))
+    return Point3(x=rotated[0], y=rotated[1], z=rotated[2])
 
 
 @dataclass(frozen=True)
@@ -111,6 +121,16 @@ class PenFakeHardwareServoNode(Node):
             [0.45, 0.0, 0.12],
             expected_size=3,
         )
+        tool0_to_pen_tip_xyz = self._declare_float_list(
+            "tool0_to_pen_tip_xyz",
+            [0.0, 0.0, -self.pen_length_m],
+            expected_size=3,
+        )
+        self.tool0_to_pen_tip = Point3(
+            x=tool0_to_pen_tip_xyz[0],
+            y=tool0_to_pen_tip_xyz[1],
+            z=tool0_to_pen_tip_xyz[2],
+        )
         initial_tip_xy = self._declare_float_list(
             "initial_tip_xy",
             [0.0, 0.0],
@@ -177,7 +197,9 @@ class PenFakeHardwareServoNode(Node):
             f"pose_topic={self.pose_command_topic} marker_topic={self.marker_topic} "
             f"joy_topic={self.joy_topic} rate={self.publish_rate_hz:.1f}Hz "
             f"servo_command_type=POSE "
-            f"require_motion_before_pose_command={self.require_motion_before_pose_command}"
+            f"require_motion_before_pose_command={self.require_motion_before_pose_command} "
+            f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
+            f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
         )
 
     def _declare_float_list(
@@ -268,13 +290,28 @@ class PenFakeHardwareServoNode(Node):
 
         pose = self._pen_state.pose
         translation = transform.transform.translation
-        self._paper_origin = Point3(
-            x=translation.x - pose.tip_x,
-            y=translation.y - pose.tip_y,
+        rotation = transform.transform.rotation
+        current_tool_pose = Point3(
+            x=translation.x,
+            y=translation.y,
             z=translation.z,
         )
+        current_pen_tip_offset = rotate_tool_offset(
+            Quaternion(
+                x=rotation.x,
+                y=rotation.y,
+                z=rotation.z,
+                w=rotation.w,
+            ),
+            self.tool0_to_pen_tip,
+        )
+        self._paper_origin = Point3(
+            x=current_tool_pose.x + current_pen_tip_offset.x - pose.tip_x,
+            y=current_tool_pose.y + current_pen_tip_offset.y - pose.tip_y,
+            z=current_tool_pose.z + current_pen_tip_offset.z,
+        )
         self.get_logger().info(
-            "Initialized paper origin from current tool0 pose: "
+            "Initialized paper origin from current tool0 pose and pen-tip offset: "
             f"({self._paper_origin.x:.3f}, {self._paper_origin.y:.3f}, "
             f"{self._paper_origin.z:.3f})"
         )
@@ -353,10 +390,11 @@ class PenFakeHardwareServoNode(Node):
         return transform
 
     def _make_pose_stamped(self, stamp) -> PoseStamped:
-        target = pose_target_from_pen_pose(
+        target = tool_pose_from_pen_tip_pose(
             pen_pose=self._pen_state.pose,
             paper_origin=self._paper_origin,
             pen_length=self.pen_length_m,
+            tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
         )
         msg = PoseStamped()
         msg.header.stamp = stamp
@@ -371,22 +409,24 @@ class PenFakeHardwareServoNode(Node):
         return msg
 
     def _make_marker_array(self, velocity: PlanarVelocity) -> MarkerArray:
-        pose = self._pen_state.pose
-        axis = pen_axis_vector(
-            tail_yaw=pose.yaw,
-            tilt_rad=pose.tilt_rad,
+        tool_pose = tool_pose_from_pen_tip_pose(
+            pen_pose=self._pen_state.pose,
+            paper_origin=self._paper_origin,
             pen_length=self.pen_length_m,
+            tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
         )
-        tip = Point3(pose.tip_x, pose.tip_y, 0.0)
-        tail = Point3(pose.tip_x + axis[0], pose.tip_y + axis[1], axis[2])
+        tip_base = transform_point(tool_pose, self.tool0_to_pen_tip)
+        tool_base = tool_pose.position
+        tip = self._base_to_paper_point(tip_base)
+        tool = self._base_to_paper_point(tool_base)
 
         markers = [
             self._paper_marker(marker_id=0),
             self._paper_bounds_marker(marker_id=1),
             self._tip_marker(marker_id=2, tip=tip),
-            self._axis_marker(marker_id=3, tip=tip, tail=tail),
+            self._axis_marker(marker_id=3, tip=tip, tail=tool),
             self._motion_marker(marker_id=4, tip=tip, velocity=velocity),
-            self._tail_marker(marker_id=5, tail=tail),
+            self._tail_marker(marker_id=5, tail=tool),
         ]
         return MarkerArray(markers=markers)
 
@@ -499,6 +539,13 @@ class PenFakeHardwareServoNode(Node):
             x=self.paper_origin_xyz[0],
             y=self.paper_origin_xyz[1],
             z=self.paper_origin_xyz[2],
+        )
+
+    def _base_to_paper_point(self, point: Point3) -> Point3:
+        return Point3(
+            x=point.x - self._paper_origin.x,
+            y=point.y - self._paper_origin.y,
+            z=point.z - self._paper_origin.z,
         )
 
     def _warn_throttled(self, message: str) -> None:

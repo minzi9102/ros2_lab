@@ -31,6 +31,19 @@ def pose_target_from_pen_pose(
     paper_origin: Point3,
     pen_length: float,
 ) -> PoseTarget:
+    return pen_tip_pose_from_pen_pose(
+        pen_pose=pen_pose,
+        paper_origin=paper_origin,
+        pen_length=pen_length,
+    )
+
+
+def pen_tip_pose_from_pen_pose(
+    *,
+    pen_pose: PenPose2D,
+    paper_origin: Point3,
+    pen_length: float,
+) -> PoseTarget:
     axis = pen_axis_vector(
         tail_yaw=pen_pose.yaw,
         tilt_rad=pen_pose.tilt_rad,
@@ -48,6 +61,48 @@ def pose_target_from_pen_pose(
             z=paper_origin.z,
         ),
         orientation=quaternion_from_matrix_columns(x_axis, y_axis, z_axis),
+    )
+
+
+def tool_pose_from_pen_tip_pose(
+    *,
+    pen_pose: PenPose2D,
+    paper_origin: Point3,
+    pen_length: float,
+    tool0_to_pen_tip_xyz: Point3,
+) -> PoseTarget:
+    pen_tip_target = pen_tip_pose_from_pen_pose(
+        pen_pose=pen_pose,
+        paper_origin=paper_origin,
+        pen_length=pen_length,
+    )
+    offset = rotate_vector(
+        pen_tip_target.orientation,
+        (
+            tool0_to_pen_tip_xyz.x,
+            tool0_to_pen_tip_xyz.y,
+            tool0_to_pen_tip_xyz.z,
+        ),
+    )
+    return PoseTarget(
+        position=Point3(
+            x=pen_tip_target.position.x - offset[0],
+            y=pen_tip_target.position.y - offset[1],
+            z=pen_tip_target.position.z - offset[2],
+        ),
+        orientation=pen_tip_target.orientation,
+    )
+
+
+def transform_point(
+    pose: PoseTarget,
+    point: Point3,
+) -> Point3:
+    offset = rotate_vector(pose.orientation, (point.x, point.y, point.z))
+    return Point3(
+        x=pose.position.x + offset[0],
+        y=pose.position.y + offset[1],
+        z=pose.position.z + offset[2],
     )
 
 

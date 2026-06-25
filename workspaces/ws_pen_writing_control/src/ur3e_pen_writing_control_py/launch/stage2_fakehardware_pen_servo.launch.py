@@ -329,6 +329,7 @@ def generate_launch_description() -> LaunchDescription:
                 ),
                 "start_from_current_tool0": True,
                 "require_motion_before_pose_command": True,
+                "tool0_to_pen_tip_xyz": [0.0, 0.0, -0.14],
             },
         ],
     )
