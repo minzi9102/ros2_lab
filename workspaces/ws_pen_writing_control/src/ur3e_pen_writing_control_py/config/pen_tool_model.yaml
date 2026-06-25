@@ -1,0 +1,21 @@
+pen_writing_visualizer_node:
+  ros__parameters:
+    world_frame: base_link
+    paper_frame: paper_frame
+    marker_topic: /pen_writing/markers
+    joy_topic: /joy
+    publish_rate_hz: 60.0
+    joy_deadzone: 0.08
+    joy_timeout_sec: 0.25
+    max_planar_speed_mps: 0.08
+    acceleration_mps2: 0.20
+    deceleration_mps2: 0.35
+    yaw_hold_speed_mps: 0.005
+    pen_length_m: 0.14
+    pen_radius_m: 0.006
+    pen_tip_radius_m: 0.01
+    fixed_tilt_deg: 20.0
+    paper_width_m: 0.24
+    paper_height_m: 0.16
+    paper_origin_xyz: [0.45, 0.0, 0.12]
+    initial_tip_xy: [0.0, 0.0]
