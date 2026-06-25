@@ -123,20 +123,25 @@ class VirtualPenState:
         speed = math.hypot(velocity.x, velocity.y)
         yaw = self._pose.yaw
         if speed >= self._yaw_hold_speed_mps and speed > 0.0:
-            yaw = desired_reverse_motion_yaw(velocity.x, velocity.y)
+            yaw = desired_pen_tail_yaw(velocity.x, velocity.y)
 
         self._pose = PenPose2D(tip_x=tip_x, tip_y=tip_y, yaw=yaw)
         return self._pose
 
 
-def desired_reverse_motion_yaw(linear_x: float, linear_y: float) -> float:
-    yaw = math.atan2(-linear_y, -linear_x)
+def desired_pen_tail_yaw(linear_x: float, linear_y: float) -> float:
+    yaw = math.atan2(linear_y, linear_x)
     if math.isclose(yaw, -math.pi):
         return math.pi
     return yaw
 
 
-def pen_axis_vector(*, reverse_yaw: float, tilt_rad: float, pen_length: float) -> tuple[float, float, float]:
+def pen_axis_vector(
+    *,
+    tail_yaw: float,
+    tilt_rad: float,
+    pen_length: float,
+) -> tuple[float, float, float]:
     if pen_length <= 0.0:
         raise ValueError("pen_length must be greater than zero")
     if tilt_rad < 0.0 or tilt_rad >= math.pi / 2.0:
@@ -145,8 +150,8 @@ def pen_axis_vector(*, reverse_yaw: float, tilt_rad: float, pen_length: float) -
     horizontal = math.sin(tilt_rad) * pen_length
     vertical = math.cos(tilt_rad) * pen_length
     return (
-        horizontal * math.cos(reverse_yaw),
-        horizontal * math.sin(reverse_yaw),
+        horizontal * math.cos(tail_yaw),
+        horizontal * math.sin(tail_yaw),
         vertical,
     )
 

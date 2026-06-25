@@ -7,7 +7,7 @@ from ur3e_pen_writing_control_py.pen_math import (
     PlanarVelocity,
     SmoothPlanarVelocity,
     VirtualPenState,
-    desired_reverse_motion_yaw,
+    desired_pen_tail_yaw,
     pen_axis_vector,
 )
 
@@ -15,30 +15,30 @@ from ur3e_pen_writing_control_py.pen_math import (
 @pytest.mark.parametrize(
     ("linear_x", "linear_y", "expected_yaw"),
     [
-        (1.0, 0.0, math.pi),
-        (0.0, 1.0, -math.pi / 2.0),
-        (-1.0, 0.0, 0.0),
-        (0.0, -1.0, math.pi / 2.0),
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, math.pi / 2.0),
+        (-1.0, 0.0, math.pi),
+        (0.0, -1.0, -math.pi / 2.0),
     ],
 )
-def test_desired_yaw_faces_reverse_motion_direction(
+def test_desired_yaw_puts_pen_tail_ahead_of_motion(
     linear_x,
     linear_y,
     expected_yaw,
 ):
-    assert desired_reverse_motion_yaw(linear_x, linear_y) == pytest.approx(
+    assert desired_pen_tail_yaw(linear_x, linear_y) == pytest.approx(
         expected_yaw
     )
 
 
-def test_pen_axis_tilts_toward_reverse_motion_yaw():
+def test_pen_axis_tilts_tail_toward_motion_yaw():
     axis = pen_axis_vector(
-        reverse_yaw=math.pi,
+        tail_yaw=0.0,
         tilt_rad=math.radians(20.0),
         pen_length=0.14,
     )
 
-    assert axis[0] < 0.0
+    assert axis[0] > 0.0
     assert axis[1] == pytest.approx(0.0, abs=1e-12)
     assert axis[2] > 0.0
     assert math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2) == pytest.approx(0.14)
@@ -69,7 +69,7 @@ def test_virtual_pen_updates_yaw_when_speed_is_high_enough():
 
     pose = state.update(PlanarVelocity(x=0.02, y=0.0), 1.0)
 
-    assert pose.yaw == pytest.approx(math.pi)
+    assert pose.yaw == pytest.approx(0.0)
 
 
 def test_virtual_pen_clamps_to_paper_bounds():

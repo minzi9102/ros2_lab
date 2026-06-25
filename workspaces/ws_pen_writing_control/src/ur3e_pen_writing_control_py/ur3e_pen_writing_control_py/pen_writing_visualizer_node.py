@@ -219,7 +219,7 @@ class PenWritingVisualizerNode(Node):
         pose = self._pen_state.pose
         tilt_rad = math.radians(self.fixed_tilt_deg)
         axis = pen_axis_vector(
-            reverse_yaw=pose.yaw,
+            tail_yaw=pose.yaw,
             tilt_rad=tilt_rad,
             pen_length=self.pen_length_m,
         )
