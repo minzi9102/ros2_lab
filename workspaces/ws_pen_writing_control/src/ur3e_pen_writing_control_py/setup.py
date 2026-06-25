@@ -30,6 +30,8 @@ setup(
         "console_scripts": [
             "pen_writing_visualizer_node = "
             "ur3e_pen_writing_control_py.pen_writing_visualizer_node:main",
+            "pen_fakehardware_servo_node = "
+            "ur3e_pen_writing_control_py.pen_fakehardware_servo_node:main",
         ],
     },
 )
