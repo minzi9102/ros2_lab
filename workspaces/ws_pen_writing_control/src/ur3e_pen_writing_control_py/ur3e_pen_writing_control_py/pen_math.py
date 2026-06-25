@@ -27,6 +27,7 @@ class PenPose2D:
     tip_x: float
     tip_y: float
     yaw: float
+    tilt_rad: float = 0.0
 
 
 class SmoothPlanarVelocity:
@@ -100,11 +101,27 @@ class VirtualPenState:
         initial_yaw: float,
         paper_bounds: PaperBounds,
         yaw_hold_speed_mps: float,
+        target_tilt_rad: float = 0.0,
+        tilt_activate_speed_mps: float = 0.0,
+        tilt_rate_radps: float = 1.0,
+        untilt_rate_radps: float = 1.0,
     ) -> None:
         if yaw_hold_speed_mps < 0.0:
             raise ValueError("yaw_hold_speed_mps must be non-negative")
+        if target_tilt_rad < 0.0 or target_tilt_rad >= math.pi / 2.0:
+            raise ValueError("target_tilt_rad must be in [0, pi/2)")
+        if tilt_activate_speed_mps < 0.0:
+            raise ValueError("tilt_activate_speed_mps must be non-negative")
+        if tilt_rate_radps <= 0.0:
+            raise ValueError("tilt_rate_radps must be greater than zero")
+        if untilt_rate_radps <= 0.0:
+            raise ValueError("untilt_rate_radps must be greater than zero")
         self._bounds = paper_bounds
         self._yaw_hold_speed_mps = float(yaw_hold_speed_mps)
+        self._target_tilt_rad = float(target_tilt_rad)
+        self._tilt_activate_speed_mps = float(tilt_activate_speed_mps)
+        self._tilt_rate_radps = float(tilt_rate_radps)
+        self._untilt_rate_radps = float(untilt_rate_radps)
         tip_x, tip_y = self._bounds.clamp_xy(initial_tip_x, initial_tip_y)
         self._pose = PenPose2D(tip_x=tip_x, tip_y=tip_y, yaw=initial_yaw)
 
@@ -125,7 +142,28 @@ class VirtualPenState:
         if speed >= self._yaw_hold_speed_mps and speed > 0.0:
             yaw = desired_pen_tail_yaw(velocity.x, velocity.y)
 
-        self._pose = PenPose2D(tip_x=tip_x, tip_y=tip_y, yaw=yaw)
+        target_tilt = (
+            self._target_tilt_rad
+            if speed >= self._tilt_activate_speed_mps and speed > 0.0
+            else 0.0
+        )
+        rate = (
+            self._tilt_rate_radps
+            if target_tilt > self._pose.tilt_rad
+            else self._untilt_rate_radps
+        )
+        tilt_rad = move_toward(
+            self._pose.tilt_rad,
+            target_tilt,
+            rate * dt_sec,
+        )
+
+        self._pose = PenPose2D(
+            tip_x=tip_x,
+            tip_y=tip_y,
+            yaw=yaw,
+            tilt_rad=tilt_rad,
+        )
         return self._pose
 
 
@@ -177,6 +215,16 @@ def step_vector(
         current_x + delta_x * scale,
         current_y + delta_y * scale,
     )
+
+
+def move_toward(current: float, target: float, max_step: float) -> float:
+    if max_step < 0.0:
+        raise ValueError("max_step must be non-negative")
+    if current < target:
+        return min(current + max_step, target)
+    if current > target:
+        return max(current - max_step, target)
+    return current
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:

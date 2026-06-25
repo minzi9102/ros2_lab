@@ -8,6 +8,7 @@ from ur3e_pen_writing_control_py.pen_math import (
     SmoothPlanarVelocity,
     VirtualPenState,
     desired_pen_tail_yaw,
+    move_toward,
     pen_axis_vector,
 )
 
@@ -44,6 +45,18 @@ def test_pen_axis_tilts_tail_toward_motion_yaw():
     assert math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2) == pytest.approx(0.14)
 
 
+def test_pen_axis_is_vertical_when_tilt_is_zero():
+    axis = pen_axis_vector(
+        tail_yaw=0.0,
+        tilt_rad=0.0,
+        pen_length=0.14,
+    )
+
+    assert axis[0] == pytest.approx(0.0)
+    assert axis[1] == pytest.approx(0.0)
+    assert axis[2] == pytest.approx(0.14)
+
+
 def test_virtual_pen_holds_yaw_when_speed_is_too_low():
     state = VirtualPenState(
         initial_tip_x=0.0,
@@ -72,6 +85,67 @@ def test_virtual_pen_updates_yaw_when_speed_is_high_enough():
     assert pose.yaw == pytest.approx(0.0)
 
 
+def test_virtual_pen_starts_upright():
+    state = VirtualPenState(
+        initial_tip_x=0.0,
+        initial_tip_y=0.0,
+        initial_yaw=0.0,
+        paper_bounds=PaperBounds(width=0.2, height=0.2),
+        yaw_hold_speed_mps=0.01,
+        target_tilt_rad=math.radians(20.0),
+        tilt_activate_speed_mps=0.01,
+        tilt_rate_radps=math.radians(45.0),
+        untilt_rate_radps=math.radians(60.0),
+    )
+
+    assert state.pose.tilt_rad == pytest.approx(0.0)
+
+
+def test_virtual_pen_tilts_gradually_while_moving():
+    state = VirtualPenState(
+        initial_tip_x=0.0,
+        initial_tip_y=0.0,
+        initial_yaw=0.0,
+        paper_bounds=PaperBounds(width=0.2, height=0.2),
+        yaw_hold_speed_mps=0.01,
+        target_tilt_rad=math.radians(20.0),
+        tilt_activate_speed_mps=0.01,
+        tilt_rate_radps=math.radians(45.0),
+        untilt_rate_radps=math.radians(60.0),
+    )
+
+    pose = state.update(PlanarVelocity(x=0.02, y=0.0), 0.2)
+
+    assert pose.tilt_rad == pytest.approx(math.radians(9.0))
+
+    pose = state.update(PlanarVelocity(x=0.02, y=0.0), 1.0)
+
+    assert pose.tilt_rad == pytest.approx(math.radians(20.0))
+
+
+def test_virtual_pen_returns_upright_after_stopping():
+    state = VirtualPenState(
+        initial_tip_x=0.0,
+        initial_tip_y=0.0,
+        initial_yaw=0.0,
+        paper_bounds=PaperBounds(width=0.2, height=0.2),
+        yaw_hold_speed_mps=0.01,
+        target_tilt_rad=math.radians(20.0),
+        tilt_activate_speed_mps=0.01,
+        tilt_rate_radps=math.radians(45.0),
+        untilt_rate_radps=math.radians(60.0),
+    )
+
+    state.update(PlanarVelocity(x=0.02, y=0.0), 1.0)
+    pose = state.update(PlanarVelocity(), 0.2)
+
+    assert pose.tilt_rad == pytest.approx(math.radians(8.0))
+
+    pose = state.update(PlanarVelocity(), 1.0)
+
+    assert pose.tilt_rad == pytest.approx(0.0)
+
+
 def test_virtual_pen_clamps_to_paper_bounds():
     state = VirtualPenState(
         initial_tip_x=0.0,
@@ -98,3 +172,10 @@ def test_smooth_velocity_caps_diagonal_speed():
 
     assert math.hypot(command.x, command.y) == pytest.approx(0.08)
     assert command.x == pytest.approx(command.y)
+
+
+def test_move_toward_limits_step_without_overshoot():
+    assert move_toward(0.0, 1.0, 0.25) == pytest.approx(0.25)
+    assert move_toward(0.9, 1.0, 0.25) == pytest.approx(1.0)
+    assert move_toward(1.0, 0.0, 0.25) == pytest.approx(0.75)
+    assert move_toward(0.1, 0.0, 0.25) == pytest.approx(0.0)

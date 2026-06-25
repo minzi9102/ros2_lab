@@ -49,13 +49,22 @@ class PenWritingVisualizerNode(Node):
             self.declare_parameter("max_planar_speed_mps", 0.08).value
         )
         self.acceleration_mps2 = float(
-            self.declare_parameter("acceleration_mps2", 0.20).value
+            self.declare_parameter("acceleration_mps2", 0.08).value
         )
         self.deceleration_mps2 = float(
-            self.declare_parameter("deceleration_mps2", 0.35).value
+            self.declare_parameter("deceleration_mps2", 0.16).value
         )
         self.yaw_hold_speed_mps = float(
             self.declare_parameter("yaw_hold_speed_mps", 0.005).value
+        )
+        self.tilt_activate_speed_mps = float(
+            self.declare_parameter("tilt_activate_speed_mps", 0.01).value
+        )
+        self.tilt_rate_degps = float(
+            self.declare_parameter("tilt_rate_degps", 45.0).value
+        )
+        self.untilt_rate_degps = float(
+            self.declare_parameter("untilt_rate_degps", 60.0).value
         )
         self.pen_length_m = float(self.declare_parameter("pen_length_m", 0.14).value)
         self.pen_radius_m = float(self.declare_parameter("pen_radius_m", 0.006).value)
@@ -103,6 +112,10 @@ class PenWritingVisualizerNode(Node):
                 height=self.paper_height_m,
             ),
             yaw_hold_speed_mps=self.yaw_hold_speed_mps,
+            target_tilt_rad=math.radians(self.fixed_tilt_deg),
+            tilt_activate_speed_mps=self.tilt_activate_speed_mps,
+            tilt_rate_radps=math.radians(self.tilt_rate_degps),
+            untilt_rate_radps=math.radians(self.untilt_rate_degps),
         )
         self._last_timer_time = time.monotonic()
         self._quit_requested = False
@@ -145,6 +158,12 @@ class PenWritingVisualizerNode(Node):
             raise ValueError("paper dimensions must be greater than zero")
         if self.fixed_tilt_deg < 0.0 or self.fixed_tilt_deg >= 90.0:
             raise ValueError("fixed_tilt_deg must be in [0, 90)")
+        if self.tilt_activate_speed_mps < 0.0:
+            raise ValueError("tilt_activate_speed_mps must be non-negative")
+        if self.tilt_rate_degps <= 0.0:
+            raise ValueError("tilt_rate_degps must be greater than zero")
+        if self.untilt_rate_degps <= 0.0:
+            raise ValueError("untilt_rate_degps must be greater than zero")
 
     def _on_joy_message(self, msg: Joy) -> None:
         self._latest_joy_control = self._joy_mapper.map(msg.axes, msg.buttons)
@@ -217,10 +236,9 @@ class PenWritingVisualizerNode(Node):
 
     def _make_marker_array(self, velocity: PlanarVelocity) -> MarkerArray:
         pose = self._pen_state.pose
-        tilt_rad = math.radians(self.fixed_tilt_deg)
         axis = pen_axis_vector(
             tail_yaw=pose.yaw,
-            tilt_rad=tilt_rad,
+            tilt_rad=pose.tilt_rad,
             pen_length=self.pen_length_m,
         )
         tip = Point3(pose.tip_x, pose.tip_y, 0.0)
