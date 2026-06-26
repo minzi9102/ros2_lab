@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pen Writing 控制策略说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c2430;
+      --muted: #5f6c7b;
+      --line: #d6dce5;
+      --panel: #ffffff;
+      --paper: #f4f0df;
+      --target: #0a8f55;
+      --actual: #08bfd0;
+      --tip: #1254e8;
+      --tail: #e6a018;
+      --motion: #d92335;
+      --servo: #5661d9;
+      --warn: #a45209;
+      --bg: #f7f8fb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "Noto Sans CJK SC",
+        "Microsoft YaHei",
+        sans-serif;
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 44px;
+    }
+
+    header {
+      margin-bottom: 22px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 5vw, 48px);
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #edf1f7;
+      color: #26364d;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    .subtitle {
+      max-width: 920px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .section {
+      margin-top: 18px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .flow.five {
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+    }
+
+    .flow.three {
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+    }
+
+    .step {
+      position: relative;
+      min-height: 132px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+    }
+
+    .step::after {
+      content: ">";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      width: 14px;
+      color: #7d8997;
+      font-weight: 700;
+      transform: translateY(-50%);
+      z-index: 2;
+    }
+
+    .flow .step:last-child::after {
+      display: none;
+    }
+
+    .step-title {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+      font-weight: 800;
+    }
+
+    .step p,
+    .note,
+    .item p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .badge {
+      display: inline-flex;
+      min-width: 26px;
+      height: 26px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: #e9edf6;
+      color: #27364a;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .legend-card {
+      display: flex;
+      min-height: 64px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+      font-size: 14px;
+    }
+
+    .swatch {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+    }
+
+    .target { background: var(--target); }
+    .actual { background: var(--actual); }
+    .tip { background: var(--tip); }
+    .tail { background: var(--tail); }
+    .motion { background: var(--motion); }
+
+    .diagram {
+      min-height: 330px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .paper-label {
+      position: absolute;
+      left: 16px;
+      bottom: 12px;
+      color: #66707d;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .point {
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+    }
+
+    .point.tip-point {
+      left: 42%;
+      top: 66%;
+      background: var(--tip);
+    }
+
+    .point.tail-point {
+      left: 55%;
+      top: 28%;
+      background: var(--tail);
+    }
+
+    .rod {
+      position: absolute;
+      left: 42%;
+      top: 66%;
+      width: 10px;
+      height: 160px;
+      border-radius: 999px;
+      background: var(--target);
+      transform: translate(-50%, -100%) rotate(19deg);
+      transform-origin: bottom center;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.16);
+    }
+
+    .actual-rod {
+      position: absolute;
+      left: 46%;
+      top: 68%;
+      width: 5px;
+      height: 154px;
+      border-radius: 999px;
+      background: var(--actual);
+      transform: translate(-50%, -100%) rotate(9deg);
+      transform-origin: bottom center;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.16);
+    }
+
+    .arrow-motion {
+      position: absolute;
+      left: 46%;
+      top: 69%;
+      width: 118px;
+      height: 8px;
+      background: var(--motion);
+      border-radius: 999px;
+    }
+
+    .arrow-motion::after {
+      content: "";
+      position: absolute;
+      right: -13px;
+      top: 50%;
+      border-top: 13px solid transparent;
+      border-bottom: 13px solid transparent;
+      border-left: 18px solid var(--motion);
+      transform: translateY(-50%);
+    }
+
+    .callout {
+      padding: 14px;
+      border-left: 4px solid var(--servo);
+      border-radius: 6px;
+      background: #eef1ff;
+      color: #29304d;
+      font-size: 15px;
+    }
+
+    .callout.warn {
+      border-left-color: var(--warn);
+      background: #fff3e6;
+      color: #4c3215;
+    }
+
+    .items {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .item {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+    }
+
+    .mini-title {
+      margin-bottom: 6px;
+      font-weight: 800;
+    }
+
+    .dictionary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .term {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+    }
+
+    .term strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .term span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .params {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 10px;
+    }
+
+    .param {
+      padding: 12px;
+      border-radius: 8px;
+      background: #edf1f7;
+      font-size: 14px;
+    }
+
+    .param strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    @media (max-width: 960px) {
+      .flow,
+      .flow.five,
+      .flow.three,
+      .grid-2,
+      .items,
+      .dictionary,
+      .params,
+      .legend {
+        grid-template-columns: 1fr;
+      }
+
+      .step::after {
+        content: "v";
+        top: auto;
+        right: 50%;
+        bottom: -20px;
+        transform: translateX(50%);
+      }
+
+      .step {
+        min-height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Pen Writing 控制策略说明</h1>
+      <p class="subtitle">
+        当前 fakehardware 阶段的核心思想：Xbox 手柄只推动一个“虚拟笔目标”，
+        节点再把虚拟笔反解成 <code>tool0</code> 目标 pose 发给 MoveIt Servo；
+        RViz 里绿色是目标，青色是机械臂实际跟踪状态。
+      </p>
+    </header>
+
+    <section class="section">
+      <h2>1. 总览：从手柄到 RViz</h2>
+      <div class="flow">
+        <div class="step">
+          <div class="step-title"><span class="badge">1</span>Xbox 手柄</div>
+          <p>左摇杆给出纸面 XY 方向；A 冻结；B 停止并退出。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">2</span>JoyMapper</div>
+          <p>应用 deadzone，把摇杆轴映射成归一化的 <code>target_x</code> / <code>target_y</code>。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">3</span>虚拟笔模型</div>
+          <p>用平滑速度积分笔尖位置，并更新 yaw、tilt 和松手回直动作。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">4</span>tool0 目标 pose</div>
+          <p>根据目标笔尖和笔杆方向，反推出机械臂 <code>tool0</code> 应该到哪里。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">5</span>MoveIt Servo</div>
+          <p>接收 <code>/servo_node/pose_target_cmds</code>，驱动 fakehardware 追踪目标。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">6</span>RViz 对比</div>
+          <p>同时显示目标笔杆和实际笔杆，用颜色区分“想去哪里”和“实际在哪”。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. RViz 颜色怎么读</h2>
+      <div class="grid-2">
+        <div>
+          <div class="diagram" aria-label="RViz marker semantic diagram">
+            <div class="rod"></div>
+            <div class="actual-rod"></div>
+            <div class="point tail-point"></div>
+            <div class="point tip-point"></div>
+            <div class="arrow-motion"></div>
+            <div class="paper-label">paper_frame / 虚拟纸面</div>
+          </div>
+        </div>
+        <div>
+          <div class="callout">
+            绿色和青色不应该被理解成同一个东西。绿色是节点刚计算出来的目标笔杆；
+            青色是从当前 <code>tool0</code> TF 推导出来的实际笔杆。动态运动时二者会有跟随误差。
+          </div>
+          <div class="legend">
+            <div class="legend-card"><span class="swatch target"></span><span>绿色：目标笔杆<br><code>target tool0</code></span></div>
+            <div class="legend-card"><span class="swatch actual"></span><span>青色：实际笔杆<br><code>current tool0</code></span></div>
+            <div class="legend-card"><span class="swatch tip"></span><span>蓝色：目标笔尖<br><code>pen_tip</code></span></div>
+            <div class="legend-card"><span class="swatch tail"></span><span>橙色：目标笔尾<br><code>tool0 origin</code></span></div>
+            <div class="legend-card"><span class="swatch motion"></span><span>红色：平面运动方向</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3. 虚拟笔如何运动</h2>
+      <div class="flow five">
+        <div class="step">
+          <div class="step-title"><span class="badge">A</span>摇杆目标</div>
+          <p><code>axes[1]</code> 控制 X，<code>axes[0]</code> 控制 Y；超过 deadzone 才算有运动意图。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">B</span>平滑速度</div>
+          <p><code>SmoothPlanarVelocity</code> 限制最大速度和加速度，避免目标瞬间跳变。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">C</span>笔尖积分</div>
+          <p>用速度乘以时间步长更新笔尖 XY，并限制在纸面边界内。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">D</span>姿态更新</div>
+          <p>速度足够大时更新 yaw，并逐渐倾斜；松手后逐渐回直。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">E</span>虚拟目标</div>
+          <p>得到一个目标笔尖位置、目标 yaw 和目标 tilt，供下一步反解 <code>tool0</code>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>4. 为什么要反解 tool0 pose</h2>
+      <div class="items">
+        <div class="item">
+          <div class="mini-title">笔安装约定</div>
+          <p><code>tool0 +Z = tail -&gt; tip</code>。也就是说机械臂末端 Z 轴指向笔尖。</p>
+        </div>
+        <div class="item">
+          <div class="mini-title">固定偏移</div>
+          <p><code>tool0_to_pen_tip_xyz = [0, 0, 0.14]</code>。笔尖在 <code>tool0</code> 局部 +Z 方向 14 cm。</p>
+        </div>
+        <div class="item">
+          <div class="mini-title">反解关系</div>
+          <p>已知目标笔尖和目标姿态后，计算 <code>tool0</code> 原点，使 <code>tool0 * offset = pen_tip</code>。</p>
+        </div>
+      </div>
+      <p class="note" style="margin-top: 12px;">
+        这就是为什么不能直接把蓝色笔尖位置发给 Servo：机械臂控制的是 <code>tool0</code>，
+        笔尖只是安装在 <code>tool0</code> 上的一个固定偏移点。
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>5. 跟随误差门控</h2>
+      <div class="flow three">
+        <div class="step">
+          <div class="step-title"><span class="badge">1</span>计算误差</div>
+          <p>每帧比较目标和实际：<code>tail error</code>、<code>tip error</code>、<code>axis error</code>。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">2</span>误差过大</div>
+          <p>如果 tip 误差超过 12 mm，或轴线误差超过 8 deg，暂停虚拟笔继续积分。</p>
+        </div>
+        <div class="step">
+          <div class="step-title"><span class="badge">3</span>等待追上</div>
+          <p>暂停时仍继续发布当前目标 pose，让 Servo 把机械臂追到绿色目标附近。</p>
+        </div>
+      </div>
+      <div class="callout warn" style="margin-top: 14px;">
+        这就是持续推摇杆时偶尔看到绿色笔杆停一下的原因：节点不是卡死，而是在防止虚拟目标跑得太远。
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>6. 当前关键参数</h2>
+      <div class="params">
+        <div class="param"><strong>最大平面速度</strong><code>0.08 m/s</code></div>
+        <div class="param"><strong>平面加速度</strong><code>0.08 m/s^2</code></div>
+        <div class="param"><strong>笔长 / 偏移</strong><code>0.14 m</code></div>
+        <div class="param"><strong>纸面高度</strong><code>z = 0.12</code></div>
+        <div class="param"><strong>尾部容差</strong><code>5 mm</code></div>
+        <div class="param"><strong>笔尖容差</strong><code>2 mm</code></div>
+        <div class="param"><strong>轴线容差</strong><code>0.75 deg</code></div>
+        <div class="param"><strong>动态暂停</strong><code>tip &gt; 12 mm</code></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>小词典</h2>
+      <div class="dictionary">
+        <div class="term"><strong>paper_frame</strong><span>虚拟纸面的坐标系，笔尖 XY 在这个平面内运动。</span></div>
+        <div class="term"><strong>pen_tip</strong><span>蓝色目标笔尖，不是机械臂真正控制的 frame。</span></div>
+        <div class="term"><strong>tool0</strong><span>机械臂末端控制 frame，本阶段的 Servo pose 目标。</span></div>
+        <div class="term"><strong>pose target</strong><span>发给 <code>/servo_node/pose_target_cmds</code> 的目标位姿。</span></div>
+        <div class="term"><strong>follow error</strong><span>绿色目标与青色实际之间的位置和轴线误差。</span></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
