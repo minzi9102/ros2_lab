@@ -44,13 +44,15 @@ def pen_tip_pose_from_pen_pose(
     paper_origin: Point3,
     pen_length: float,
 ) -> PoseTarget:
-    axis = pen_axis_vector(
+    tip_to_tail_axis = pen_axis_vector(
         tail_yaw=pen_pose.yaw,
         tilt_rad=pen_pose.tilt_rad,
         pen_length=pen_length,
     )
-    z_axis = normalize_vector(axis)
-    heading = normalize_vector((math.cos(pen_pose.yaw), math.sin(pen_pose.yaw), 0.0))
+    z_axis = normalize_vector(
+        (-tip_to_tail_axis[0], -tip_to_tail_axis[1], -tip_to_tail_axis[2])
+    )
+    heading = normalize_vector((-math.cos(pen_pose.yaw), -math.sin(pen_pose.yaw), 0.0))
     y_axis = normalize_vector(cross(z_axis, heading))
     x_axis = normalize_vector(cross(y_axis, z_axis))
 

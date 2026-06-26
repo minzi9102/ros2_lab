@@ -12,7 +12,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     paper_origin_from_current_tool0,
     should_publish_pose_command,
     tool_alignment_error,
-    tool_tip_to_tail_points,
+    tool_tail_to_tip_points,
     tool_tip_point_from_tool_pose,
 )
 from ur3e_pen_writing_control_py.pose_math import Point3, PoseTarget, Quaternion
@@ -31,7 +31,7 @@ def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():
     paper_origin, estimated_tip_z = paper_origin_from_current_tool0(
         current_tool_position=Point3(x=0.4, y=0.2, z=0.5),
         current_tool_orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
-        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=-0.14),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
         initial_tip_x=0.03,
         initial_tip_y=-0.02,
         fixed_paper_z=0.12,
@@ -40,7 +40,7 @@ def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():
     assert paper_origin.x == pytest.approx(0.37)
     assert paper_origin.y == pytest.approx(0.22)
     assert paper_origin.z == pytest.approx(0.12)
-    assert estimated_tip_z == pytest.approx(0.36)
+    assert estimated_tip_z == pytest.approx(0.64)
 
 
 def test_servo_status_fresh_requires_seen_recent_status():
@@ -192,7 +192,7 @@ def test_tool_pose_alignment_checks_position_and_tool_z_axis():
     ).z_axis_rad == pytest.approx(math.radians(5.0))
 
 
-def test_tool_tip_point_uses_tool0_to_pen_tip_direction_not_tool_positive_z():
+def test_tool_tip_point_uses_tool0_to_pen_tip_positive_z_direction():
     tool_pose = PoseTarget(
         position=Point3(x=0.1, y=0.2, z=0.3),
         orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
@@ -200,24 +200,24 @@ def test_tool_tip_point_uses_tool0_to_pen_tip_direction_not_tool_positive_z():
 
     tip = tool_tip_point_from_tool_pose(
         tool_pose=tool_pose,
-        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=-0.14),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
     )
 
     assert tip.x == pytest.approx(0.1)
     assert tip.y == pytest.approx(0.2)
-    assert tip.z == pytest.approx(0.16)
+    assert tip.z == pytest.approx(0.44)
 
 
-def test_tool_tip_to_tail_points_make_arrow_opposite_to_virtual_pen_axis():
+def test_tool_tail_to_tip_points_make_arrow_match_virtual_pen_axis():
     tool_pose = PoseTarget(
         position=Point3(x=0.1, y=0.2, z=0.3),
         orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
     )
 
-    start, end = tool_tip_to_tail_points(
+    start, end = tool_tail_to_tip_points(
         tool_pose=tool_pose,
-        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=-0.14),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
     )
 
-    assert start.z == pytest.approx(0.16)
-    assert end.z == pytest.approx(0.3)
+    assert start.z == pytest.approx(0.3)
+    assert end.z == pytest.approx(0.44)

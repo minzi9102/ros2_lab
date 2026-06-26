@@ -45,10 +45,10 @@ def test_pose_target_keeps_tool_z_vertical_when_pen_is_upright():
 
     assert rotated_z[0] == pytest.approx(0.0, abs=1e-12)
     assert rotated_z[1] == pytest.approx(0.0, abs=1e-12)
-    assert rotated_z[2] == pytest.approx(1.0)
+    assert rotated_z[2] == pytest.approx(-1.0)
 
 
-def test_pose_target_aligns_tool_z_with_virtual_pen_axis():
+def test_pose_target_aligns_tool_z_with_virtual_pen_tail_to_tip_axis():
     pen_pose = PenPose2D(
         tip_x=0.0,
         tip_y=0.0,
@@ -69,9 +69,9 @@ def test_pose_target_aligns_tool_z_with_virtual_pen_axis():
     )
     rotated_z = rotate_vector(target.orientation, (0.0, 0.0, 1.0))
 
-    assert rotated_z[0] == pytest.approx(expected_axis[0] / 0.14)
-    assert rotated_z[1] == pytest.approx(expected_axis[1] / 0.14)
-    assert rotated_z[2] == pytest.approx(expected_axis[2] / 0.14)
+    assert rotated_z[0] == pytest.approx(-expected_axis[0] / 0.14)
+    assert rotated_z[1] == pytest.approx(-expected_axis[1] / 0.14)
+    assert rotated_z[2] == pytest.approx(-expected_axis[2] / 0.14)
 
 
 def test_pose_target_quaternion_is_normalized():
@@ -92,7 +92,7 @@ def test_pose_target_quaternion_is_normalized():
     assert norm == pytest.approx(1.0)
 
 
-def test_tool_pose_places_tool_origin_above_upright_pen_tip():
+def test_tool_pose_places_tool_origin_above_upright_pen_tip_with_positive_z_tip_offset():
     target = tool_pose_from_pen_tip_pose(
         pen_pose=PenPose2D(
             tip_x=0.03,
@@ -102,7 +102,7 @@ def test_tool_pose_places_tool_origin_above_upright_pen_tip():
         ),
         paper_origin=Point3(x=0.4, y=0.1, z=0.2),
         pen_length=0.14,
-        tool0_to_pen_tip_xyz=Point3(x=0.0, y=0.0, z=-0.14),
+        tool0_to_pen_tip_xyz=Point3(x=0.0, y=0.0, z=0.14),
     )
 
     assert target.position.x == pytest.approx(0.43)
@@ -110,7 +110,7 @@ def test_tool_pose_places_tool_origin_above_upright_pen_tip():
     assert target.position.z == pytest.approx(0.34)
 
 
-def test_tool_pose_z_axis_aligns_with_tilted_pen_axis():
+def test_tool_pose_z_axis_aligns_with_tilted_pen_tail_to_tip_axis():
     pen_pose = PenPose2D(
         tip_x=0.0,
         tip_y=0.0,
@@ -122,7 +122,7 @@ def test_tool_pose_z_axis_aligns_with_tilted_pen_axis():
         pen_pose=pen_pose,
         paper_origin=Point3(x=0.0, y=0.0, z=0.0),
         pen_length=0.14,
-        tool0_to_pen_tip_xyz=Point3(x=0.0, y=0.0, z=-0.14),
+        tool0_to_pen_tip_xyz=Point3(x=0.0, y=0.0, z=0.14),
     )
 
     expected_axis = pen_axis_vector(
@@ -132,9 +132,9 @@ def test_tool_pose_z_axis_aligns_with_tilted_pen_axis():
     )
     rotated_z = rotate_vector(target.orientation, (0.0, 0.0, 1.0))
 
-    assert rotated_z[0] == pytest.approx(expected_axis[0] / 0.14)
-    assert rotated_z[1] == pytest.approx(expected_axis[1] / 0.14)
-    assert rotated_z[2] == pytest.approx(expected_axis[2] / 0.14)
+    assert rotated_z[0] == pytest.approx(-expected_axis[0] / 0.14)
+    assert rotated_z[1] == pytest.approx(-expected_axis[1] / 0.14)
+    assert rotated_z[2] == pytest.approx(-expected_axis[2] / 0.14)
 
 
 def test_tool_pose_offset_reconstructs_pen_tip_world_position():
@@ -145,7 +145,7 @@ def test_tool_pose_offset_reconstructs_pen_tip_world_position():
         tilt_rad=math.radians(20.0),
     )
     paper_origin = Point3(x=0.35, y=0.12, z=0.21)
-    tool0_to_pen_tip = Point3(x=0.0, y=0.0, z=-0.14)
+    tool0_to_pen_tip = Point3(x=0.0, y=0.0, z=0.14)
 
     target = tool_pose_from_pen_tip_pose(
         pen_pose=pen_pose,

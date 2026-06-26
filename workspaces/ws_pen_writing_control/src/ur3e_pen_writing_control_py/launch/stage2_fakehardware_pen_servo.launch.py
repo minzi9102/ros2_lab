@@ -355,7 +355,7 @@ def generate_launch_description() -> LaunchDescription:
                 "start_from_current_tool0": True,
                 "require_motion_before_pose_command": True,
                 "paper_origin_xyz": [0.45, 0.0, 0.12],
-                "tool0_to_pen_tip_xyz": [0.0, 0.0, -0.14],
+                "tool0_to_pen_tip_xyz": [0.0, 0.0, 0.14],
                 "servo_status_topic": "/servo_node/status",
                 "servo_status_timeout_sec": 1.0,
             },
