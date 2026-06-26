@@ -167,6 +167,20 @@ def tool_tip_point_from_tool_pose(
     return transform_point(tool_pose, tool0_to_pen_tip)
 
 
+def tool_tip_to_tail_points(
+    *,
+    tool_pose: PoseTarget,
+    tool0_to_pen_tip: Point3,
+) -> tuple[Point3, Point3]:
+    return (
+        tool_tip_point_from_tool_pose(
+            tool_pose=tool_pose,
+            tool0_to_pen_tip=tool0_to_pen_tip,
+        ),
+        tool_pose.position,
+    )
+
+
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
@@ -704,7 +718,7 @@ class PenFakeHardwareServoNode(Node):
             self._axis_marker(marker_id=3, tip=tip, tail=tool),
             self._motion_marker(marker_id=4, tip=tip, velocity=velocity),
             self._tail_marker(marker_id=5, tail=tool),
-            self._actual_tool_to_pen_tip_marker(
+            self._actual_pen_tip_to_tool_marker(
                 marker_id=6,
                 current_tool_pose=current_tool_pose,
             ),
@@ -815,23 +829,22 @@ class PenFakeHardwareServoNode(Node):
         marker.color = ColorRGBA(r=0.85, g=0.10, b=0.18, a=1.0)
         return marker
 
-    def _actual_tool_to_pen_tip_marker(
+    def _actual_pen_tip_to_tool_marker(
         self,
         marker_id: int,
         current_tool_pose: PoseTarget | None,
     ) -> Marker:
-        marker = self._base_marker(marker_id, Marker.ARROW, "actual_tool0_to_pen_tip")
+        marker = self._base_marker(marker_id, Marker.ARROW, "actual_pen_tip_to_tool0")
         if current_tool_pose is None:
             marker.action = Marker.DELETE
             return marker
 
-        start = self._base_to_paper_point(current_tool_pose.position)
-        end = self._base_to_paper_point(
-            tool_tip_point_from_tool_pose(
-                tool_pose=current_tool_pose,
-                tool0_to_pen_tip=self.tool0_to_pen_tip,
-            )
+        start_base, end_base = tool_tip_to_tail_points(
+            tool_pose=current_tool_pose,
+            tool0_to_pen_tip=self.tool0_to_pen_tip,
         )
+        start = self._base_to_paper_point(start_base)
+        end = self._base_to_paper_point(end_base)
         marker.points = self._points(
             [
                 (start.x, start.y, start.z),
