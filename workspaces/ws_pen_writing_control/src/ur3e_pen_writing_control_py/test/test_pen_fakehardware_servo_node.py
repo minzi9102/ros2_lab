@@ -5,6 +5,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     has_planar_motion_intent,
     is_servo_status_fresh,
     paper_origin_from_current_tool0,
+    should_publish_pose_command,
 )
 from ur3e_pen_writing_control_py.pose_math import Point3, Quaternion
 
@@ -52,4 +53,27 @@ def test_servo_status_fresh_requires_seen_recent_status():
         last_status_time=8.0,
         now_sec=10.0,
         timeout_sec=1.0,
+    )
+
+
+def test_pose_command_publishes_only_while_armed_and_motion_is_requested():
+    assert should_publish_pose_command(
+        pose_command_armed=True,
+        has_motion_intent=True,
+        servo_health_fault=False,
+    )
+    assert not should_publish_pose_command(
+        pose_command_armed=True,
+        has_motion_intent=False,
+        servo_health_fault=False,
+    )
+    assert not should_publish_pose_command(
+        pose_command_armed=False,
+        has_motion_intent=True,
+        servo_health_fault=False,
+    )
+    assert not should_publish_pose_command(
+        pose_command_armed=True,
+        has_motion_intent=True,
+        servo_health_fault=True,
     )

@@ -33,6 +33,15 @@ def has_planar_motion_intent(control: JoyControl) -> bool:
     return math.hypot(control.target_x, control.target_y) > 1e-9
 
 
+def should_publish_pose_command(
+    *,
+    pose_command_armed: bool,
+    has_motion_intent: bool,
+    servo_health_fault: bool,
+) -> bool:
+    return pose_command_armed and has_motion_intent and not servo_health_fault
+
+
 def rotate_tool_offset(quaternion: Quaternion, offset: Point3) -> Point3:
     rotated = rotate_vector(quaternion, (offset.x, offset.y, offset.z))
     return Point3(x=rotated[0], y=rotated[1], z=rotated[2])
@@ -316,7 +325,8 @@ class PenFakeHardwareServoNode(Node):
         self._last_timer_time = now_sec
 
         control = self._current_control(now_sec)
-        if has_planar_motion_intent(control) and not self._pose_command_armed:
+        has_motion_intent = has_planar_motion_intent(control)
+        if has_motion_intent and not self._pose_command_armed:
             self._pose_command_armed = True
             self.get_logger().info("Motion input received. Arming POSE commands.")
 
@@ -338,7 +348,11 @@ class PenFakeHardwareServoNode(Node):
         self._pen_state.update(velocity, dt_sec)
         self._publish_tf_markers_and_pose(
             velocity,
-            publish_pose=self._pose_command_armed and not self._servo_health_fault,
+            publish_pose=should_publish_pose_command(
+                pose_command_armed=self._pose_command_armed,
+                has_motion_intent=has_motion_intent,
+                servo_health_fault=self._servo_health_fault,
+            ),
         )
 
         if control.quit_requested:
