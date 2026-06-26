@@ -10,8 +10,10 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_tool_pose_aligned,
     is_virtual_pen_settling,
     paper_origin_from_current_tool0,
+    raw_follow_scale,
+    scaled_motion_control,
     should_publish_pose_command,
-    should_pause_target_integration,
+    smoothed_follow_scale,
     tool_alignment_error,
     tool_follow_error,
     tool_tail_to_tip_points,
@@ -277,7 +279,51 @@ def test_tool_alignment_error_still_reports_tail_position_and_z_axis():
     ).z_axis_rad == pytest.approx(math.radians(5.0))
 
 
-def test_target_integration_pauses_and_resumes_with_hysteresis():
+def test_raw_follow_scale_is_full_below_soft_thresholds():
+    follow_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.002, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+
+    assert raw_follow_scale(
+        follow_error=follow_error,
+        tip_soft_m=0.004,
+        tip_hard_m=0.010,
+        axis_soft_rad=math.radians(3.0),
+        axis_hard_rad=math.radians(8.0),
+    ) == pytest.approx(1.0)
+
+
+def test_raw_follow_scale_blends_between_soft_and_hard_thresholds():
+    follow_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.007, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+
+    assert raw_follow_scale(
+        follow_error=follow_error,
+        tip_soft_m=0.004,
+        tip_hard_m=0.010,
+        axis_soft_rad=math.radians(3.0),
+        axis_hard_rad=math.radians(8.0),
+    ) == pytest.approx(0.5)
+
+
+def test_raw_follow_scale_blocks_when_tip_or_axis_exceeds_hard_threshold():
     high_tip_error = tool_follow_error(
         current_tool_pose=PoseTarget(
             position=Point3(x=0.0, y=0.0, z=0.0),
@@ -289,34 +335,71 @@ def test_target_integration_pauses_and_resumes_with_hysteresis():
         ),
         tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
     )
-    low_error = tool_follow_error(
+    high_axis_error = tool_follow_error(
         current_tool_pose=PoseTarget(
             position=Point3(x=0.0, y=0.0, z=0.0),
             orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
         ),
         target_tool_pose=PoseTarget(
-            position=Point3(x=0.001, y=0.0, z=0.0),
-            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(
+                x=0.0,
+                y=math.sin(math.radians(10.0) / 2.0),
+                z=0.0,
+                w=math.cos(math.radians(10.0) / 2.0),
+            ),
         ),
         tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
     )
 
-    assert should_pause_target_integration(
-        currently_paused=False,
+    assert raw_follow_scale(
         follow_error=high_tip_error,
-        tip_pause_m=0.012,
-        tip_resume_m=0.006,
-        axis_pause_rad=math.radians(8.0),
-        axis_resume_rad=math.radians(4.0),
+        tip_soft_m=0.004,
+        tip_hard_m=0.010,
+        axis_soft_rad=math.radians(3.0),
+        axis_hard_rad=math.radians(8.0),
+    ) == pytest.approx(0.0)
+    assert raw_follow_scale(
+        follow_error=high_axis_error,
+        tip_soft_m=0.004,
+        tip_hard_m=0.010,
+        axis_soft_rad=math.radians(3.0),
+        axis_hard_rad=math.radians(8.0),
+    ) == pytest.approx(0.0)
+
+
+def test_smoothed_follow_scale_uses_rise_and_fall_rate_limits():
+    assert smoothed_follow_scale(
+        current_scale=1.0,
+        target_scale=0.0,
+        dt_sec=0.1,
+        rise_rate=1.5,
+        fall_rate=4.0,
+    ) == pytest.approx(0.6)
+    assert smoothed_follow_scale(
+        current_scale=0.0,
+        target_scale=1.0,
+        dt_sec=0.1,
+        rise_rate=1.5,
+        fall_rate=4.0,
+    ) == pytest.approx(0.15)
+
+
+def test_scaled_motion_control_scales_planar_input_and_preserves_buttons():
+    control = scaled_motion_control(
+        JoyControl(
+            target_x=0.8,
+            target_y=-0.4,
+            emergency_stop=True,
+            quit_requested=True,
+        ),
+        0.25,
     )
-    assert not should_pause_target_integration(
-        currently_paused=True,
-        follow_error=low_error,
-        tip_pause_m=0.012,
-        tip_resume_m=0.006,
-        axis_pause_rad=math.radians(8.0),
-        axis_resume_rad=math.radians(4.0),
-    )
+
+    assert control.target_x == pytest.approx(0.2)
+    assert control.target_y == pytest.approx(-0.1)
+    assert control.emergency_stop
+    assert control.quit_requested
 
 
 def test_tool_tip_point_uses_tool0_to_pen_tip_positive_z_direction():

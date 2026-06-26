@@ -9,7 +9,7 @@ from moveit_msgs.srv import ServoCommandType
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
-from std_msgs.msg import ColorRGBA
+from std_msgs.msg import ColorRGBA, Float64MultiArray, MultiArrayDimension
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -19,6 +19,7 @@ from .pen_math import (
     PlanarVelocity,
     SmoothPlanarVelocity,
     VirtualPenState,
+    move_toward,
 )
 from .pose_math import (
     Point3,
@@ -34,6 +35,16 @@ def has_planar_motion_intent(control: JoyControl) -> bool:
     return math.hypot(control.target_x, control.target_y) > 1e-9
 
 
+def scaled_motion_control(control: JoyControl, follow_scale: float) -> JoyControl:
+    scale = clamp(follow_scale, 0.0, 1.0)
+    return JoyControl(
+        target_x=control.target_x * scale,
+        target_y=control.target_y * scale,
+        emergency_stop=control.emergency_stop,
+        quit_requested=control.quit_requested,
+    )
+
+
 def should_publish_pose_command(
     *,
     pose_command_armed: bool,
@@ -47,26 +58,49 @@ def should_publish_pose_command(
     return has_motion_intent or virtual_pen_settling or not tool_pose_aligned
 
 
-def should_pause_target_integration(
+def _single_axis_follow_scale(value: float, soft: float, hard: float) -> float:
+    if value <= soft:
+        return 1.0
+    if value >= hard:
+        return 0.0
+    return 1.0 - (value - soft) / (hard - soft)
+
+
+def raw_follow_scale(
     *,
-    currently_paused: bool,
     follow_error,
-    tip_pause_m: float,
-    tip_resume_m: float,
-    axis_pause_rad: float,
-    axis_resume_rad: float,
-) -> bool:
+    tip_soft_m: float,
+    tip_hard_m: float,
+    axis_soft_rad: float,
+    axis_hard_rad: float,
+) -> float:
     if follow_error is None:
-        return currently_paused
-    if currently_paused:
-        return (
-            follow_error.tip_position_m > tip_resume_m
-            or follow_error.axis_rad > axis_resume_rad
-        )
-    return (
-        follow_error.tip_position_m > tip_pause_m
-        or follow_error.axis_rad > axis_pause_rad
+        return 0.0
+    tip_scale = _single_axis_follow_scale(
+        follow_error.tip_position_m,
+        tip_soft_m,
+        tip_hard_m,
     )
+    axis_scale = _single_axis_follow_scale(
+        follow_error.axis_rad,
+        axis_soft_rad,
+        axis_hard_rad,
+    )
+    return min(tip_scale, axis_scale)
+
+
+def smoothed_follow_scale(
+    *,
+    current_scale: float,
+    target_scale: float,
+    dt_sec: float,
+    rise_rate: float,
+    fall_rate: float,
+) -> float:
+    if dt_sec <= 0.0:
+        return current_scale
+    rate = rise_rate if target_scale > current_scale else fall_rate
+    return move_toward(current_scale, target_scale, rate * dt_sec)
 
 
 def is_virtual_pen_settling(
@@ -299,13 +333,13 @@ class PenFakeHardwareServoNode(Node):
             self.declare_parameter("tf_lookup_warn_period_sec", 1.0).value
         )
         self.max_planar_speed_mps = float(
-            self.declare_parameter("max_planar_speed_mps", 0.08).value
+            self.declare_parameter("max_planar_speed_mps", 0.03).value
         )
         self.acceleration_mps2 = float(
-            self.declare_parameter("acceleration_mps2", 0.08).value
+            self.declare_parameter("acceleration_mps2", 0.04).value
         )
         self.deceleration_mps2 = float(
-            self.declare_parameter("deceleration_mps2", 0.16).value
+            self.declare_parameter("deceleration_mps2", 0.08).value
         )
         self.yaw_hold_speed_mps = float(
             self.declare_parameter("yaw_hold_speed_mps", 0.005).value
@@ -328,17 +362,23 @@ class PenFakeHardwareServoNode(Node):
         self.pen_tip_position_tolerance_m = float(
             self.declare_parameter("pen_tip_position_tolerance_m", 0.002).value
         )
-        self.dynamic_tip_error_pause_m = float(
-            self.declare_parameter("dynamic_tip_error_pause_m", 0.012).value
+        self.follow_error_tip_soft_m = float(
+            self.declare_parameter("follow_error_tip_soft_m", 0.004).value
         )
-        self.dynamic_tip_error_resume_m = float(
-            self.declare_parameter("dynamic_tip_error_resume_m", 0.006).value
+        self.follow_error_tip_hard_m = float(
+            self.declare_parameter("follow_error_tip_hard_m", 0.010).value
         )
-        self.dynamic_axis_error_pause_deg = float(
-            self.declare_parameter("dynamic_axis_error_pause_deg", 8.0).value
+        self.follow_error_axis_soft_deg = float(
+            self.declare_parameter("follow_error_axis_soft_deg", 3.0).value
         )
-        self.dynamic_axis_error_resume_deg = float(
-            self.declare_parameter("dynamic_axis_error_resume_deg", 4.0).value
+        self.follow_error_axis_hard_deg = float(
+            self.declare_parameter("follow_error_axis_hard_deg", 8.0).value
+        )
+        self.follow_scale_rise_rate = float(
+            self.declare_parameter("follow_scale_rise_rate", 1.5).value
+        )
+        self.follow_scale_fall_rate = float(
+            self.declare_parameter("follow_scale_fall_rate", 4.0).value
         )
         self.pose_settle_speed_mps = float(
             self.declare_parameter("pose_settle_speed_mps", 0.002).value
@@ -382,6 +422,16 @@ class PenFakeHardwareServoNode(Node):
             self.pose_command_topic,
             10,
         )
+        self._follow_error_publisher = self.create_publisher(
+            Float64MultiArray,
+            "/pen_writing/debug/follow_error",
+            10,
+        )
+        self._follow_gate_publisher = self.create_publisher(
+            Float64MultiArray,
+            "/pen_writing/debug/gates",
+            10,
+        )
         self._marker_publisher = self.create_publisher(MarkerArray, self.marker_topic, 10)
         self._tf_broadcaster = TransformBroadcaster(self)
         self._tf_buffer = Buffer()
@@ -417,6 +467,7 @@ class PenFakeHardwareServoNode(Node):
         self._servo_status_seen = False
         self._servo_health_fault = False
         self._target_integration_paused = False
+        self._follow_scale = 1.0
         self._velocity = SmoothPlanarVelocity(
             max_speed_mps=self.max_planar_speed_mps,
             acceleration_mps2=self.acceleration_mps2,
@@ -451,10 +502,12 @@ class PenFakeHardwareServoNode(Node):
             f"tool_position_tolerance={self.tool_position_tolerance_m:.3f}m "
             f"pen_tip_position_tolerance={self.pen_tip_position_tolerance_m:.3f}m "
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
-            f"dynamic_tip_error_pause={self.dynamic_tip_error_pause_m:.3f}m "
-            f"dynamic_tip_error_resume={self.dynamic_tip_error_resume_m:.3f}m "
-            f"dynamic_axis_error_pause={self.dynamic_axis_error_pause_deg:.1f}deg "
-            f"dynamic_axis_error_resume={self.dynamic_axis_error_resume_deg:.1f}deg "
+            f"follow_error_tip_soft={self.follow_error_tip_soft_m:.3f}m "
+            f"follow_error_tip_hard={self.follow_error_tip_hard_m:.3f}m "
+            f"follow_error_axis_soft={self.follow_error_axis_soft_deg:.1f}deg "
+            f"follow_error_axis_hard={self.follow_error_axis_hard_deg:.1f}deg "
+            f"follow_scale_rise_rate={self.follow_scale_rise_rate:.2f}/s "
+            f"follow_scale_fall_rate={self.follow_scale_fall_rate:.2f}/s "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
         )
@@ -489,24 +542,23 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("pen_tip_position_tolerance_m must be greater than zero")
         if self.tool_orientation_tolerance_deg <= 0.0:
             raise ValueError("tool_orientation_tolerance_deg must be greater than zero")
-        if self.dynamic_tip_error_pause_m <= 0.0:
-            raise ValueError("dynamic_tip_error_pause_m must be greater than zero")
-        if self.dynamic_tip_error_resume_m <= 0.0:
-            raise ValueError("dynamic_tip_error_resume_m must be greater than zero")
-        if self.dynamic_tip_error_resume_m > self.dynamic_tip_error_pause_m:
+        if self.follow_error_tip_soft_m < 0.0:
+            raise ValueError("follow_error_tip_soft_m must be non-negative")
+        if self.follow_error_tip_hard_m <= self.follow_error_tip_soft_m:
             raise ValueError(
-                "dynamic_tip_error_resume_m must be less than or equal to "
-                "dynamic_tip_error_pause_m"
+                "follow_error_tip_hard_m must be greater than follow_error_tip_soft_m"
             )
-        if self.dynamic_axis_error_pause_deg <= 0.0:
-            raise ValueError("dynamic_axis_error_pause_deg must be greater than zero")
-        if self.dynamic_axis_error_resume_deg <= 0.0:
-            raise ValueError("dynamic_axis_error_resume_deg must be greater than zero")
-        if self.dynamic_axis_error_resume_deg > self.dynamic_axis_error_pause_deg:
+        if self.follow_error_axis_soft_deg < 0.0:
+            raise ValueError("follow_error_axis_soft_deg must be non-negative")
+        if self.follow_error_axis_hard_deg <= self.follow_error_axis_soft_deg:
             raise ValueError(
-                "dynamic_axis_error_resume_deg must be less than or equal to "
-                "dynamic_axis_error_pause_deg"
+                "follow_error_axis_hard_deg must be greater than "
+                "follow_error_axis_soft_deg"
             )
+        if self.follow_scale_rise_rate <= 0.0:
+            raise ValueError("follow_scale_rise_rate must be greater than zero")
+        if self.follow_scale_fall_rate <= 0.0:
+            raise ValueError("follow_scale_fall_rate must be greater than zero")
         if self.pose_settle_speed_mps < 0.0:
             raise ValueError("pose_settle_speed_mps must be non-negative")
         if self.pose_settle_tilt_deg < 0.0:
@@ -577,6 +629,7 @@ class PenFakeHardwareServoNode(Node):
             velocity = self._velocity.stop_immediately()
             self._pose_command_armed = False
             self._target_integration_paused = False
+            self._follow_scale = 1.0
             self._publish_tf_markers_and_pose(
                 velocity,
                 target_tool_pose=self._make_tool_pose_target(),
@@ -599,42 +652,49 @@ class PenFakeHardwareServoNode(Node):
                 tool0_to_pen_tip=self.tool0_to_pen_tip,
             )
         )
-        previous_paused = self._target_integration_paused
-        self._target_integration_paused = (
-            self._pose_command_armed
-            and (
-                current_tool_pose is None
-                or should_pause_target_integration(
-                    currently_paused=self._target_integration_paused,
-                    follow_error=follow_error,
-                    tip_pause_m=self.dynamic_tip_error_pause_m,
-                    tip_resume_m=self.dynamic_tip_error_resume_m,
-                    axis_pause_rad=math.radians(self.dynamic_axis_error_pause_deg),
-                    axis_resume_rad=math.radians(self.dynamic_axis_error_resume_deg),
-                )
+        raw_scale = (
+            raw_follow_scale(
+                follow_error=follow_error,
+                tip_soft_m=self.follow_error_tip_soft_m,
+                tip_hard_m=self.follow_error_tip_hard_m,
+                axis_soft_rad=math.radians(self.follow_error_axis_soft_deg),
+                axis_hard_rad=math.radians(self.follow_error_axis_hard_deg),
             )
+            if self._pose_command_armed
+            else 1.0
         )
+        self._follow_scale = smoothed_follow_scale(
+            current_scale=self._follow_scale,
+            target_scale=raw_scale,
+            dt_sec=dt_sec,
+            rise_rate=self.follow_scale_rise_rate,
+            fall_rate=self.follow_scale_fall_rate,
+        )
+        previous_paused = self._target_integration_paused
+        self._target_integration_paused = self._follow_scale <= 1e-6
         self._log_follow_gate_transition(
             previous_paused=previous_paused,
             current_paused=self._target_integration_paused,
             follow_error=follow_error,
         )
 
-        if self._target_integration_paused:
-            velocity = self._velocity.stop_immediately()
-        else:
-            velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
-            self._pen_state.update(velocity, dt_sec)
-            target_tool_pose = self._make_tool_pose_target()
-            follow_error = (
-                None
-                if current_tool_pose is None
-                else tool_follow_error(
-                    current_tool_pose=current_tool_pose,
-                    target_tool_pose=target_tool_pose,
-                    tool0_to_pen_tip=self.tool0_to_pen_tip,
-                )
+        scaled_control = scaled_motion_control(control, self._follow_scale)
+        velocity = self._velocity.update(
+            scaled_control.target_x,
+            scaled_control.target_y,
+            dt_sec,
+        )
+        self._pen_state.update(velocity, dt_sec)
+        target_tool_pose = self._make_tool_pose_target()
+        follow_error = (
+            None
+            if current_tool_pose is None
+            else tool_follow_error(
+                current_tool_pose=current_tool_pose,
+                target_tool_pose=target_tool_pose,
+                tool0_to_pen_tip=self.tool0_to_pen_tip,
             )
+        )
 
         tool_pose_aligned = (
             follow_error is not None
@@ -663,6 +723,7 @@ class PenFakeHardwareServoNode(Node):
                 servo_health_fault=self._servo_health_fault,
             ),
         )
+        self._publish_follow_debug(follow_error)
 
         if control.quit_requested:
             self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
@@ -687,14 +748,43 @@ class PenFakeHardwareServoNode(Node):
             )
         if current_paused:
             self.get_logger().info(
-                "Pausing virtual pen target integration while fake hardware catches up: "
+                "Follow scale reached zero while fake hardware catches up: "
                 f"{detail}"
             )
         else:
             self.get_logger().info(
-                "Resuming virtual pen target integration after fake hardware caught up: "
+                "Follow scale rose above zero after fake hardware caught up: "
                 f"{detail}"
             )
+
+    def _publish_follow_debug(self, follow_error: ToolFollowError | None) -> None:
+        if follow_error is None:
+            self._follow_error_publisher.publish(
+                self._float64_array(
+                    label="tail_error_m,tip_error_m,axis_error_deg",
+                    values=[math.nan, math.nan, math.nan],
+                )
+            )
+        else:
+            self._follow_error_publisher.publish(
+                self._float64_array(
+                    label="tail_error_m,tip_error_m,axis_error_deg",
+                    values=[
+                        follow_error.tail_position_m,
+                        follow_error.tip_position_m,
+                        math.degrees(follow_error.axis_rad),
+                    ],
+                )
+            )
+        self._follow_gate_publisher.publish(
+            self._float64_array(
+                label="follow_scale,integration_blocked",
+                values=[
+                    self._follow_scale,
+                    1.0 if self._target_integration_paused else 0.0,
+                ],
+            )
+        )
 
     def _initialize_paper_origin(self) -> None:
         try:
@@ -1041,6 +1131,16 @@ class PenFakeHardwareServoNode(Node):
         if now_sec - self._last_tf_warn_time >= self.tf_lookup_warn_period_sec:
             self._last_tf_warn_time = now_sec
             self.get_logger().warn(message)
+
+    @staticmethod
+    def _float64_array(*, label: str, values: Iterable[float]) -> Float64MultiArray:
+        result = Float64MultiArray()
+        data = [float(value) for value in values]
+        result.layout.dim = [
+            MultiArrayDimension(label=label, size=len(data), stride=len(data))
+        ]
+        result.data = data
+        return result
 
     @staticmethod
     def _points(points: Iterable[tuple[float, float, float]]) -> list[Point]:
