@@ -22,6 +22,7 @@ from .pen_math import (
 )
 from .pose_math import (
     Point3,
+    PoseTarget,
     Quaternion,
     rotate_vector,
     tool_pose_from_pen_tip_pose,
@@ -37,9 +38,26 @@ def should_publish_pose_command(
     *,
     pose_command_armed: bool,
     has_motion_intent: bool,
+    virtual_pen_settling: bool,
+    tool_pose_aligned: bool,
     servo_health_fault: bool,
 ) -> bool:
-    return pose_command_armed and has_motion_intent and not servo_health_fault
+    if not pose_command_armed or servo_health_fault:
+        return False
+    return has_motion_intent or virtual_pen_settling or not tool_pose_aligned
+
+
+def is_virtual_pen_settling(
+    *,
+    velocity: PlanarVelocity,
+    tilt_rad: float,
+    speed_tolerance_mps: float,
+    tilt_tolerance_rad: float,
+) -> bool:
+    return (
+        math.hypot(velocity.x, velocity.y) > speed_tolerance_mps
+        or abs(tilt_rad) > tilt_tolerance_rad
+    )
 
 
 def rotate_tool_offset(quaternion: Quaternion, offset: Point3) -> Point3:
@@ -82,6 +100,70 @@ def is_servo_status_fresh(
 
 
 @dataclass(frozen=True)
+class ToolAlignmentError:
+    position_m: float
+    z_axis_rad: float
+
+
+def tool_alignment_error(
+    *,
+    current_tool_pose: PoseTarget,
+    target_tool_pose: PoseTarget,
+) -> ToolAlignmentError:
+    dx = current_tool_pose.position.x - target_tool_pose.position.x
+    dy = current_tool_pose.position.y - target_tool_pose.position.y
+    dz = current_tool_pose.position.z - target_tool_pose.position.z
+    current_z = rotate_vector(current_tool_pose.orientation, (0.0, 0.0, 1.0))
+    target_z = rotate_vector(target_tool_pose.orientation, (0.0, 0.0, 1.0))
+    dot = clamp(
+        current_z[0] * target_z[0]
+        + current_z[1] * target_z[1]
+        + current_z[2] * target_z[2],
+        -1.0,
+        1.0,
+    )
+    return ToolAlignmentError(
+        position_m=math.sqrt(dx * dx + dy * dy + dz * dz),
+        z_axis_rad=math.acos(dot),
+    )
+
+
+def is_tool_pose_aligned(
+    *,
+    current_tool_pose: PoseTarget,
+    target_tool_pose: PoseTarget,
+    position_tolerance_m: float,
+    orientation_tolerance_rad: float,
+) -> bool:
+    error = tool_alignment_error(
+        current_tool_pose=current_tool_pose,
+        target_tool_pose=target_tool_pose,
+    )
+    return (
+        error.position_m <= position_tolerance_m
+        and error.z_axis_rad <= orientation_tolerance_rad
+    )
+
+
+def pose_target_from_transform(transform: TransformStamped) -> PoseTarget:
+    translation = transform.transform.translation
+    rotation = transform.transform.rotation
+    return PoseTarget(
+        position=Point3(x=translation.x, y=translation.y, z=translation.z),
+        orientation=Quaternion(
+            x=rotation.x,
+            y=rotation.y,
+            z=rotation.z,
+            w=rotation.w,
+        ),
+    )
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+@dataclass(frozen=True)
 class RuntimeFrames:
     base_frame: str
     paper_frame: str
@@ -120,6 +202,9 @@ class PenFakeHardwareServoNode(Node):
         self.servo_status_timeout_sec = float(
             self.declare_parameter("servo_status_timeout_sec", 1.0).value
         )
+        self.servo_status_warn_period_sec = float(
+            self.declare_parameter("servo_status_warn_period_sec", 1.0).value
+        )
         self.joy_topic = str(self.declare_parameter("joy_topic", "/joy").value)
         self.publish_rate_hz = float(
             self.declare_parameter("publish_rate_hz", 60.0).value
@@ -157,6 +242,18 @@ class PenFakeHardwareServoNode(Node):
         )
         self.untilt_rate_degps = float(
             self.declare_parameter("untilt_rate_degps", 60.0).value
+        )
+        self.tool_position_tolerance_m = float(
+            self.declare_parameter("tool_position_tolerance_m", 0.005).value
+        )
+        self.tool_orientation_tolerance_deg = float(
+            self.declare_parameter("tool_orientation_tolerance_deg", 3.0).value
+        )
+        self.pose_settle_speed_mps = float(
+            self.declare_parameter("pose_settle_speed_mps", 0.002).value
+        )
+        self.pose_settle_tilt_deg = float(
+            self.declare_parameter("pose_settle_tilt_deg", 0.5).value
         )
         self.pen_length_m = float(self.declare_parameter("pen_length_m", 0.14).value)
         self.pen_radius_m = float(self.declare_parameter("pen_radius_m", 0.006).value)
@@ -225,6 +322,7 @@ class PenFakeHardwareServoNode(Node):
         self._latest_joy_control = JoyControl()
         self._last_joy_msg_time = 0.0
         self._last_servo_status_time = 0.0
+        self._last_servo_status_warn_time = 0.0
         self._servo_status_seen = False
         self._servo_health_fault = False
         self._velocity = SmoothPlanarVelocity(
@@ -258,6 +356,8 @@ class PenFakeHardwareServoNode(Node):
             f"rate={self.publish_rate_hz:.1f}Hz "
             f"servo_command_type=POSE "
             f"require_motion_before_pose_command={self.require_motion_before_pose_command} "
+            f"tool_position_tolerance={self.tool_position_tolerance_m:.3f}m "
+            f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
         )
@@ -282,8 +382,18 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("joy_timeout_sec must be greater than zero")
         if self.servo_status_timeout_sec <= 0.0:
             raise ValueError("servo_status_timeout_sec must be greater than zero")
+        if self.servo_status_warn_period_sec <= 0.0:
+            raise ValueError("servo_status_warn_period_sec must be greater than zero")
         if self.tf_lookup_warn_period_sec <= 0.0:
             raise ValueError("tf_lookup_warn_period_sec must be greater than zero")
+        if self.tool_position_tolerance_m <= 0.0:
+            raise ValueError("tool_position_tolerance_m must be greater than zero")
+        if self.tool_orientation_tolerance_deg <= 0.0:
+            raise ValueError("tool_orientation_tolerance_deg must be greater than zero")
+        if self.pose_settle_speed_mps < 0.0:
+            raise ValueError("pose_settle_speed_mps must be non-negative")
+        if self.pose_settle_tilt_deg < 0.0:
+            raise ValueError("pose_settle_tilt_deg must be non-negative")
         if self.pen_length_m <= 0.0:
             raise ValueError("pen_length_m must be greater than zero")
         if self.pen_radius_m <= 0.0:
@@ -308,7 +418,13 @@ class PenFakeHardwareServoNode(Node):
     def _on_servo_status_message(self, msg: ServoStatus) -> None:
         self._last_servo_status_time = time.monotonic()
         self._servo_status_seen = True
-        if msg.code != ServoStatus.NO_WARNING:
+        now_sec = time.monotonic()
+        if (
+            msg.code != ServoStatus.NO_WARNING
+            and now_sec - self._last_servo_status_warn_time
+            >= self.servo_status_warn_period_sec
+        ):
+            self._last_servo_status_warn_time = now_sec
             self.get_logger().warn(
                 f"MoveIt Servo status warning: code={msg.code} message={msg.message!r}"
             )
@@ -342,15 +458,49 @@ class PenFakeHardwareServoNode(Node):
 
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
+            self._pose_command_armed = False
+            self._publish_tf_markers_and_pose(
+                velocity,
+                target_tool_pose=self._make_tool_pose_target(),
+                current_tool_pose=self._lookup_current_tool_pose(),
+                publish_pose=False,
+            )
+            if control.quit_requested:
+                self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
+                rclpy.shutdown()
+            return
         else:
             velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
 
         self._pen_state.update(velocity, dt_sec)
+        target_tool_pose = self._make_tool_pose_target()
+        current_tool_pose = self._lookup_current_tool_pose()
+        tool_pose_aligned = (
+            current_tool_pose is not None
+            and is_tool_pose_aligned(
+                current_tool_pose=current_tool_pose,
+                target_tool_pose=target_tool_pose,
+                position_tolerance_m=self.tool_position_tolerance_m,
+                orientation_tolerance_rad=math.radians(
+                    self.tool_orientation_tolerance_deg
+                ),
+            )
+        )
+        virtual_pen_settling = is_virtual_pen_settling(
+            velocity=velocity,
+            tilt_rad=self._pen_state.pose.tilt_rad,
+            speed_tolerance_mps=self.pose_settle_speed_mps,
+            tilt_tolerance_rad=math.radians(self.pose_settle_tilt_deg),
+        )
         self._publish_tf_markers_and_pose(
             velocity,
+            target_tool_pose=target_tool_pose,
+            current_tool_pose=current_tool_pose,
             publish_pose=should_publish_pose_command(
                 pose_command_armed=self._pose_command_armed,
                 has_motion_intent=has_motion_intent,
+                virtual_pen_settling=virtual_pen_settling,
+                tool_pose_aligned=tool_pose_aligned,
                 servo_health_fault=self._servo_health_fault,
             ),
         )
@@ -444,10 +594,34 @@ class PenFakeHardwareServoNode(Node):
             return JoyControl()
         return self._latest_joy_control
 
+    def _lookup_current_tool_pose(self) -> PoseTarget | None:
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self.frames.base_frame,
+                self.frames.tool_frame,
+                rclpy.time.Time(),
+            )
+        except TransformException as exc:
+            self._warn_throttled(
+                f"Waiting for current tool pose while checking alignment: {exc}"
+            )
+            return None
+        return pose_target_from_transform(transform)
+
+    def _make_tool_pose_target(self) -> PoseTarget:
+        return tool_pose_from_pen_tip_pose(
+            pen_pose=self._pen_state.pose,
+            paper_origin=self._paper_origin,
+            pen_length=self.pen_length_m,
+            tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
+        )
+
     def _publish_tf_markers_and_pose(
         self,
         velocity: PlanarVelocity,
         *,
+        target_tool_pose: PoseTarget,
+        current_tool_pose: PoseTarget | None,
         publish_pose: bool,
     ) -> None:
         stamp = self.get_clock().now().to_msg()
@@ -457,9 +631,15 @@ class PenFakeHardwareServoNode(Node):
                 self._pen_tip_transform(stamp),
             ]
         )
-        self._marker_publisher.publish(self._make_marker_array(velocity))
+        self._marker_publisher.publish(
+            self._make_marker_array(
+                velocity,
+                target_tool_pose=target_tool_pose,
+                current_tool_pose=current_tool_pose,
+            )
+        )
         if publish_pose:
-            self._pose_publisher.publish(self._make_pose_stamped(stamp))
+            self._pose_publisher.publish(self._make_pose_stamped(stamp, target_tool_pose))
 
     def _paper_transform(self, stamp) -> TransformStamped:
         transform = TransformStamped()
@@ -484,13 +664,7 @@ class PenFakeHardwareServoNode(Node):
         transform.transform.rotation.w = 1.0
         return transform
 
-    def _make_pose_stamped(self, stamp) -> PoseStamped:
-        target = tool_pose_from_pen_tip_pose(
-            pen_pose=self._pen_state.pose,
-            paper_origin=self._paper_origin,
-            pen_length=self.pen_length_m,
-            tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
-        )
+    def _make_pose_stamped(self, stamp, target: PoseTarget) -> PoseStamped:
         msg = PoseStamped()
         msg.header.stamp = stamp
         msg.header.frame_id = self.frames.base_frame
@@ -503,15 +677,15 @@ class PenFakeHardwareServoNode(Node):
         msg.pose.orientation.w = target.orientation.w
         return msg
 
-    def _make_marker_array(self, velocity: PlanarVelocity) -> MarkerArray:
-        tool_pose = tool_pose_from_pen_tip_pose(
-            pen_pose=self._pen_state.pose,
-            paper_origin=self._paper_origin,
-            pen_length=self.pen_length_m,
-            tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
-        )
-        tip_base = transform_point(tool_pose, self.tool0_to_pen_tip)
-        tool_base = tool_pose.position
+    def _make_marker_array(
+        self,
+        velocity: PlanarVelocity,
+        *,
+        target_tool_pose: PoseTarget,
+        current_tool_pose: PoseTarget | None,
+    ) -> MarkerArray:
+        tip_base = transform_point(target_tool_pose, self.tool0_to_pen_tip)
+        tool_base = target_tool_pose.position
         tip = self._base_to_paper_point(tip_base)
         tool = self._base_to_paper_point(tool_base)
 
@@ -522,6 +696,7 @@ class PenFakeHardwareServoNode(Node):
             self._axis_marker(marker_id=3, tip=tip, tail=tool),
             self._motion_marker(marker_id=4, tip=tip, velocity=velocity),
             self._tail_marker(marker_id=5, tail=tool),
+            self._actual_tool_z_marker(marker_id=6, current_tool_pose=current_tool_pose),
         ]
         return MarkerArray(markers=markers)
 
@@ -627,6 +802,38 @@ class PenFakeHardwareServoNode(Node):
         marker.scale.y = 0.012
         marker.scale.z = 0.012
         marker.color = ColorRGBA(r=0.85, g=0.10, b=0.18, a=1.0)
+        return marker
+
+    def _actual_tool_z_marker(
+        self,
+        marker_id: int,
+        current_tool_pose: PoseTarget | None,
+    ) -> Marker:
+        marker = self._base_marker(marker_id, Marker.ARROW, "actual_tool0_z")
+        if current_tool_pose is None:
+            marker.action = Marker.DELETE
+            return marker
+
+        z_axis = rotate_vector(current_tool_pose.orientation, (0.0, 0.0, 1.0))
+        length = min(0.08, self.pen_length_m)
+        start = self._base_to_paper_point(current_tool_pose.position)
+        end = self._base_to_paper_point(
+            Point3(
+                x=current_tool_pose.position.x + z_axis[0] * length,
+                y=current_tool_pose.position.y + z_axis[1] * length,
+                z=current_tool_pose.position.z + z_axis[2] * length,
+            )
+        )
+        marker.points = self._points(
+            [
+                (start.x, start.y, start.z),
+                (end.x, end.y, end.z),
+            ]
+        )
+        marker.scale.x = 0.003
+        marker.scale.y = 0.010
+        marker.scale.z = 0.010
+        marker.color = ColorRGBA(r=0.05, g=0.85, b=0.95, a=1.0)
         return marker
 
     def _configured_paper_origin(self) -> Point3:

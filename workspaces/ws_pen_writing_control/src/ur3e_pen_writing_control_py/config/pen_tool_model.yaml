@@ -28,5 +28,10 @@ pen_fakehardware_servo:
   ros__parameters:
     paper_origin_xyz: [0.45, 0.0, 0.12]
     tool0_to_pen_tip_xyz: [0.0, 0.0, -0.14]
+    tool_position_tolerance_m: 0.005
+    tool_orientation_tolerance_deg: 3.0
+    pose_settle_speed_mps: 0.002
+    pose_settle_tilt_deg: 0.5
     servo_status_topic: /servo_node/status
     servo_status_timeout_sec: 1.0
+    servo_status_warn_period_sec: 1.0
