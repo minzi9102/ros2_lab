@@ -159,6 +159,14 @@ def pose_target_from_transform(transform: TransformStamped) -> PoseTarget:
     )
 
 
+def tool_tip_point_from_tool_pose(
+    *,
+    tool_pose: PoseTarget,
+    tool0_to_pen_tip: Point3,
+) -> Point3:
+    return transform_point(tool_pose, tool0_to_pen_tip)
+
+
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
@@ -696,7 +704,10 @@ class PenFakeHardwareServoNode(Node):
             self._axis_marker(marker_id=3, tip=tip, tail=tool),
             self._motion_marker(marker_id=4, tip=tip, velocity=velocity),
             self._tail_marker(marker_id=5, tail=tool),
-            self._actual_tool_z_marker(marker_id=6, current_tool_pose=current_tool_pose),
+            self._actual_tool_to_pen_tip_marker(
+                marker_id=6,
+                current_tool_pose=current_tool_pose,
+            ),
         ]
         return MarkerArray(markers=markers)
 
@@ -804,24 +815,21 @@ class PenFakeHardwareServoNode(Node):
         marker.color = ColorRGBA(r=0.85, g=0.10, b=0.18, a=1.0)
         return marker
 
-    def _actual_tool_z_marker(
+    def _actual_tool_to_pen_tip_marker(
         self,
         marker_id: int,
         current_tool_pose: PoseTarget | None,
     ) -> Marker:
-        marker = self._base_marker(marker_id, Marker.ARROW, "actual_tool0_z")
+        marker = self._base_marker(marker_id, Marker.ARROW, "actual_tool0_to_pen_tip")
         if current_tool_pose is None:
             marker.action = Marker.DELETE
             return marker
 
-        z_axis = rotate_vector(current_tool_pose.orientation, (0.0, 0.0, 1.0))
-        length = min(0.08, self.pen_length_m)
         start = self._base_to_paper_point(current_tool_pose.position)
         end = self._base_to_paper_point(
-            Point3(
-                x=current_tool_pose.position.x + z_axis[0] * length,
-                y=current_tool_pose.position.y + z_axis[1] * length,
-                z=current_tool_pose.position.z + z_axis[2] * length,
+            tool_tip_point_from_tool_pose(
+                tool_pose=current_tool_pose,
+                tool0_to_pen_tip=self.tool0_to_pen_tip,
             )
         )
         marker.points = self._points(

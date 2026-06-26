@@ -12,6 +12,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     paper_origin_from_current_tool0,
     should_publish_pose_command,
     tool_alignment_error,
+    tool_tip_point_from_tool_pose,
 )
 from ur3e_pen_writing_control_py.pose_math import Point3, PoseTarget, Quaternion
 
@@ -188,3 +189,19 @@ def test_tool_pose_alignment_checks_position_and_tool_z_axis():
         current_tool_pose=current,
         target_tool_pose=tilted_target,
     ).z_axis_rad == pytest.approx(math.radians(5.0))
+
+
+def test_tool_tip_point_uses_tool0_to_pen_tip_direction_not_tool_positive_z():
+    tool_pose = PoseTarget(
+        position=Point3(x=0.1, y=0.2, z=0.3),
+        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+    )
+
+    tip = tool_tip_point_from_tool_pose(
+        tool_pose=tool_pose,
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=-0.14),
+    )
+
+    assert tip.x == pytest.approx(0.1)
+    assert tip.y == pytest.approx(0.2)
+    assert tip.z == pytest.approx(0.16)
