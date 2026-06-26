@@ -29,7 +29,12 @@ pen_fakehardware_servo:
     paper_origin_xyz: [0.45, 0.0, 0.12]
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
     tool_position_tolerance_m: 0.005
-    tool_orientation_tolerance_deg: 3.0
+    pen_tip_position_tolerance_m: 0.002
+    tool_orientation_tolerance_deg: 0.75
+    dynamic_tip_error_pause_m: 0.012
+    dynamic_tip_error_resume_m: 0.006
+    dynamic_axis_error_pause_deg: 8.0
+    dynamic_axis_error_resume_deg: 4.0
     pose_settle_speed_mps: 0.002
     pose_settle_tilt_deg: 0.5
     servo_status_topic: /servo_node/status

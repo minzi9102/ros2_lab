@@ -11,7 +11,9 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_virtual_pen_settling,
     paper_origin_from_current_tool0,
     should_publish_pose_command,
+    should_pause_target_integration,
     tool_alignment_error,
+    tool_follow_error,
     tool_tail_to_tip_points,
     tool_tip_point_from_tool_pose,
 )
@@ -155,17 +157,13 @@ def test_virtual_pen_settling_detects_speed_or_tilt():
     )
 
 
-def test_tool_pose_alignment_checks_position_and_tool_z_axis():
+def test_tool_follow_error_reports_tail_tip_and_axis_error():
     current = PoseTarget(
         position=Point3(x=0.0, y=0.0, z=0.0),
         orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
     )
-    aligned_target = PoseTarget(
+    target = PoseTarget(
         position=Point3(x=0.003, y=0.0, z=0.0),
-        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
-    )
-    tilted_target = PoseTarget(
-        position=Point3(x=0.0, y=0.0, z=0.0),
         orientation=Quaternion(
             x=0.0,
             y=math.sin(math.radians(5.0) / 2.0),
@@ -174,22 +172,151 @@ def test_tool_pose_alignment_checks_position_and_tool_z_axis():
         ),
     )
 
-    assert is_tool_pose_aligned(
+    error = tool_follow_error(
         current_tool_pose=current,
-        target_tool_pose=aligned_target,
-        position_tolerance_m=0.005,
-        orientation_tolerance_rad=math.radians(3.0),
+        target_tool_pose=target,
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+
+    assert error.tail_position_m == pytest.approx(0.003)
+    assert error.tip_position_m > error.tail_position_m
+    assert error.axis_rad == pytest.approx(math.radians(5.0))
+
+
+def test_tool_pose_alignment_requires_tail_tip_and_axis_tolerances():
+    aligned_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.001, y=0.0, z=0.0),
+            orientation=Quaternion(
+                x=0.0,
+                y=math.sin(math.radians(0.25) / 2.0),
+                z=0.0,
+                w=math.cos(math.radians(0.25) / 2.0),
+            ),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+    loose_tip_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(
+                x=0.0,
+                y=math.sin(math.radians(1.0) / 2.0),
+                z=0.0,
+                w=math.cos(math.radians(1.0) / 2.0),
+            ),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+    loose_axis_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(
+                x=0.0,
+                y=math.sin(math.radians(1.0) / 2.0),
+                z=0.0,
+                w=math.cos(math.radians(1.0) / 2.0),
+            ),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+
+    assert is_tool_pose_aligned(
+        follow_error=aligned_error,
+        tail_position_tolerance_m=0.005,
+        tip_position_tolerance_m=0.002,
+        axis_tolerance_rad=math.radians(0.75),
     )
     assert not is_tool_pose_aligned(
-        current_tool_pose=current,
-        target_tool_pose=tilted_target,
-        position_tolerance_m=0.005,
-        orientation_tolerance_rad=math.radians(3.0),
+        follow_error=loose_tip_error,
+        tail_position_tolerance_m=0.005,
+        tip_position_tolerance_m=0.001,
+        axis_tolerance_rad=math.radians(2.0),
+    )
+    assert not is_tool_pose_aligned(
+        follow_error=loose_axis_error,
+        tail_position_tolerance_m=0.005,
+        tip_position_tolerance_m=0.01,
+        axis_tolerance_rad=math.radians(0.75),
+    )
+
+
+def test_tool_alignment_error_still_reports_tail_position_and_z_axis():
+    current = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+    )
+    tilted_target = PoseTarget(
+        position=Point3(x=0.003, y=0.0, z=0.0),
+        orientation=Quaternion(
+            x=0.0,
+            y=math.sin(math.radians(5.0) / 2.0),
+            z=0.0,
+            w=math.cos(math.radians(5.0) / 2.0),
+        ),
     )
     assert tool_alignment_error(
         current_tool_pose=current,
         target_tool_pose=tilted_target,
+    ).position_m == pytest.approx(0.003)
+    assert tool_alignment_error(
+        current_tool_pose=current,
+        target_tool_pose=tilted_target,
     ).z_axis_rad == pytest.approx(math.radians(5.0))
+
+
+def test_target_integration_pauses_and_resumes_with_hysteresis():
+    high_tip_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.02, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+    low_error = tool_follow_error(
+        current_tool_pose=PoseTarget(
+            position=Point3(x=0.0, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        target_tool_pose=PoseTarget(
+            position=Point3(x=0.001, y=0.0, z=0.0),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        tool0_to_pen_tip=Point3(x=0.0, y=0.0, z=0.14),
+    )
+
+    assert should_pause_target_integration(
+        currently_paused=False,
+        follow_error=high_tip_error,
+        tip_pause_m=0.012,
+        tip_resume_m=0.006,
+        axis_pause_rad=math.radians(8.0),
+        axis_resume_rad=math.radians(4.0),
+    )
+    assert not should_pause_target_integration(
+        currently_paused=True,
+        follow_error=low_error,
+        tip_pause_m=0.012,
+        tip_resume_m=0.006,
+        axis_pause_rad=math.radians(8.0),
+        axis_resume_rad=math.radians(4.0),
+    )
 
 
 def test_tool_tip_point_uses_tool0_to_pen_tip_positive_z_direction():

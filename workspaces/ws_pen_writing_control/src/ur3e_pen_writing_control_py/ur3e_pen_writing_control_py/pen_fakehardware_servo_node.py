@@ -47,6 +47,28 @@ def should_publish_pose_command(
     return has_motion_intent or virtual_pen_settling or not tool_pose_aligned
 
 
+def should_pause_target_integration(
+    *,
+    currently_paused: bool,
+    follow_error,
+    tip_pause_m: float,
+    tip_resume_m: float,
+    axis_pause_rad: float,
+    axis_resume_rad: float,
+) -> bool:
+    if follow_error is None:
+        return currently_paused
+    if currently_paused:
+        return (
+            follow_error.tip_position_m > tip_resume_m
+            or follow_error.axis_rad > axis_resume_rad
+        )
+    return (
+        follow_error.tip_position_m > tip_pause_m
+        or follow_error.axis_rad > axis_pause_rad
+    )
+
+
 def is_virtual_pen_settling(
     *,
     velocity: PlanarVelocity,
@@ -105,6 +127,13 @@ class ToolAlignmentError:
     z_axis_rad: float
 
 
+@dataclass(frozen=True)
+class ToolFollowError:
+    tail_position_m: float
+    tip_position_m: float
+    axis_rad: float
+
+
 def tool_alignment_error(
     *,
     current_tool_pose: PoseTarget,
@@ -128,20 +157,45 @@ def tool_alignment_error(
     )
 
 
-def is_tool_pose_aligned(
+def tool_follow_error(
     *,
     current_tool_pose: PoseTarget,
     target_tool_pose: PoseTarget,
-    position_tolerance_m: float,
-    orientation_tolerance_rad: float,
-) -> bool:
-    error = tool_alignment_error(
+    tool0_to_pen_tip: Point3,
+) -> ToolFollowError:
+    alignment = tool_alignment_error(
         current_tool_pose=current_tool_pose,
         target_tool_pose=target_tool_pose,
     )
+    current_tip = tool_tip_point_from_tool_pose(
+        tool_pose=current_tool_pose,
+        tool0_to_pen_tip=tool0_to_pen_tip,
+    )
+    target_tip = tool_tip_point_from_tool_pose(
+        tool_pose=target_tool_pose,
+        tool0_to_pen_tip=tool0_to_pen_tip,
+    )
+    tip_dx = current_tip.x - target_tip.x
+    tip_dy = current_tip.y - target_tip.y
+    tip_dz = current_tip.z - target_tip.z
+    return ToolFollowError(
+        tail_position_m=alignment.position_m,
+        tip_position_m=math.sqrt(tip_dx * tip_dx + tip_dy * tip_dy + tip_dz * tip_dz),
+        axis_rad=alignment.z_axis_rad,
+    )
+
+
+def is_tool_pose_aligned(
+    *,
+    follow_error: ToolFollowError,
+    tail_position_tolerance_m: float,
+    tip_position_tolerance_m: float,
+    axis_tolerance_rad: float,
+) -> bool:
     return (
-        error.position_m <= position_tolerance_m
-        and error.z_axis_rad <= orientation_tolerance_rad
+        follow_error.tail_position_m <= tail_position_tolerance_m
+        and follow_error.tip_position_m <= tip_position_tolerance_m
+        and follow_error.axis_rad <= axis_tolerance_rad
     )
 
 
@@ -269,7 +323,22 @@ class PenFakeHardwareServoNode(Node):
             self.declare_parameter("tool_position_tolerance_m", 0.005).value
         )
         self.tool_orientation_tolerance_deg = float(
-            self.declare_parameter("tool_orientation_tolerance_deg", 3.0).value
+            self.declare_parameter("tool_orientation_tolerance_deg", 0.75).value
+        )
+        self.pen_tip_position_tolerance_m = float(
+            self.declare_parameter("pen_tip_position_tolerance_m", 0.002).value
+        )
+        self.dynamic_tip_error_pause_m = float(
+            self.declare_parameter("dynamic_tip_error_pause_m", 0.012).value
+        )
+        self.dynamic_tip_error_resume_m = float(
+            self.declare_parameter("dynamic_tip_error_resume_m", 0.006).value
+        )
+        self.dynamic_axis_error_pause_deg = float(
+            self.declare_parameter("dynamic_axis_error_pause_deg", 8.0).value
+        )
+        self.dynamic_axis_error_resume_deg = float(
+            self.declare_parameter("dynamic_axis_error_resume_deg", 4.0).value
         )
         self.pose_settle_speed_mps = float(
             self.declare_parameter("pose_settle_speed_mps", 0.002).value
@@ -292,7 +361,7 @@ class PenFakeHardwareServoNode(Node):
         )
         tool0_to_pen_tip_xyz = self._declare_float_list(
             "tool0_to_pen_tip_xyz",
-            [0.0, 0.0, -self.pen_length_m],
+            [0.0, 0.0, self.pen_length_m],
             expected_size=3,
         )
         self.tool0_to_pen_tip = Point3(
@@ -347,6 +416,7 @@ class PenFakeHardwareServoNode(Node):
         self._last_servo_status_warn_time = 0.0
         self._servo_status_seen = False
         self._servo_health_fault = False
+        self._target_integration_paused = False
         self._velocity = SmoothPlanarVelocity(
             max_speed_mps=self.max_planar_speed_mps,
             acceleration_mps2=self.acceleration_mps2,
@@ -379,7 +449,12 @@ class PenFakeHardwareServoNode(Node):
             f"servo_command_type=POSE "
             f"require_motion_before_pose_command={self.require_motion_before_pose_command} "
             f"tool_position_tolerance={self.tool_position_tolerance_m:.3f}m "
+            f"pen_tip_position_tolerance={self.pen_tip_position_tolerance_m:.3f}m "
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
+            f"dynamic_tip_error_pause={self.dynamic_tip_error_pause_m:.3f}m "
+            f"dynamic_tip_error_resume={self.dynamic_tip_error_resume_m:.3f}m "
+            f"dynamic_axis_error_pause={self.dynamic_axis_error_pause_deg:.1f}deg "
+            f"dynamic_axis_error_resume={self.dynamic_axis_error_resume_deg:.1f}deg "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
         )
@@ -410,8 +485,28 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("tf_lookup_warn_period_sec must be greater than zero")
         if self.tool_position_tolerance_m <= 0.0:
             raise ValueError("tool_position_tolerance_m must be greater than zero")
+        if self.pen_tip_position_tolerance_m <= 0.0:
+            raise ValueError("pen_tip_position_tolerance_m must be greater than zero")
         if self.tool_orientation_tolerance_deg <= 0.0:
             raise ValueError("tool_orientation_tolerance_deg must be greater than zero")
+        if self.dynamic_tip_error_pause_m <= 0.0:
+            raise ValueError("dynamic_tip_error_pause_m must be greater than zero")
+        if self.dynamic_tip_error_resume_m <= 0.0:
+            raise ValueError("dynamic_tip_error_resume_m must be greater than zero")
+        if self.dynamic_tip_error_resume_m > self.dynamic_tip_error_pause_m:
+            raise ValueError(
+                "dynamic_tip_error_resume_m must be less than or equal to "
+                "dynamic_tip_error_pause_m"
+            )
+        if self.dynamic_axis_error_pause_deg <= 0.0:
+            raise ValueError("dynamic_axis_error_pause_deg must be greater than zero")
+        if self.dynamic_axis_error_resume_deg <= 0.0:
+            raise ValueError("dynamic_axis_error_resume_deg must be greater than zero")
+        if self.dynamic_axis_error_resume_deg > self.dynamic_axis_error_pause_deg:
+            raise ValueError(
+                "dynamic_axis_error_resume_deg must be less than or equal to "
+                "dynamic_axis_error_pause_deg"
+            )
         if self.pose_settle_speed_mps < 0.0:
             raise ValueError("pose_settle_speed_mps must be non-negative")
         if self.pose_settle_tilt_deg < 0.0:
@@ -481,6 +576,7 @@ class PenFakeHardwareServoNode(Node):
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
             self._pose_command_armed = False
+            self._target_integration_paused = False
             self._publish_tf_markers_and_pose(
                 velocity,
                 target_tool_pose=self._make_tool_pose_target(),
@@ -491,21 +587,62 @@ class PenFakeHardwareServoNode(Node):
                 self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
                 rclpy.shutdown()
             return
-        else:
-            velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
 
-        self._pen_state.update(velocity, dt_sec)
         target_tool_pose = self._make_tool_pose_target()
         current_tool_pose = self._lookup_current_tool_pose()
-        tool_pose_aligned = (
-            current_tool_pose is not None
-            and is_tool_pose_aligned(
+        follow_error = (
+            None
+            if current_tool_pose is None
+            else tool_follow_error(
                 current_tool_pose=current_tool_pose,
                 target_tool_pose=target_tool_pose,
-                position_tolerance_m=self.tool_position_tolerance_m,
-                orientation_tolerance_rad=math.radians(
-                    self.tool_orientation_tolerance_deg
-                ),
+                tool0_to_pen_tip=self.tool0_to_pen_tip,
+            )
+        )
+        previous_paused = self._target_integration_paused
+        self._target_integration_paused = (
+            self._pose_command_armed
+            and (
+                current_tool_pose is None
+                or should_pause_target_integration(
+                    currently_paused=self._target_integration_paused,
+                    follow_error=follow_error,
+                    tip_pause_m=self.dynamic_tip_error_pause_m,
+                    tip_resume_m=self.dynamic_tip_error_resume_m,
+                    axis_pause_rad=math.radians(self.dynamic_axis_error_pause_deg),
+                    axis_resume_rad=math.radians(self.dynamic_axis_error_resume_deg),
+                )
+            )
+        )
+        self._log_follow_gate_transition(
+            previous_paused=previous_paused,
+            current_paused=self._target_integration_paused,
+            follow_error=follow_error,
+        )
+
+        if self._target_integration_paused:
+            velocity = self._velocity.stop_immediately()
+        else:
+            velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
+            self._pen_state.update(velocity, dt_sec)
+            target_tool_pose = self._make_tool_pose_target()
+            follow_error = (
+                None
+                if current_tool_pose is None
+                else tool_follow_error(
+                    current_tool_pose=current_tool_pose,
+                    target_tool_pose=target_tool_pose,
+                    tool0_to_pen_tip=self.tool0_to_pen_tip,
+                )
+            )
+
+        tool_pose_aligned = (
+            follow_error is not None
+            and is_tool_pose_aligned(
+                follow_error=follow_error,
+                tail_position_tolerance_m=self.tool_position_tolerance_m,
+                tip_position_tolerance_m=self.pen_tip_position_tolerance_m,
+                axis_tolerance_rad=math.radians(self.tool_orientation_tolerance_deg),
             )
         )
         virtual_pen_settling = is_virtual_pen_settling(
@@ -530,6 +667,34 @@ class PenFakeHardwareServoNode(Node):
         if control.quit_requested:
             self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
             rclpy.shutdown()
+
+    def _log_follow_gate_transition(
+        self,
+        *,
+        previous_paused: bool,
+        current_paused: bool,
+        follow_error: ToolFollowError | None,
+    ) -> None:
+        if previous_paused == current_paused:
+            return
+        if follow_error is None:
+            detail = "follow error unavailable"
+        else:
+            detail = (
+                f"tail={follow_error.tail_position_m:.4f}m "
+                f"tip={follow_error.tip_position_m:.4f}m "
+                f"axis={math.degrees(follow_error.axis_rad):.2f}deg"
+            )
+        if current_paused:
+            self.get_logger().info(
+                "Pausing virtual pen target integration while fake hardware catches up: "
+                f"{detail}"
+            )
+        else:
+            self.get_logger().info(
+                "Resuming virtual pen target integration after fake hardware caught up: "
+                f"{detail}"
+            )
 
     def _initialize_paper_origin(self) -> None:
         try:
