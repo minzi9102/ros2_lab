@@ -68,12 +68,32 @@ def validate_fakehardware_arguments(context: LaunchContext, *_args, **_kwargs):
     return [SetLaunchConfiguration(name="pen_fakehardware_args_valid", value="true")]
 
 
+def set_runtime_log_output(context: LaunchContext, *_args, **_kwargs):
+    verbose_runtime_logs = _as_bool(
+        context.perform_substitution(LaunchConfiguration("verbose_runtime_logs"))
+    )
+    return [
+        SetLaunchConfiguration(
+            name="pen_runtime_output",
+            value="screen" if verbose_runtime_logs else "log",
+        ),
+        SetLaunchConfiguration(
+            name="pen_runtime_output_both",
+            value="both" if verbose_runtime_logs else "log",
+        ),
+    ]
+
+
 def _refuse_launch(reason: str):
     return [
         SetLaunchConfiguration(name="pen_fakehardware_args_valid", value="false"),
         LogInfo(msg=f"Refusing pen fake-hardware Servo launch: {reason}"),
         EmitEvent(event=Shutdown(reason="Invalid pen fake-hardware Servo argument")),
     ]
+
+
+def _as_bool(value: str) -> bool:
+    return value.lower() in ("1", "true", "yes", "on")
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -103,8 +123,13 @@ def generate_launch_description() -> LaunchDescription:
     )
     servo_log_level_arg = DeclareLaunchArgument(
         "servo_log_level",
-        default_value="info",
+        default_value="warn",
         description="Log level for moveit_servo/servo_node.",
+    )
+    verbose_runtime_logs_arg = DeclareLaunchArgument(
+        "verbose_runtime_logs",
+        default_value="false",
+        description="Print verbose runtime node logs to terminal when true.",
     )
     joint_states_wait_timeout_arg = DeclareLaunchArgument(
         "joint_states_wait_timeout_sec",
@@ -200,7 +225,7 @@ def generate_launch_description() -> LaunchDescription:
         executable="rviz2",
         name="rviz2_pen_fakehardware",
         condition=IfCondition(LaunchConfiguration("pen_fakehardware_launch_rviz")),
-        output="log",
+        output=LaunchConfiguration("pen_runtime_output"),
         arguments=[
             "-d",
             PathJoinSubstitution(
@@ -225,7 +250,7 @@ def generate_launch_description() -> LaunchDescription:
         package="ur3_moveit_servo_lab_cpp",
         executable="joint_state_stamp_relay_node",
         name="pen_joint_state_stamp_relay",
-        output="screen",
+        output=LaunchConfiguration("pen_runtime_output"),
         respawn=True,
         respawn_delay=1.0,
         parameters=[
@@ -241,7 +266,7 @@ def generate_launch_description() -> LaunchDescription:
         package="moveit_servo",
         executable="servo_node",
         name="servo_node",
-        output="screen",
+        output=LaunchConfiguration("pen_runtime_output"),
         parameters=[
             moveit_config.to_dict(),
             servo_params,
@@ -283,7 +308,7 @@ def generate_launch_description() -> LaunchDescription:
         package="joy",
         executable="joy_node",
         name="pen_joy_node",
-        output="both",
+        output=LaunchConfiguration("pen_runtime_output_both"),
         parameters=[
             {
                 "device_id": ParameterValue(
@@ -329,7 +354,10 @@ def generate_launch_description() -> LaunchDescription:
                 ),
                 "start_from_current_tool0": True,
                 "require_motion_before_pose_command": True,
+                "paper_origin_xyz": [0.45, 0.0, 0.12],
                 "tool0_to_pen_tip_xyz": [0.0, 0.0, -0.14],
+                "servo_status_topic": "/servo_node/status",
+                "servo_status_timeout_sec": 1.0,
             },
         ],
     )
@@ -385,6 +413,21 @@ def generate_launch_description() -> LaunchDescription:
             )
         ]
 
+    def on_servo_node_exit(event, _context):
+        return [
+            LogInfo(
+                msg=(
+                    "MoveIt Servo node exited with return code "
+                    f"{event.returncode}. Shutting down pen fake-hardware launch."
+                )
+            ),
+            EmitEvent(
+                event=Shutdown(
+                    reason=f"MoveIt Servo exited with return code {event.returncode}."
+                )
+            ),
+        ]
+
     def on_pen_servo_node_exit(event, _context):
         return [
             EmitEvent(
@@ -401,6 +444,7 @@ def generate_launch_description() -> LaunchDescription:
             use_mock_hardware_arg,
             launch_rviz_arg,
             servo_log_level_arg,
+            verbose_runtime_logs_arg,
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
@@ -428,6 +472,9 @@ def generate_launch_description() -> LaunchDescription:
                         name="pen_fakehardware_launch_rviz",
                         value=LaunchConfiguration("launch_rviz"),
                     ),
+                    SetLaunchConfiguration(name="pen_runtime_output", value="log"),
+                    SetLaunchConfiguration(name="pen_runtime_output_both", value="log"),
+                    OpaqueFunction(function=set_runtime_log_output),
                     LogInfo(
                         msg=f"Pen fake-hardware Servo logs will be written to: {run_log_dir}"
                     ),
@@ -452,6 +499,12 @@ def generate_launch_description() -> LaunchDescription:
                         OnProcessExit(
                             target_action=servo_status_gate,
                             on_exit=on_servo_status_gate_exit,
+                        )
+                    ),
+                    RegisterEventHandler(
+                        OnProcessExit(
+                            target_action=servo_node,
+                            on_exit=on_servo_node_exit,
                         )
                     ),
                     RegisterEventHandler(

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from geometry_msgs.msg import Point, PoseStamped, TransformStamped
+from moveit_msgs.msg import ServoStatus
 from moveit_msgs.srv import ServoCommandType
 import rclpy
 from rclpy.node import Node
@@ -35,6 +36,40 @@ def has_planar_motion_intent(control: JoyControl) -> bool:
 def rotate_tool_offset(quaternion: Quaternion, offset: Point3) -> Point3:
     rotated = rotate_vector(quaternion, (offset.x, offset.y, offset.z))
     return Point3(x=rotated[0], y=rotated[1], z=rotated[2])
+
+
+def paper_origin_from_current_tool0(
+    *,
+    current_tool_position: Point3,
+    current_tool_orientation: Quaternion,
+    tool0_to_pen_tip: Point3,
+    initial_tip_x: float,
+    initial_tip_y: float,
+    fixed_paper_z: float,
+) -> tuple[Point3, float]:
+    current_pen_tip_offset = rotate_tool_offset(
+        current_tool_orientation,
+        tool0_to_pen_tip,
+    )
+    estimated_tip_z = current_tool_position.z + current_pen_tip_offset.z
+    return (
+        Point3(
+            x=current_tool_position.x + current_pen_tip_offset.x - initial_tip_x,
+            y=current_tool_position.y + current_pen_tip_offset.y - initial_tip_y,
+            z=fixed_paper_z,
+        ),
+        estimated_tip_z,
+    )
+
+
+def is_servo_status_fresh(
+    *,
+    status_seen: bool,
+    last_status_time: float,
+    now_sec: float,
+    timeout_sec: float,
+) -> bool:
+    return status_seen and now_sec - last_status_time <= timeout_sec
 
 
 @dataclass(frozen=True)
@@ -69,6 +104,12 @@ class PenFakeHardwareServoNode(Node):
                 "command_type_service",
                 "/servo_node/switch_command_type",
             ).value
+        )
+        self.servo_status_topic = str(
+            self.declare_parameter("servo_status_topic", "/servo_node/status").value
+        )
+        self.servo_status_timeout_sec = float(
+            self.declare_parameter("servo_status_timeout_sec", 1.0).value
         )
         self.joy_topic = str(self.declare_parameter("joy_topic", "/joy").value)
         self.publish_rate_hz = float(
@@ -165,9 +206,18 @@ class PenFakeHardwareServoNode(Node):
             self._on_joy_message,
             10,
         )
+        self._servo_status_subscription = self.create_subscription(
+            ServoStatus,
+            self.servo_status_topic,
+            self._on_servo_status_message,
+            10,
+        )
         self._joy_mapper = JoyMapper(deadzone=self.joy_deadzone)
         self._latest_joy_control = JoyControl()
         self._last_joy_msg_time = 0.0
+        self._last_servo_status_time = 0.0
+        self._servo_status_seen = False
+        self._servo_health_fault = False
         self._velocity = SmoothPlanarVelocity(
             max_speed_mps=self.max_planar_speed_mps,
             acceleration_mps2=self.acceleration_mps2,
@@ -195,7 +245,8 @@ class PenFakeHardwareServoNode(Node):
             "Pen fake-hardware Servo node started. "
             f"base_frame={self.frames.base_frame} tool_frame={self.frames.tool_frame} "
             f"pose_topic={self.pose_command_topic} marker_topic={self.marker_topic} "
-            f"joy_topic={self.joy_topic} rate={self.publish_rate_hz:.1f}Hz "
+            f"servo_status_topic={self.servo_status_topic} joy_topic={self.joy_topic} "
+            f"rate={self.publish_rate_hz:.1f}Hz "
             f"servo_command_type=POSE "
             f"require_motion_before_pose_command={self.require_motion_before_pose_command} "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
@@ -220,6 +271,8 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("publish_rate_hz must be greater than zero")
         if self.joy_timeout_sec <= 0.0:
             raise ValueError("joy_timeout_sec must be greater than zero")
+        if self.servo_status_timeout_sec <= 0.0:
+            raise ValueError("servo_status_timeout_sec must be greater than zero")
         if self.tf_lookup_warn_period_sec <= 0.0:
             raise ValueError("tf_lookup_warn_period_sec must be greater than zero")
         if self.pen_length_m <= 0.0:
@@ -243,6 +296,14 @@ class PenFakeHardwareServoNode(Node):
         self._latest_joy_control = self._joy_mapper.map(msg.axes, msg.buttons)
         self._last_joy_msg_time = time.monotonic()
 
+    def _on_servo_status_message(self, msg: ServoStatus) -> None:
+        self._last_servo_status_time = time.monotonic()
+        self._servo_status_seen = True
+        if msg.code != ServoStatus.NO_WARNING:
+            self.get_logger().warn(
+                f"MoveIt Servo status warning: code={msg.code} message={msg.message!r}"
+            )
+
     def _on_timer(self) -> None:
         if self._paper_origin is None:
             self._initialize_paper_origin()
@@ -259,6 +320,16 @@ class PenFakeHardwareServoNode(Node):
             self._pose_command_armed = True
             self.get_logger().info("Motion input received. Arming POSE commands.")
 
+        if self._pose_command_armed and not self._is_servo_status_healthy(now_sec):
+            self._servo_health_fault = True
+            self._pose_command_armed = False
+            self.get_logger().error(
+                "MoveIt Servo status timed out after pose commands were armed. "
+                "Stopping pen pose publication and shutting down this node."
+            )
+            rclpy.shutdown()
+            return
+
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
         else:
@@ -267,7 +338,7 @@ class PenFakeHardwareServoNode(Node):
         self._pen_state.update(velocity, dt_sec)
         self._publish_tf_markers_and_pose(
             velocity,
-            publish_pose=self._pose_command_armed,
+            publish_pose=self._pose_command_armed and not self._servo_health_fault,
         )
 
         if control.quit_requested:
@@ -291,29 +362,31 @@ class PenFakeHardwareServoNode(Node):
         pose = self._pen_state.pose
         translation = transform.transform.translation
         rotation = transform.transform.rotation
-        current_tool_pose = Point3(
+        current_tool_position = Point3(
             x=translation.x,
             y=translation.y,
             z=translation.z,
         )
-        current_pen_tip_offset = rotate_tool_offset(
-            Quaternion(
-                x=rotation.x,
-                y=rotation.y,
-                z=rotation.z,
-                w=rotation.w,
-            ),
-            self.tool0_to_pen_tip,
+        current_tool_orientation = Quaternion(
+            x=rotation.x,
+            y=rotation.y,
+            z=rotation.z,
+            w=rotation.w,
         )
-        self._paper_origin = Point3(
-            x=current_tool_pose.x + current_pen_tip_offset.x - pose.tip_x,
-            y=current_tool_pose.y + current_pen_tip_offset.y - pose.tip_y,
-            z=current_tool_pose.z + current_pen_tip_offset.z,
+        self._paper_origin, estimated_tip_z = paper_origin_from_current_tool0(
+            current_tool_position=current_tool_position,
+            current_tool_orientation=current_tool_orientation,
+            tool0_to_pen_tip=self.tool0_to_pen_tip,
+            initial_tip_x=pose.tip_x,
+            initial_tip_y=pose.tip_y,
+            fixed_paper_z=self.paper_origin_xyz[2],
         )
         self.get_logger().info(
-            "Initialized paper origin from current tool0 pose and pen-tip offset: "
+            "Initialized paper origin XY from current tool0 pose and pen-tip offset; "
+            "using fixed paper Z: "
             f"({self._paper_origin.x:.3f}, {self._paper_origin.y:.3f}, "
-            f"{self._paper_origin.z:.3f})"
+            f"{self._paper_origin.z:.3f}); estimated current pen-tip Z="
+            f"{estimated_tip_z:.3f}"
         )
 
     def _ensure_pose_mode_ready(self) -> bool:
@@ -341,6 +414,14 @@ class PenFakeHardwareServoNode(Node):
 
         self.get_logger().warn("MoveIt Servo rejected POSE command mode; retrying.")
         return False
+
+    def _is_servo_status_healthy(self, now_sec: float) -> bool:
+        return is_servo_status_fresh(
+            status_seen=self._servo_status_seen,
+            last_status_time=self._last_servo_status_time,
+            now_sec=now_sec,
+            timeout_sec=self.servo_status_timeout_sec,
+        )
 
     def _current_control(self, now_sec: float) -> JoyControl:
         if self._last_joy_msg_time == 0.0:
