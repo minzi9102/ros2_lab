@@ -1,0 +1,117 @@
+from datetime import datetime
+from pathlib import Path
+
+from launch import LaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    LogInfo,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+)
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description() -> LaunchDescription:
+    run_log_dir = (
+        Path.cwd()
+        / "logs"
+        / "stage2_fakehardware_tracking_benchmark"
+        / datetime.now().strftime("%Y%m%d-%H%M%S")
+    )
+    run_log_dir.mkdir(parents=True, exist_ok=True)
+
+    launch_rviz_arg = DeclareLaunchArgument(
+        "launch_rviz",
+        default_value="false",
+        description="Launch RViz during the tracking benchmark.",
+    )
+    verbose_runtime_logs_arg = DeclareLaunchArgument(
+        "verbose_runtime_logs",
+        default_value="false",
+        description="Forward verbose runtime logs to terminal when true.",
+    )
+
+    joy_topic = "/pen_writing/benchmark/joy"
+    alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
+    summary_json = str(run_log_dir / "tracking_summary.json")
+    summary_md = str(run_log_dir / "tracking_summary.md")
+
+    stage2_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [
+                    FindPackageShare("ur3e_pen_writing_control_py"),
+                    "launch",
+                    "stage2_fakehardware_pen_servo.launch.py",
+                ]
+            )
+        ),
+        launch_arguments={
+            "launch_rviz": LaunchConfiguration("launch_rviz"),
+            "verbose_runtime_logs": LaunchConfiguration("verbose_runtime_logs"),
+            "launch_joy_node": "false",
+            "joy_topic": joy_topic,
+            "run_log_dir": str(run_log_dir),
+        }.items(),
+    )
+
+    benchmark_node = Node(
+        package="ur3e_pen_writing_control_py",
+        executable="pen_tracking_benchmark_node",
+        name="pen_tracking_benchmark",
+        output="screen",
+        parameters=[
+            {
+                "joy_topic": joy_topic,
+                "servo_status_topic": "/servo_node/status",
+                "alignment_error_log_path": alignment_csv,
+                "summary_json_path": summary_json,
+                "summary_markdown_path": summary_md,
+                "publish_rate_hz": 50.0,
+                "ready_timeout_sec": 30.0,
+                "arm_timeout_sec": 10.0,
+            }
+        ],
+    )
+
+    def on_benchmark_exit(event, _context):
+        return [
+            LogInfo(
+                msg=(
+                    "Pen tracking benchmark exited with return code "
+                    f"{event.returncode}. Results: {summary_md}"
+                )
+            ),
+            EmitEvent(
+                event=Shutdown(
+                    reason=(
+                        "Pen tracking benchmark completed with return code "
+                        f"{event.returncode}."
+                    )
+                )
+            ),
+        ]
+
+    return LaunchDescription(
+        [
+            launch_rviz_arg,
+            verbose_runtime_logs_arg,
+            SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
+            LogInfo(msg=f"Pen tracking benchmark logs will be written to: {run_log_dir}"),
+            stage2_launch,
+            benchmark_node,
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=benchmark_node,
+                    on_exit=on_benchmark_exit,
+                )
+            ),
+        ]
+    )

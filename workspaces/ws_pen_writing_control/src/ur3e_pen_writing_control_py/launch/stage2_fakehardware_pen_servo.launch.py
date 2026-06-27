@@ -98,8 +98,8 @@ def _as_bool(value: str) -> bool:
 
 def generate_launch_description() -> LaunchDescription:
     log_root_dir = Path.cwd() / "logs" / "stage2_fakehardware_pen_servo"
-    run_log_dir = log_root_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_log_dir.mkdir(parents=True, exist_ok=True)
+    default_run_log_dir = log_root_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
+    default_run_log_dir.mkdir(parents=True, exist_ok=True)
 
     ur_type_arg = DeclareLaunchArgument(
         "ur_type",
@@ -131,6 +131,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="false",
         description="Print verbose runtime node logs to terminal when true.",
     )
+    run_log_dir_arg = DeclareLaunchArgument(
+        "run_log_dir",
+        default_value=str(default_run_log_dir),
+        description="Directory used for Stage2 runtime logs and diagnostic CSV files.",
+    )
     joint_states_wait_timeout_arg = DeclareLaunchArgument(
         "joint_states_wait_timeout_sec",
         default_value="15.0",
@@ -150,6 +155,11 @@ def generate_launch_description() -> LaunchDescription:
         "joy_topic",
         default_value="/joy",
         description="sensor_msgs/Joy topic used by the pen fake-hardware Servo node.",
+    )
+    launch_joy_node_arg = DeclareLaunchArgument(
+        "launch_joy_node",
+        default_value="true",
+        description="Launch the physical joy_node when true.",
     )
     joy_device_id_arg = DeclareLaunchArgument(
         "joy_device_id",
@@ -309,6 +319,7 @@ def generate_launch_description() -> LaunchDescription:
         package="joy",
         executable="joy_node",
         name="pen_joy_node",
+        condition=IfCondition(LaunchConfiguration("launch_joy_node")),
         output=LaunchConfiguration("pen_runtime_output_both"),
         parameters=[
             {
@@ -359,8 +370,11 @@ def generate_launch_description() -> LaunchDescription:
                 "tool0_to_pen_tip_xyz": [0.0, 0.0, 0.14],
                 "servo_status_topic": "/servo_node/status",
                 "servo_status_timeout_sec": 1.0,
-                "alignment_error_log_path": str(
-                    run_log_dir / "tool_alignment_error.csv"
+                "alignment_error_log_path": PathJoinSubstitution(
+                    [
+                        LaunchConfiguration("run_log_dir"),
+                        "tool_alignment_error.csv",
+                    ]
                 ),
             },
         ],
@@ -449,10 +463,12 @@ def generate_launch_description() -> LaunchDescription:
             launch_rviz_arg,
             servo_log_level_arg,
             verbose_runtime_logs_arg,
+            run_log_dir_arg,
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
             joy_topic_arg,
+            launch_joy_node_arg,
             joy_device_id_arg,
             joy_device_name_arg,
             joy_deadzone_arg,
@@ -463,7 +479,10 @@ def generate_launch_description() -> LaunchDescription:
                 scoped=False,
                 condition=IfCondition(LaunchConfiguration("pen_fakehardware_args_valid")),
                 actions=[
-                    SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
+                    SetEnvironmentVariable(
+                        name="ROS_LOG_DIR",
+                        value=LaunchConfiguration("run_log_dir"),
+                    ),
                     SetEnvironmentVariable(
                         name="RCUTILS_LOGGING_BUFFERED_STREAM",
                         value="1",
@@ -480,7 +499,10 @@ def generate_launch_description() -> LaunchDescription:
                     SetLaunchConfiguration(name="pen_runtime_output_both", value="log"),
                     OpaqueFunction(function=set_runtime_log_output),
                     LogInfo(
-                        msg=f"Pen fake-hardware Servo logs will be written to: {run_log_dir}"
+                        msg=[
+                            "Pen fake-hardware Servo logs will be written to: ",
+                            LaunchConfiguration("run_log_dir"),
+                        ]
                     ),
                     driver_launch,
                     moveit_launch,
