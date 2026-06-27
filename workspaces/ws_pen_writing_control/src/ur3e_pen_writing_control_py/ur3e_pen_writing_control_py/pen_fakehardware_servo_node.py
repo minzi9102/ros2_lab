@@ -1,7 +1,9 @@
+import csv
 import math
+from pathlib import Path
 import time
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, TextIO
 
 from geometry_msgs.msg import Point, PoseStamped, TransformStamped
 from moveit_msgs.msg import ServoStatus
@@ -106,6 +108,35 @@ def is_servo_status_fresh(
 class ToolAlignmentError:
     position_m: float
     z_axis_rad: float
+    full_quaternion_rad: float
+
+
+def quaternion_angular_distance(
+    current: Quaternion,
+    target: Quaternion,
+) -> float:
+    current_norm = math.sqrt(
+        current.x * current.x
+        + current.y * current.y
+        + current.z * current.z
+        + current.w * current.w
+    )
+    target_norm = math.sqrt(
+        target.x * target.x
+        + target.y * target.y
+        + target.z * target.z
+        + target.w * target.w
+    )
+    if current_norm < 1e-12 or target_norm < 1e-12:
+        raise ValueError("orientation quaternion norm must be non-zero")
+
+    dot = (
+        current.x * target.x
+        + current.y * target.y
+        + current.z * target.z
+        + current.w * target.w
+    ) / (current_norm * target_norm)
+    return 2.0 * math.acos(clamp(abs(dot), 0.0, 1.0))
 
 
 def tool_alignment_error(
@@ -128,6 +159,10 @@ def tool_alignment_error(
     return ToolAlignmentError(
         position_m=math.sqrt(dx * dx + dy * dy + dz * dz),
         z_axis_rad=math.acos(dot),
+        full_quaternion_rad=quaternion_angular_distance(
+            current_tool_pose.orientation,
+            target_tool_pose.orientation,
+        ),
     )
 
 
@@ -212,6 +247,96 @@ class RuntimeFrames:
     tool_frame: str
 
 
+class AlignmentErrorCsvLogger:
+    HEADER = (
+        "elapsed_sec",
+        "position_m",
+        "z_axis_deg",
+        "full_quaternion_deg",
+        "pose_command_armed",
+        "pose_command_published",
+        "has_motion_intent",
+        "virtual_pen_settling",
+    )
+
+    def __init__(self, *, path: str, sample_rate_hz: float) -> None:
+        if sample_rate_hz <= 0.0:
+            raise ValueError("alignment_error_log_rate_hz must be greater than zero")
+        self.path = Path(path) if path else None
+        self.sample_period_sec = 1.0 / sample_rate_hz
+        self._file: TextIO | None = None
+        self._writer = None
+        self._started_at_sec: float | None = None
+        self._last_sample_time_sec: float | None = None
+        self.sample_count = 0
+
+    @property
+    def started(self) -> bool:
+        return self._file is not None
+
+    def record(
+        self,
+        *,
+        now_sec: float,
+        start_requested: bool,
+        error: ToolAlignmentError | None,
+        pose_command_armed: bool,
+        pose_command_published: bool,
+        has_motion_intent: bool,
+        virtual_pen_settling: bool,
+    ) -> bool:
+        if self.path is None:
+            return False
+        if not self.started:
+            if not start_requested:
+                return False
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._file = self.path.open(
+                "w",
+                encoding="utf-8",
+                newline="",
+                buffering=1,
+            )
+            self._writer = csv.writer(self._file)
+            self._writer.writerow(self.HEADER)
+            self._started_at_sec = now_sec
+
+        if (
+            self._last_sample_time_sec is not None
+            and now_sec - self._last_sample_time_sec + 1e-12
+            < self.sample_period_sec
+        ):
+            return False
+
+        position_m = math.nan if error is None else error.position_m
+        z_axis_deg = math.nan if error is None else math.degrees(error.z_axis_rad)
+        full_quaternion_deg = (
+            math.nan if error is None else math.degrees(error.full_quaternion_rad)
+        )
+        self._writer.writerow(
+            (
+                f"{now_sec - self._started_at_sec:.9f}",
+                f"{position_m:.9f}",
+                f"{z_axis_deg:.6f}",
+                f"{full_quaternion_deg:.6f}",
+                int(pose_command_armed),
+                int(pose_command_published),
+                int(has_motion_intent),
+                int(virtual_pen_settling),
+            )
+        )
+        self._last_sample_time_sec = now_sec
+        self.sample_count += 1
+        return True
+
+    def close(self) -> None:
+        if self._file is None:
+            return
+        self._file.close()
+        self._file = None
+        self._writer = None
+
+
 class PenFakeHardwareServoNode(Node):
     """Bridge the stage-1 virtual pen model to fake-hardware MoveIt Servo POSE mode."""
 
@@ -263,6 +388,12 @@ class PenFakeHardwareServoNode(Node):
         )
         self.tf_lookup_warn_period_sec = float(
             self.declare_parameter("tf_lookup_warn_period_sec", 1.0).value
+        )
+        self.alignment_error_log_path = str(
+            self.declare_parameter("alignment_error_log_path", "").value
+        )
+        self.alignment_error_log_rate_hz = float(
+            self.declare_parameter("alignment_error_log_rate_hz", 20.0).value
         )
         self.max_planar_speed_mps = float(
             self.declare_parameter("max_planar_speed_mps", 0.08).value
@@ -382,6 +513,10 @@ class PenFakeHardwareServoNode(Node):
         self._last_servo_status_warn_time = 0.0
         self._servo_status_seen = False
         self._servo_health_fault = False
+        self._alignment_error_logger = AlignmentErrorCsvLogger(
+            path=self.alignment_error_log_path,
+            sample_rate_hz=self.alignment_error_log_rate_hz,
+        )
         self._velocity = SmoothPlanarVelocity(
             max_speed_mps=self.max_planar_speed_mps,
             acceleration_mps2=self.acceleration_mps2,
@@ -424,6 +559,7 @@ class PenFakeHardwareServoNode(Node):
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
             f"max_pen_axis_rate="
             f"{self.max_pen_axis_angular_speed_degps:.1f}deg/s "
+            f"alignment_error_log_rate={self.alignment_error_log_rate_hz:.1f}Hz "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
         )
@@ -452,6 +588,8 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("servo_status_warn_period_sec must be greater than zero")
         if self.tf_lookup_warn_period_sec <= 0.0:
             raise ValueError("tf_lookup_warn_period_sec must be greater than zero")
+        if self.alignment_error_log_rate_hz <= 0.0:
+            raise ValueError("alignment_error_log_rate_hz must be greater than zero")
         if self.tool_position_tolerance_m <= 0.0:
             raise ValueError("tool_position_tolerance_m must be greater than zero")
         if self.tool_orientation_tolerance_deg <= 0.0:
@@ -535,11 +673,21 @@ class PenFakeHardwareServoNode(Node):
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
             self._pose_command_armed = False
+            target_tool_pose = self._make_tool_pose_target()
+            current_tool_pose = self._lookup_current_tool_pose()
             self._publish_tf_markers_and_pose(
                 velocity,
-                target_tool_pose=self._make_tool_pose_target(),
-                current_tool_pose=self._lookup_current_tool_pose(),
+                target_tool_pose=target_tool_pose,
+                current_tool_pose=current_tool_pose,
                 publish_pose=False,
+            )
+            self._record_alignment_error(
+                now_sec=now_sec,
+                target_tool_pose=target_tool_pose,
+                current_tool_pose=current_tool_pose,
+                pose_command_published=False,
+                has_motion_intent=has_motion_intent,
+                virtual_pen_settling=False,
             )
             if control.quit_requested:
                 self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
@@ -570,17 +718,26 @@ class PenFakeHardwareServoNode(Node):
             tilt_tolerance_rad=math.radians(self.pose_settle_tilt_deg),
             orientation_error_rad=self._pen_orientation.axis_error_rad,
         )
+        publish_pose = should_publish_pose_command(
+            pose_command_armed=self._pose_command_armed,
+            has_motion_intent=has_motion_intent,
+            virtual_pen_settling=virtual_pen_settling,
+            tool_pose_aligned=tool_pose_aligned,
+            servo_health_fault=self._servo_health_fault,
+        )
         self._publish_tf_markers_and_pose(
             velocity,
             target_tool_pose=target_tool_pose,
             current_tool_pose=current_tool_pose,
-            publish_pose=should_publish_pose_command(
-                pose_command_armed=self._pose_command_armed,
-                has_motion_intent=has_motion_intent,
-                virtual_pen_settling=virtual_pen_settling,
-                tool_pose_aligned=tool_pose_aligned,
-                servo_health_fault=self._servo_health_fault,
-            ),
+            publish_pose=publish_pose,
+        )
+        self._record_alignment_error(
+            now_sec=now_sec,
+            target_tool_pose=target_tool_pose,
+            current_tool_pose=current_tool_pose,
+            pose_command_published=publish_pose,
+            has_motion_intent=has_motion_intent,
+            virtual_pen_settling=virtual_pen_settling,
         )
 
         if control.quit_requested:
@@ -694,6 +851,38 @@ class PenFakeHardwareServoNode(Node):
             tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
             orientation_override=self._pen_orientation.orientation,
         )
+
+    def _record_alignment_error(
+        self,
+        *,
+        now_sec: float,
+        target_tool_pose: PoseTarget,
+        current_tool_pose: PoseTarget | None,
+        pose_command_published: bool,
+        has_motion_intent: bool,
+        virtual_pen_settling: bool,
+    ) -> None:
+        was_started = self._alignment_error_logger.started
+        error = None
+        if current_tool_pose is not None:
+            error = tool_alignment_error(
+                current_tool_pose=current_tool_pose,
+                target_tool_pose=target_tool_pose,
+            )
+        self._alignment_error_logger.record(
+            now_sec=now_sec,
+            start_requested=pose_command_published,
+            error=error,
+            pose_command_armed=self._pose_command_armed,
+            pose_command_published=pose_command_published,
+            has_motion_intent=has_motion_intent,
+            virtual_pen_settling=virtual_pen_settling,
+        )
+        if not was_started and self._alignment_error_logger.started:
+            self.get_logger().info(
+                "Tool alignment error recording started: "
+                f"{self._alignment_error_logger.path}"
+            )
 
     def _publish_tf_markers_and_pose(
         self,
@@ -1051,6 +1240,16 @@ class PenFakeHardwareServoNode(Node):
         if now_sec - self._last_tf_warn_time >= self.tf_lookup_warn_period_sec:
             self._last_tf_warn_time = now_sec
             self.get_logger().warn(message)
+
+    def destroy_node(self):
+        if self._alignment_error_logger.started:
+            self.get_logger().info(
+                "Tool alignment error recording stopped after "
+                f"{self._alignment_error_logger.sample_count} samples: "
+                f"{self._alignment_error_logger.path}"
+            )
+        self._alignment_error_logger.close()
+        return super().destroy_node()
 
     @staticmethod
     def _points(points: Iterable[tuple[float, float, float]]) -> list[Point]:

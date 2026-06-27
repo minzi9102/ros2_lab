@@ -358,6 +358,9 @@ def generate_launch_description() -> LaunchDescription:
                 "tool0_to_pen_tip_xyz": [0.0, 0.0, 0.14],
                 "servo_status_topic": "/servo_node/status",
                 "servo_status_timeout_sec": 1.0,
+                "alignment_error_log_path": str(
+                    run_log_dir / "tool_alignment_error.csv"
+                ),
             },
         ],
     )

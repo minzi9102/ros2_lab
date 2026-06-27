@@ -1,3 +1,4 @@
+import csv
 import math
 
 import pytest
@@ -5,6 +6,8 @@ import pytest
 from ur3e_pen_writing_control_py.joy_mapping import JoyControl
 from ur3e_pen_writing_control_py.pen_math import PlanarVelocity
 from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
+    AlignmentErrorCsvLogger,
+    ToolAlignmentError,
     has_planar_motion_intent,
     is_servo_status_fresh,
     is_tool_pose_aligned,
@@ -198,6 +201,121 @@ def test_tool_pose_alignment_checks_position_and_tool_z_axis():
         current_tool_pose=current,
         target_tool_pose=tilted_target,
     ).z_axis_rad == pytest.approx(math.radians(5.0))
+
+
+def test_tool_alignment_error_separates_position_z_axis_and_full_orientation():
+    current = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+    )
+    translated = PoseTarget(
+        position=Point3(x=0.003, y=0.004, z=0.0),
+        orientation=current.orientation,
+    )
+    z_twisted = PoseTarget(
+        position=current.position,
+        orientation=Quaternion(
+            x=0.0,
+            y=0.0,
+            z=math.sin(math.pi / 4.0),
+            w=math.cos(math.pi / 4.0),
+        ),
+    )
+
+    translated_error = tool_alignment_error(
+        current_tool_pose=current,
+        target_tool_pose=translated,
+    )
+    assert translated_error.position_m == pytest.approx(0.005)
+    assert translated_error.z_axis_rad == pytest.approx(0.0)
+    assert translated_error.full_quaternion_rad == pytest.approx(0.0)
+
+    twisted_error = tool_alignment_error(
+        current_tool_pose=current,
+        target_tool_pose=z_twisted,
+    )
+    assert twisted_error.position_m == pytest.approx(0.0)
+    assert twisted_error.z_axis_rad == pytest.approx(0.0)
+    assert twisted_error.full_quaternion_rad == pytest.approx(math.pi / 2.0)
+
+
+def test_tool_alignment_error_treats_opposite_quaternion_sign_as_same_pose():
+    current = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=Quaternion(x=0.1, y=0.2, z=0.3, w=0.9),
+    )
+    target = PoseTarget(
+        position=current.position,
+        orientation=Quaternion(x=-0.1, y=-0.2, z=-0.3, w=-0.9),
+    )
+
+    assert tool_alignment_error(
+        current_tool_pose=current,
+        target_tool_pose=target,
+    ).full_quaternion_rad == pytest.approx(0.0)
+
+
+def test_alignment_error_csv_starts_on_first_pose_and_samples_at_20_hz(tmp_path):
+    log_path = tmp_path / "tool_alignment_error.csv"
+    logger = AlignmentErrorCsvLogger(path=str(log_path), sample_rate_hz=20.0)
+    error = ToolAlignmentError(
+        position_m=0.005,
+        z_axis_rad=math.radians(2.0),
+        full_quaternion_rad=math.radians(15.0),
+    )
+
+    assert not logger.record(
+        now_sec=10.0,
+        start_requested=False,
+        error=error,
+        pose_command_armed=False,
+        pose_command_published=False,
+        has_motion_intent=False,
+        virtual_pen_settling=False,
+    )
+    assert not log_path.exists()
+
+    assert logger.record(
+        now_sec=11.0,
+        start_requested=True,
+        error=error,
+        pose_command_armed=True,
+        pose_command_published=True,
+        has_motion_intent=True,
+        virtual_pen_settling=False,
+    )
+    assert not logger.record(
+        now_sec=11.02,
+        start_requested=False,
+        error=error,
+        pose_command_armed=False,
+        pose_command_published=False,
+        has_motion_intent=False,
+        virtual_pen_settling=False,
+    )
+    assert logger.record(
+        now_sec=11.05,
+        start_requested=False,
+        error=None,
+        pose_command_armed=False,
+        pose_command_published=False,
+        has_motion_intent=False,
+        virtual_pen_settling=False,
+    )
+    logger.close()
+
+    with log_path.open(newline="", encoding="utf-8") as log_file:
+        rows = list(csv.DictReader(log_file))
+    assert len(rows) == 2
+    assert rows[0]["elapsed_sec"] == "0.000000000"
+    assert rows[0]["position_m"] == "0.005000000"
+    assert rows[0]["z_axis_deg"] == "2.000000"
+    assert rows[0]["full_quaternion_deg"] == "15.000000"
+    assert rows[0]["pose_command_published"] == "1"
+    assert rows[1]["elapsed_sec"] == "0.050000000"
+    assert rows[1]["position_m"] == "nan"
+    assert rows[1]["pose_command_armed"] == "0"
+    assert rows[1]["pose_command_published"] == "0"
 
 
 def test_tool_tip_point_uses_tool0_to_pen_tip_positive_z_direction():
