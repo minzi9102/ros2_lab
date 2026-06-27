@@ -30,12 +30,25 @@ def test_benchmark_sequence_has_scored_direction_windows():
     phases = benchmark_phases()
     windows = scored_phase_windows(phases)
 
-    assert total_phase_duration(phases) == pytest.approx(15.5)
-    assert list(windows) == ["plus_x", "minus_x", "plus_y", "minus_y"]
-    assert windows["plus_x"] == pytest.approx((3.0, 4.0))
-    assert windows["minus_x"] == pytest.approx((5.5, 6.5))
-    assert windows["plus_y"] == pytest.approx((8.0, 9.0))
-    assert windows["minus_y"] == pytest.approx((10.5, 11.5))
+    assert total_phase_duration(phases) == pytest.approx(19.0)
+    assert list(windows) == [
+        "plus_x",
+        "minus_x",
+        "plus_y",
+        "minus_y",
+        "plus_xy",
+        "minus_xy",
+        "plus_x_minus_y",
+        "minus_x_plus_y",
+    ]
+    assert windows["plus_x"] == pytest.approx((2.0, 3.5))
+    assert windows["minus_x"] == pytest.approx((3.5, 5.0))
+    assert windows["plus_y"] == pytest.approx((5.0, 6.5))
+    assert windows["minus_y"] == pytest.approx((6.5, 8.0))
+    assert windows["plus_xy"] == pytest.approx((8.0, 9.5))
+    assert windows["minus_xy"] == pytest.approx((9.5, 11.0))
+    assert windows["plus_x_minus_y"] == pytest.approx((11.0, 12.5))
+    assert windows["minus_x_plus_y"] == pytest.approx((12.5, 14.0))
 
 
 def test_alignment_csv_analysis_passes_good_tracking(tmp_path):
@@ -44,21 +57,25 @@ def test_alignment_csv_analysis_passes_good_tracking(tmp_path):
         csv_path,
         [
             (0.0, 0.020, 15.0, 15.1),
-            (3.0, 0.002, 2.0, 2.2),
-            (3.5, 0.003, 4.0, 4.1),
-            (6.0, 0.004, 5.0, 5.3),
-            (9.0, 0.003, 6.0, 6.5),
-            (11.0, 0.002, 7.0, 7.2),
-            (15.4, 0.001, 2.5, 2.7),
+            (2.0, 0.002, 2.0, 2.2),
+            (3.0, 0.003, 4.0, 4.1),
+            (4.0, 0.004, 5.0, 5.3),
+            (5.5, 0.003, 6.0, 6.5),
+            (7.0, 0.002, 7.0, 7.2),
+            (9.0, 0.0025, 4.5, 4.7),
+            (11.5, 0.0028, 4.8, 5.0),
+            (13.0, 0.0026, 4.2, 4.4),
+            (18.9, 0.001, 2.5, 2.7),
         ],
     )
 
     result = analyze_alignment_csv(csv_path)
 
     assert result["status"] == "PASS"
-    assert result["sample_count"] == 7
-    assert result["post_initial_sample_count"] == 6
+    assert result["sample_count"] == 10
+    assert result["post_initial_sample_count"] == 9
     assert result["phases"]["plus_x"]["finite_sample_count"] == 2
+    assert result["phases"]["plus_xy"]["finite_sample_count"] == 1
     assert all(check["passed"] for check in result["checks"])
 
 
@@ -68,9 +85,9 @@ def test_alignment_csv_analysis_marks_metric_fail_without_infrastructure_error(t
         csv_path,
         [
             (0.0, 0.020, 15.0, 15.0),
-            (3.0, 0.004, 10.0, 10.1),
-            (4.0, 0.004, 9.0, 9.1),
-            (15.4, 0.001, 2.0, 2.1),
+            (2.0, 0.004, 10.0, 10.1),
+            (3.0, 0.004, 9.0, 9.1),
+            (18.9, 0.001, 2.0, 2.1),
         ],
     )
 
@@ -86,8 +103,8 @@ def test_alignment_csv_analysis_fails_no_nan_check(tmp_path):
         csv_path,
         [
             (0.0, 0.020, 15.0, 15.0),
-            (3.0, math.nan, math.nan, math.nan),
-            (3.5, 0.002, 2.0, 2.0),
+            (2.0, math.nan, math.nan, math.nan),
+            (3.0, 0.002, 2.0, 2.0),
         ],
     )
 
@@ -125,7 +142,7 @@ def test_write_summary_files_records_fail_report(tmp_path):
         "csv_path": "tool_alignment_error.csv",
         "sample_count": 2,
         "post_initial_sample_count": 1,
-        "initial_exclusion_sec": 3.0,
+        "initial_exclusion_sec": 2.0,
         "overall": {
             "position_m": {"avg": 0.001, "max": 0.002},
             "z_axis_deg": {"avg": 10.0, "max": 12.0},
@@ -157,7 +174,7 @@ def test_write_summary_files_records_fail_report(tmp_path):
 
 def test_custom_thresholds_can_make_same_csv_fail(tmp_path):
     csv_path = tmp_path / "tool_alignment_error.csv"
-    _write_alignment_csv(csv_path, [(3.0, 0.002, 2.0, 2.0)])
+    _write_alignment_csv(csv_path, [(2.0, 0.002, 2.0, 2.0)])
 
     result = analyze_alignment_csv(
         csv_path,

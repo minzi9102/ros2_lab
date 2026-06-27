@@ -51,15 +51,16 @@ def joy_message_for_target(
 
 def benchmark_phases() -> list[BenchmarkPhase]:
     return [
-        BenchmarkPhase("initial_settle", 0.0, 0.0, 3.0),
-        BenchmarkPhase("plus_x", 1.0, 0.0, 1.0, scored=True),
-        BenchmarkPhase("settle_after_plus_x", 0.0, 0.0, 1.5),
-        BenchmarkPhase("minus_x", -1.0, 0.0, 1.0, scored=True),
-        BenchmarkPhase("settle_after_minus_x", 0.0, 0.0, 1.5),
-        BenchmarkPhase("plus_y", 0.0, 1.0, 1.0, scored=True),
-        BenchmarkPhase("settle_after_plus_y", 0.0, 0.0, 1.5),
-        BenchmarkPhase("minus_y", 0.0, -1.0, 1.0, scored=True),
-        BenchmarkPhase("final_settle", 0.0, 0.0, 4.0),
+        BenchmarkPhase("initial_settle", 0.0, 0.0, 2.0),
+        BenchmarkPhase("plus_x", 1.0, 0.0, 1.5, scored=True),
+        BenchmarkPhase("minus_x", -1.0, 0.0, 1.5, scored=True),
+        BenchmarkPhase("plus_y", 0.0, 1.0, 1.5, scored=True),
+        BenchmarkPhase("minus_y", 0.0, -1.0, 1.5, scored=True),
+        BenchmarkPhase("plus_xy", 1.0, 1.0, 1.5, scored=True),
+        BenchmarkPhase("minus_xy", -1.0, -1.0, 1.5, scored=True),
+        BenchmarkPhase("plus_x_minus_y", 1.0, -1.0, 1.5, scored=True),
+        BenchmarkPhase("minus_x_plus_y", -1.0, 1.0, 1.5, scored=True),
+        BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
     ]
 
 
