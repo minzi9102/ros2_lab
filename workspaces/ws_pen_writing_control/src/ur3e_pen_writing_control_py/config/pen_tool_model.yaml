@@ -7,14 +7,14 @@ pen_writing_visualizer_node:
     publish_rate_hz: 60.0
     joy_deadzone: 0.08
     joy_timeout_sec: 0.25
-    max_planar_speed_mps: 0.08
+    max_planar_speed_mps: 0.03
     acceleration_mps2: 0.08
     deceleration_mps2: 0.16
     yaw_hold_speed_mps: 0.005
     tilt_activate_speed_mps: 0.01
-    tilt_rate_degps: 45.0
-    untilt_rate_degps: 60.0
-    max_pen_axis_angular_speed_degps: 55.0
+    tilt_rate_degps: 10.0
+    untilt_rate_degps: 12.0
+    max_pen_axis_angular_speed_degps: 12.0
     pen_length_m: 0.14
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
     pen_radius_m: 0.006
@@ -30,7 +30,10 @@ pen_fakehardware_servo:
   ros__parameters:
     paper_origin_xyz: [0.45, 0.0, 0.12]
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
-    max_pen_axis_angular_speed_degps: 55.0
+    max_planar_speed_mps: 0.03
+    tilt_rate_degps: 10.0
+    untilt_rate_degps: 12.0
+    max_pen_axis_angular_speed_degps: 12.0
     target_pen_tip_axis_length_m: 0.08
     target_tool0_axis_length_m: 0.08
     tool0_axis_length_m: 0.08
