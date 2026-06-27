@@ -1,0 +1,1205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>虚拟笔姿态连续控制方案</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18212d;
+      --muted: #5d6977;
+      --line: #d7dde5;
+      --soft: #f4f6f8;
+      --paper: #f1efe7;
+      --panel: #ffffff;
+      --target: #078a54;
+      --tip: #1557e8;
+      --tail: #e4a11b;
+      --motion: #d9253a;
+      --cyan: #08aabd;
+      --axis-x: #e02b3e;
+      --axis-y: #13a05f;
+      --axis-z: #2468e8;
+      --warning: #a34f00;
+      --good: #08734a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: var(--ink);
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "Noto Sans CJK SC",
+        "Microsoft YaHei",
+        sans-serif;
+      line-height: 1.55;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 26px 0 48px;
+    }
+
+    header {
+      padding-bottom: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: 34px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: 23px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 7px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin-bottom: 10px;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #edf1f5;
+      color: #27384c;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    .subtitle {
+      max-width: 900px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .proposal {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-left: 4px solid var(--warning);
+      background: #fff5e9;
+      color: #713a05;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .band {
+      padding: 26px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-intro {
+      max-width: 880px;
+      color: var(--muted);
+    }
+
+    .sim-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin: 18px 0 10px;
+    }
+
+    .segmented {
+      display: inline-grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid #bac3cf;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .segmented button {
+      min-height: 38px;
+      padding: 7px 12px;
+      border: 0;
+      border-right: 1px solid #bac3cf;
+      background: #ffffff;
+      color: #344255;
+      cursor: pointer;
+    }
+
+    .segmented button:last-child {
+      border-right: 0;
+    }
+
+    .segmented button[aria-pressed="true"] {
+      background: #26394f;
+      color: #ffffff;
+    }
+
+    .playback {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .icon-button {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 1px solid #aeb8c5;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #223249;
+      cursor: pointer;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .speed-control {
+      display: grid;
+      grid-template-columns: auto 120px auto;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .speed-control input {
+      accent-color: #26394f;
+    }
+
+    .sim-shell {
+      position: relative;
+      border: 1px solid #adb8c5;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 470px;
+    }
+
+    .sim-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--swatch);
+    }
+
+    .readout {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      background: var(--line);
+    }
+
+    .readout-item {
+      min-height: 72px;
+      padding: 11px 13px;
+      background: #ffffff;
+    }
+
+    .readout-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .readout-value {
+      display: block;
+      margin-top: 3px;
+      color: #24354b;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .step {
+      position: relative;
+      min-height: 142px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+
+    .step::after {
+      content: "›";
+      position: absolute;
+      top: 50%;
+      right: -12px;
+      width: 12px;
+      color: #768394;
+      font-size: 22px;
+      font-weight: 800;
+      transform: translateY(-50%);
+      z-index: 1;
+    }
+
+    .step:nth-child(5)::after,
+    .step:last-child::after {
+      display: none;
+    }
+
+    .step-number {
+      display: inline-flex;
+      width: 25px;
+      height: 25px;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 10px;
+      border-radius: 50%;
+      background: #26394f;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .key-step {
+      border-color: #69ad91;
+      background: #f4fbf7;
+    }
+
+    .key-step .step-number {
+      background: var(--good);
+    }
+
+    .two-column {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+      margin-top: 18px;
+    }
+
+    .formula-block {
+      padding: 16px;
+      border-left: 4px solid #526a86;
+      background: var(--soft);
+    }
+
+    .formula-block pre {
+      margin: 8px 0 0;
+      overflow-x: auto;
+      color: #26364a;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.75;
+      white-space: pre-wrap;
+    }
+
+    .rule-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .rule {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .rule:last-child {
+      border-bottom: 0;
+    }
+
+    .rule-mark {
+      display: inline-flex;
+      width: 26px;
+      height: 26px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: #e9eef4;
+      color: #283b52;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .rule p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .state-table {
+      width: 100%;
+      margin-top: 16px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .state-table th,
+    .state-table td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .state-table th {
+      background: #f1f4f7;
+      color: #33445a;
+    }
+
+    .state-table td {
+      color: var(--muted);
+    }
+
+    .state-table td:first-child {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .callout {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--good);
+      background: #eef9f3;
+      color: #174d39;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 920px) {
+      .pipeline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .step:nth-child(5)::after {
+        display: block;
+      }
+
+      .step:nth-child(even)::after,
+      .step:last-child::after {
+        display: none;
+      }
+
+      .readout {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      canvas {
+        height: 620px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      main {
+        width: min(100% - 20px, 1180px);
+        padding-top: 18px;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+
+      .segmented {
+        width: 100%;
+      }
+
+      .segmented button {
+        padding: 7px 6px;
+        font-size: 13px;
+      }
+
+      .playback {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .pipeline,
+      .two-column {
+        grid-template-columns: 1fr;
+      }
+
+      .step::after {
+        display: none;
+      }
+
+      .readout {
+        grid-template-columns: 1fr;
+      }
+
+      .state-table {
+        display: block;
+        overflow-x: auto;
+      }
+
+      canvas {
+        height: 720px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>虚拟笔姿态连续控制方案</h1>
+      <p class="subtitle">
+        假设加入“Z 轴方向做角速度限制 + X/Y 使用上一帧姿态做最小扭转更新”，
+        虚拟笔将从直接重建姿态，变成一个有位置、速度和连续姿态状态的动态模型。
+      </p>
+      <div class="proposal">设计提案：用于 fakehardware / RViz 验证，当前控制代码尚未实现</div>
+    </header>
+
+    <section class="band" aria-labelledby="comparison-title">
+      <h2 id="comparison-title">先看运动差异</h2>
+      <p class="section-intro">
+        两侧接收相同的摇杆输入。红、绿、蓝分别是 pen tip 的 X、Y、Z 轴；
+        绿色线是目标笔杆，蓝点是笔尖，橙点是笔尾。
+      </p>
+
+      <div class="sim-toolbar">
+        <div class="segmented" aria-label="动画场景">
+          <button type="button" data-scenario="reverse" aria-pressed="true">停止后反向</button>
+          <button type="button" data-scenario="turn" aria-pressed="false">运动中换向</button>
+          <button type="button" data-scenario="return" aria-pressed="false">松手回直</button>
+        </div>
+        <div class="playback">
+          <button id="play-toggle" class="icon-button" type="button" title="暂停动画" aria-label="暂停动画">Ⅱ</button>
+          <label class="speed-control">
+            <span>动画速度</span>
+            <input id="speed" type="range" min="0.4" max="1.8" step="0.1" value="1">
+            <span id="speed-value">1.0×</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="sim-shell">
+        <canvas id="comparison-canvas" aria-label="原姿态策略与连续姿态策略动画对比"></canvas>
+        <div class="sim-legend">
+          <span class="legend-item"><span class="swatch" style="--swatch: var(--target)"></span>目标笔杆</span>
+          <span class="legend-item"><span class="swatch" style="--swatch: var(--tip)"></span>笔尖</span>
+          <span class="legend-item"><span class="swatch" style="--swatch: var(--tail)"></span>笔尾</span>
+          <span class="legend-item"><span class="swatch" style="--swatch: var(--axis-x)"></span>X 轴</span>
+          <span class="legend-item"><span class="swatch" style="--swatch: var(--axis-y)"></span>Y 轴</span>
+          <span class="legend-item"><span class="swatch" style="--swatch: var(--axis-z)"></span>Z 轴（tail → tip）</span>
+        </div>
+      </div>
+
+      <div class="readout" aria-live="polite">
+        <div class="readout-item">
+          <span class="readout-label">当前阶段</span>
+          <strong id="phase-label" class="readout-value">沿 +X 运动</strong>
+        </div>
+        <div class="readout-item">
+          <span class="readout-label">目标倾角</span>
+          <strong id="target-tilt" class="readout-value">20.0°</strong>
+        </div>
+        <div class="readout-item">
+          <span class="readout-label">原方案姿态变化</span>
+          <strong id="old-change" class="readout-value">直接重建</strong>
+        </div>
+        <div class="readout-item">
+          <span class="readout-label">新方案姿态变化</span>
+          <strong id="new-change" class="readout-value">≤ 55°/s</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="pipeline-title">
+      <h2 id="pipeline-title">完整控制链路</h2>
+      <p class="section-intro">
+        平移和姿态分开生成，再合成为 target pen tip pose。新策略只改变姿态生成器，
+        不改变纸面 XY 积分、工具偏移反解和 Servo POSE 接口。
+      </p>
+
+      <div class="pipeline">
+        <article class="step">
+          <span class="step-number">1</span>
+          <h3>读取摇杆</h3>
+          <p>deadzone 后得到纸面运动意图 <code>u_x, u_y</code>。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">2</span>
+          <h3>平滑速度</h3>
+          <p>限制最大平面速度、加速度和减速度，得到 <code>v_x, v_y</code>。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">3</span>
+          <h3>积分笔尖位置</h3>
+          <p><code>tip_xy += velocity × dt</code>，并限制在纸面边界内。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">4</span>
+          <h3>计算期望笔轴</h3>
+          <p>运动方向决定倾斜方向，速度决定倾角目标；松手时目标倾角回到 0。</p>
+        </article>
+        <article class="step key-step">
+          <span class="step-number">5</span>
+          <h3>限制 Z 轴角速度</h3>
+          <p>当前 Z 轴只向期望 Z 轴前进 <code>ω_max × dt</code>，禁止方向瞬跳。</p>
+        </article>
+        <article class="step key-step">
+          <span class="step-number">6</span>
+          <h3>最小扭转更新 X/Y</h3>
+          <p>将上一帧 X 投影到新 Z 的垂直平面，只做维持正交所需的旋转。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">7</span>
+          <h3>生成目标姿态</h3>
+          <p>由连续的 X/Y/Z 正交基生成四元数，组成 target pen tip pose。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">8</span>
+          <h3>反解 target tool0</h3>
+          <p>使用固定 <code>tool0 → pen_tip</code> 偏移反解安装点位置，姿态保持一致。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">9</span>
+          <h3>发布 Servo POSE</h3>
+          <p>首次摇杆输入后 arm；运动、回直或尚未对齐时持续发布目标 pose。</p>
+        </article>
+        <article class="step">
+          <span class="step-number">10</span>
+          <h3>反馈与显示</h3>
+          <p>用 TF 中的 current tool0 与 target pose 比较位置和 Z 轴误差。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="orientation-title">
+      <h2 id="orientation-title">姿态生成器内部发生什么</h2>
+      <div class="two-column">
+        <div>
+          <h3>第一层：让笔轴 Z 平滑追踪</h3>
+          <p class="section-intro">
+            先根据 yaw 和 tilt 得到期望的 <code>Z_desired</code>，然后限制每一帧允许转过的角度。
+            这里平滑的是方向向量，不是先跳变后再修补显示。
+          </p>
+          <div class="formula-block">
+            <pre>angle = acos(dot(Z_current, Z_desired))
+max_step = max_axis_rate × dt
+
+Z_next = vector_slerp(
+    Z_current,
+    Z_desired,
+    min(1, max_step / angle)
+)</pre>
+          </div>
+        </div>
+        <div>
+          <h3>第二层：让 X/Y 最小扭转</h3>
+          <p class="section-intro">
+            Z 更新后，不再用最新 yaw 重新定义 X/Y，而是尽可能保留上一帧 X 的方向。
+            这样禁止了无意义的绕笔杆 Z 轴自转。
+          </p>
+          <div class="formula-block">
+            <pre>X_projected = X_previous
+              - dot(X_previous, Z_next) × Z_next
+
+X_next = normalize(X_projected)
+Y_next = normalize(Z_next × X_next)
+X_next = normalize(Y_next × Z_next)</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        笔杆回直时，不同 yaw 对笔轴 Z 没有影响。最小扭转策略会保持 X/Y 连续，
+        因而“停止后反向”不会再让坐标系先绕 Z 突然旋转 180°。
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="states-title">
+      <h2 id="states-title">不同操作下的完整行为</h2>
+      <table class="state-table">
+        <thead>
+          <tr>
+            <th>操作状态</th>
+            <th>笔尖平移</th>
+            <th>Z 轴目标</th>
+            <th>X/Y 行为</th>
+            <th>Pose 发布</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>启动后未操作</td>
+            <td>不积分</td>
+            <td>保持初始竖直</td>
+            <td>保持初始正交基</td>
+            <td>不发布，机械臂不自运动</td>
+          </tr>
+          <tr>
+            <td>首次推动摇杆</td>
+            <td>按加速度逐步启动</td>
+            <td>以最大角速度倾向运动方向</td>
+            <td>随 Z 最小幅度调整</td>
+            <td>arm 后开始发布</td>
+          </tr>
+          <tr>
+            <td>持续运动</td>
+            <td>按当前速度积分</td>
+            <td>追踪当前书写方向</td>
+            <td>不绕 Z 额外自转</td>
+            <td>持续发布</td>
+          </tr>
+          <tr>
+            <td>运动中反向</td>
+            <td>速度先减小再反向</td>
+            <td>受角速度限制连续转向</td>
+            <td>沿新 Z 平行传递</td>
+            <td>持续发布，不发送跳变姿态</td>
+          </tr>
+          <tr>
+            <td>松开摇杆</td>
+            <td>减速到零后停止</td>
+            <td>平滑回到纸面法向</td>
+            <td>保持最小扭转连续性</td>
+            <td>继续发布直到回直和对齐完成</td>
+          </tr>
+          <tr>
+            <td>A 键冻结</td>
+            <td>立即清零</td>
+            <td>冻结当前方向</td>
+            <td>冻结当前正交基</td>
+            <td>立即停止发布</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band" aria-labelledby="geometry-title">
+      <h2 id="geometry-title">从连续 pen tip pose 到 tool0</h2>
+      <div class="two-column">
+        <div class="formula-block">
+          <h3>姿态</h3>
+          <pre>R_tool0_target = R_pen_tip_target
+
+tool0 +Z = tail → tip
+tool0 X/Y = minimal-twist X/Y</pre>
+        </div>
+        <div class="formula-block">
+          <h3>位置</h3>
+          <pre>offset_tool = [0, 0, 0.14]
+
+p_tool0_target =
+    p_pen_tip_target - R_target × offset_tool</pre>
+        </div>
+      </div>
+      <p class="small">
+        当前工具模型假设 <code>tool0 → pen_tip</code> 只有沿局部 +Z 的固定平移，没有额外安装旋转。
+        因此 pen tip 与 tool0 使用同一个连续目标四元数。
+      </p>
+    </section>
+
+    <section class="band" aria-labelledby="guard-title">
+      <h2 id="guard-title">实现时必须保留的保护</h2>
+      <div class="rule-list">
+        <div class="rule">
+          <span class="rule-mark">1</span>
+          <div>
+            <h3>投影退化保护</h3>
+            <p>如果上一帧 X 几乎平行于新 Z，改用上一帧 Y 或固定世界参考轴完成投影。</p>
+          </div>
+        </div>
+        <div class="rule">
+          <span class="rule-mark">2</span>
+          <div>
+            <h3>单位向量与正交化</h3>
+            <p>每帧归一化 Z、X、Y，并重新计算一次 <code>X = Y × Z</code>，抑制数值漂移。</p>
+          </div>
+        </div>
+        <div class="rule">
+          <span class="rule-mark">3</span>
+          <div>
+            <h3>四元数符号连续</h3>
+            <p>若新旧四元数点积小于零，翻转新四元数符号，避免等价四元数造成插值长路径。</p>
+          </div>
+        </div>
+        <div class="rule">
+          <span class="rule-mark">4</span>
+          <div>
+            <h3>角速度参数独立</h3>
+            <p>建议将笔轴转向速度与 tilt 回直速度分开配置，先在 RViz/fakehardware 中确定机械臂可跟踪范围。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("comparison-canvas");
+      const ctx = canvas.getContext("2d");
+      const playButton = document.getElementById("play-toggle");
+      const speedInput = document.getElementById("speed");
+      const speedValue = document.getElementById("speed-value");
+      const phaseLabel = document.getElementById("phase-label");
+      const targetTilt = document.getElementById("target-tilt");
+      const oldChange = document.getElementById("old-change");
+      const newChange = document.getElementById("new-change");
+      const scenarioButtons = [...document.querySelectorAll("[data-scenario]")];
+
+      const colors = {
+        ink: "#18212d",
+        muted: "#687585",
+        line: "#ccd4de",
+        paper: "#efede5",
+        target: "#078a54",
+        tip: "#1557e8",
+        tail: "#e4a11b",
+        motion: "#d9253a",
+        x: "#e02b3e",
+        y: "#13a05f",
+        z: "#2468e8",
+        oldPanel: "#fff7f2",
+        newPanel: "#f2faf6"
+      };
+
+      let scenario = "reverse";
+      let playing = true;
+      let simulationTime = 0;
+      let lastTimestamp = performance.now();
+      let previousPhase = 0;
+      let smoothFrame = null;
+      let cssWidth = 0;
+      let cssHeight = 0;
+
+      const add = (a, b) => a.map((value, index) => value + b[index]);
+      const sub = (a, b) => a.map((value, index) => value - b[index]);
+      const mul = (a, scalar) => a.map((value) => value * scalar);
+      const dot = (a, b) => a.reduce((sum, value, index) => sum + value * b[index], 0);
+      const cross = (a, b) => [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+      ];
+      const length = (vector) => Math.hypot(...vector);
+      const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+      const normalize = (vector) => {
+        const magnitude = length(vector);
+        return magnitude < 1e-9 ? [1, 0, 0] : mul(vector, 1 / magnitude);
+      };
+      const lerp = (a, b, amount) => a + (b - a) * clamp(amount, 0, 1);
+      const ease = (amount) => {
+        const t = clamp(amount, 0, 1);
+        return t * t * (3 - 2 * t);
+      };
+
+      function frameFromYawTilt(yaw, tilt) {
+        const z = normalize([
+          -Math.sin(tilt) * Math.cos(yaw),
+          -Math.sin(tilt) * Math.sin(yaw),
+          -Math.cos(tilt)
+        ]);
+        const heading = normalize([-Math.cos(yaw), -Math.sin(yaw), 0]);
+        const y = normalize(cross(z, heading));
+        const x = normalize(cross(y, z));
+        return { x, y, z };
+      }
+
+      function rotateTowards(current, desired, maxAngle) {
+        const cosine = clamp(dot(current, desired), -1, 1);
+        const angle = Math.acos(cosine);
+        if (angle < 1e-7 || angle <= maxAngle) {
+          return desired;
+        }
+        const fraction = maxAngle / angle;
+        const sinAngle = Math.sin(angle);
+        if (Math.abs(sinAngle) < 1e-6) {
+          return normalize(add(mul(current, 1 - fraction), mul(desired, fraction)));
+        }
+        const a = Math.sin((1 - fraction) * angle) / sinAngle;
+        const b = Math.sin(fraction * angle) / sinAngle;
+        return normalize(add(mul(current, a), mul(desired, b)));
+      }
+
+      function minimalTwistFrame(previous, nextZ) {
+        let projectedX = sub(previous.x, mul(nextZ, dot(previous.x, nextZ)));
+        if (length(projectedX) < 1e-5) {
+          projectedX = sub(previous.y, mul(nextZ, dot(previous.y, nextZ)));
+        }
+        let x = normalize(projectedX);
+        const y = normalize(cross(nextZ, x));
+        x = normalize(cross(y, nextZ));
+        return { x, y, z: nextZ };
+      }
+
+      function scenarioState(name, phase) {
+        if (name === "turn") {
+          if (phase < 0.36) {
+            return { yaw: 0, tilt: 20, velocity: [1, 0], label: "沿 +X 倾斜运动", jump: false };
+          }
+          if (phase < 0.42) {
+            return { yaw: Math.PI, tilt: 20, velocity: [-1, 0], label: "运动中反向输入", jump: true };
+          }
+          if (phase < 0.78) {
+            return { yaw: Math.PI, tilt: 20, velocity: [-1, 0], label: "沿 -X 运动", jump: false };
+          }
+          const tilt = lerp(20, 0, ease((phase - 0.78) / 0.22));
+          return { yaw: Math.PI, tilt, velocity: [0, 0], label: "减速并回直", jump: false };
+        }
+
+        if (name === "return") {
+          if (phase < 0.35) {
+            return {
+              yaw: Math.PI / 4,
+              tilt: 20,
+              velocity: [0.7, 0.7],
+              label: "对角线运动",
+              jump: false
+            };
+          }
+          const tilt = lerp(20, 0, ease((phase - 0.35) / 0.55));
+          return {
+            yaw: Math.PI / 4,
+            tilt,
+            velocity: [0, 0],
+            label: phase < 0.9 ? "松手后平滑回直" : "竖直保持",
+            jump: false
+          };
+        }
+
+        if (phase < 0.25) {
+          return { yaw: 0, tilt: 20, velocity: [1, 0], label: "沿 +X 运动", jump: false };
+        }
+        if (phase < 0.47) {
+          const tilt = lerp(20, 0, ease((phase - 0.25) / 0.22));
+          return { yaw: 0, tilt, velocity: [0, 0], label: "松手并回直", jump: false };
+        }
+        if (phase < 0.58) {
+          return { yaw: 0, tilt: 0, velocity: [0, 0], label: "停止，保持旧 yaw", jump: false };
+        }
+        if (phase < 0.63) {
+          return { yaw: 0, tilt: 0, velocity: [-0.3, 0], label: "反向加速，尚未越过阈值", jump: false };
+        }
+        if (phase < 0.82) {
+          const tilt = lerp(0, 20, ease((phase - 0.63) / 0.19));
+          return { yaw: Math.PI, tilt, velocity: [-1, 0], label: "yaw 切换到反方向", jump: phase < 0.67 };
+        }
+        return { yaw: Math.PI, tilt: 20, velocity: [-1, 0], label: "沿 -X 运动", jump: false };
+      }
+
+      function resetSimulation() {
+        simulationTime = 0;
+        previousPhase = 0;
+        const initial = scenarioState(scenario, 0);
+        smoothFrame = frameFromYawTilt(initial.yaw, initial.tilt * Math.PI / 180);
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+        cssWidth = rect.width;
+        cssHeight = rect.height;
+        canvas.width = Math.round(rect.width * ratio);
+        canvas.height = Math.round(rect.height * ratio);
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      }
+
+      function project(point, center, scale) {
+        return {
+          x: center.x + (point[0] - point[1] * 0.52) * scale,
+          y: center.y - (point[2] + point[1] * 0.34) * scale
+        };
+      }
+
+      function drawLine(from, to, color, width) {
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.stroke();
+      }
+
+      function drawArrow(from, to, color, width, headSize) {
+        drawLine(from, to, color, width);
+        const angle = Math.atan2(to.y - from.y, to.x - from.x);
+        ctx.beginPath();
+        ctx.moveTo(to.x, to.y);
+        ctx.lineTo(
+          to.x - headSize * Math.cos(angle - Math.PI / 6),
+          to.y - headSize * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.lineTo(
+          to.x - headSize * Math.cos(angle + Math.PI / 6),
+          to.y - headSize * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      function drawPaper(center, scale) {
+        const corners = [
+          project([-1.2, -0.72, 0], center, scale),
+          project([1.2, -0.72, 0], center, scale),
+          project([1.2, 0.72, 0], center, scale),
+          project([-1.2, 0.72, 0], center, scale)
+        ];
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        corners.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+        ctx.closePath();
+        ctx.fillStyle = colors.paper;
+        ctx.fill();
+        ctx.strokeStyle = "#b7b4aa";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        for (let value = -0.8; value <= 0.81; value += 0.4) {
+          drawLine(
+            project([value, -0.72, 0.002], center, scale),
+            project([value, 0.72, 0.002], center, scale),
+            "#ddd9cf",
+            0.7
+          );
+        }
+        for (let value = -0.4; value <= 0.41; value += 0.4) {
+          drawLine(
+            project([-1.2, value, 0.002], center, scale),
+            project([1.2, value, 0.002], center, scale),
+            "#ddd9cf",
+            0.7
+          );
+        }
+      }
+
+      function drawPanel(bounds, title, subtitle, frame, state, isNew) {
+        ctx.fillStyle = isNew ? colors.newPanel : colors.oldPanel;
+        ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        ctx.strokeStyle = colors.line;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bounds.x + 0.5, bounds.y + 0.5, bounds.width - 1, bounds.height - 1);
+
+        ctx.fillStyle = colors.ink;
+        ctx.font = "700 16px sans-serif";
+        ctx.fillText(title, bounds.x + 16, bounds.y + 25);
+        ctx.fillStyle = colors.muted;
+        ctx.font = "12px sans-serif";
+        ctx.fillText(subtitle, bounds.x + 16, bounds.y + 44);
+
+        const center = {
+          x: bounds.x + bounds.width * 0.51,
+          y: bounds.y + bounds.height * 0.68
+        };
+        const scale = Math.min(bounds.width / 3.2, bounds.height / 3.2);
+        drawPaper(center, scale);
+
+        const tip3 = [0, 0, 0.018];
+        const tail3 = sub(tip3, mul(frame.z, 1.02));
+        const tip = project(tip3, center, scale);
+        const tail = project(tail3, center, scale);
+
+        if (length(state.velocity) > 0.05) {
+          const direction = normalize([state.velocity[0], state.velocity[1], 0]);
+          const motionEnd = project(add(tip3, mul(direction, 0.58)), center, scale);
+          drawArrow(tip, motionEnd, colors.motion, 3, 10);
+        }
+
+        drawLine(tail, tip, colors.target, 9);
+
+        const axisScale = 0.5;
+        [
+          { vector: frame.x, color: colors.x, label: "X" },
+          { vector: frame.y, color: colors.y, label: "Y" },
+          { vector: frame.z, color: colors.z, label: "Z" }
+        ].forEach((axis) => {
+          const end = project(add(tip3, mul(axis.vector, axisScale)), center, scale);
+          drawArrow(tip, end, axis.color, 3, 9);
+          ctx.fillStyle = axis.color;
+          ctx.font = "700 11px sans-serif";
+          ctx.fillText(axis.label, end.x + 4, end.y - 4);
+        });
+
+        ctx.beginPath();
+        ctx.arc(tip.x, tip.y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = colors.tip;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(tail.x, tail.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = colors.tail;
+        ctx.fill();
+
+        const status = state.jump && !isNew
+          ? "姿态在一帧内跳转"
+          : isNew
+            ? "Z 限速，X/Y 最小扭转"
+            : "每帧由 yaw 直接重建";
+        ctx.fillStyle = state.jump && !isNew ? colors.motion : (isNew ? "#08734a" : colors.muted);
+        ctx.font = "700 12px sans-serif";
+        ctx.fillText(status, bounds.x + 16, bounds.y + bounds.height - 17);
+      }
+
+      function draw(timestamp) {
+        const elapsed = Math.min((timestamp - lastTimestamp) / 1000, 0.05);
+        lastTimestamp = timestamp;
+        const playbackSpeed = Number(speedInput.value);
+        const simulationDt = playing ? elapsed * playbackSpeed : 0;
+        simulationTime += simulationDt;
+
+        const duration = scenario === "turn" ? 7 : 8;
+        const phase = (simulationTime % duration) / duration;
+        if (phase < previousPhase) {
+          const initial = scenarioState(scenario, 0);
+          smoothFrame = frameFromYawTilt(initial.yaw, initial.tilt * Math.PI / 180);
+        }
+        previousPhase = phase;
+
+        const state = scenarioState(scenario, phase);
+        const desiredFrame = frameFromYawTilt(state.yaw, state.tilt * Math.PI / 180);
+        if (!smoothFrame) {
+          smoothFrame = desiredFrame;
+        }
+        const maxAxisRate = 55 * Math.PI / 180;
+        const nextZ = rotateTowards(
+          smoothFrame.z,
+          desiredFrame.z,
+          maxAxisRate * simulationDt
+        );
+        smoothFrame = minimalTwistFrame(smoothFrame, nextZ);
+
+        ctx.clearRect(0, 0, cssWidth, cssHeight);
+        const mobile = cssWidth < 760;
+        const gap = 12;
+        const top = 10;
+        let oldBounds;
+        let newBounds;
+        if (mobile) {
+          const panelHeight = (cssHeight - top * 2 - gap) / 2;
+          oldBounds = { x: 8, y: top, width: cssWidth - 16, height: panelHeight };
+          newBounds = {
+            x: 8,
+            y: top + panelHeight + gap,
+            width: cssWidth - 16,
+            height: panelHeight
+          };
+        } else {
+          const panelWidth = (cssWidth - 24 - gap) / 2;
+          oldBounds = { x: 8, y: top, width: panelWidth, height: cssHeight - top * 2 };
+          newBounds = {
+            x: 8 + panelWidth + gap,
+            y: top,
+            width: panelWidth,
+            height: cssHeight - top * 2
+          };
+        }
+
+        drawPanel(
+          oldBounds,
+          "原策略",
+          "yaw 越过阈值后直接生成完整姿态",
+          desiredFrame,
+          state,
+          false
+        );
+        drawPanel(
+          newBounds,
+          "连续策略",
+          "限制 Z 轴转速，并继承上一帧 X/Y",
+          smoothFrame,
+          state,
+          true
+        );
+
+        phaseLabel.textContent = state.label;
+        targetTilt.textContent = `${state.tilt.toFixed(1)}°`;
+        oldChange.textContent = state.jump ? "瞬时跳变" : "直接重建";
+        newChange.textContent = "≤ 55°/s";
+
+        requestAnimationFrame(draw);
+      }
+
+      playButton.addEventListener("click", () => {
+        playing = !playing;
+        playButton.textContent = playing ? "Ⅱ" : "▶";
+        playButton.title = playing ? "暂停动画" : "播放动画";
+        playButton.setAttribute("aria-label", playButton.title);
+      });
+
+      speedInput.addEventListener("input", () => {
+        speedValue.textContent = `${Number(speedInput.value).toFixed(1)}×`;
+      });
+
+      scenarioButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          scenario = button.dataset.scenario;
+          scenarioButtons.forEach((item) => {
+            item.setAttribute("aria-pressed", String(item === button));
+          });
+          resetSimulation();
+        });
+      });
+
+      const observer = new ResizeObserver(resizeCanvas);
+      observer.observe(canvas);
+      resetSimulation();
+      resizeCanvas();
+      requestAnimationFrame(draw);
+    })();
+  </script>
+</body>
+</html>
