@@ -397,7 +397,7 @@ class PenFakeHardwareServoNode(Node):
             self.declare_parameter("alignment_error_log_rate_hz", 20.0).value
         )
         self.max_planar_speed_mps = float(
-            self.declare_parameter("max_planar_speed_mps", 0.03).value
+            self.declare_parameter("max_planar_speed_mps", 0.025).value
         )
         self.turn_speed_scale_active_speed_mps = float(
             self.declare_parameter("turn_speed_scale_active_speed_mps", 0.01).value
@@ -424,15 +424,15 @@ class PenFakeHardwareServoNode(Node):
             self.declare_parameter("tilt_activate_speed_mps", 0.01).value
         )
         self.tilt_rate_degps = float(
-            self.declare_parameter("tilt_rate_degps", 10.0).value
+            self.declare_parameter("tilt_rate_degps", 8.0).value
         )
         self.untilt_rate_degps = float(
-            self.declare_parameter("untilt_rate_degps", 12.0).value
+            self.declare_parameter("untilt_rate_degps", 10.0).value
         )
         self.max_pen_axis_angular_speed_degps = float(
             self.declare_parameter(
                 "max_pen_axis_angular_speed_degps",
-                12.0,
+                10.0,
             ).value
         )
         self.tool_position_tolerance_m = float(
