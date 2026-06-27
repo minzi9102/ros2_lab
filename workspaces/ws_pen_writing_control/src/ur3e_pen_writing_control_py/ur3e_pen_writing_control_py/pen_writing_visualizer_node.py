@@ -17,8 +17,8 @@ from .pen_math import (
     PlanarVelocity,
     SmoothPlanarVelocity,
     VirtualPenState,
-    pen_axis_vector,
 )
+from .pose_math import ContinuousPenOrientation, rotate_vector
 
 
 @dataclass(frozen=True)
@@ -66,10 +66,19 @@ class PenWritingVisualizerNode(Node):
         self.untilt_rate_degps = float(
             self.declare_parameter("untilt_rate_degps", 60.0).value
         )
+        self.max_pen_axis_angular_speed_degps = float(
+            self.declare_parameter(
+                "max_pen_axis_angular_speed_degps",
+                55.0,
+            ).value
+        )
         self.pen_length_m = float(self.declare_parameter("pen_length_m", 0.14).value)
         self.pen_radius_m = float(self.declare_parameter("pen_radius_m", 0.006).value)
         self.pen_tip_radius_m = float(
             self.declare_parameter("pen_tip_radius_m", 0.01).value
+        )
+        self.target_pen_tip_axis_length_m = float(
+            self.declare_parameter("target_pen_tip_axis_length_m", 0.08).value
         )
         self.fixed_tilt_deg = float(self.declare_parameter("fixed_tilt_deg", 20.0).value)
         self.paper_width_m = float(self.declare_parameter("paper_width_m", 0.24).value)
@@ -116,6 +125,13 @@ class PenWritingVisualizerNode(Node):
             tilt_activate_speed_mps=self.tilt_activate_speed_mps,
             tilt_rate_radps=math.radians(self.tilt_rate_degps),
             untilt_rate_radps=math.radians(self.untilt_rate_degps),
+        )
+        self._pen_orientation = ContinuousPenOrientation(
+            initial_pen_pose=self._pen_state.pose,
+            pen_length=self.pen_length_m,
+            max_axis_angular_speed_radps=math.radians(
+                self.max_pen_axis_angular_speed_degps
+            ),
         )
         self._last_timer_time = time.monotonic()
         self._quit_requested = False
@@ -164,6 +180,14 @@ class PenWritingVisualizerNode(Node):
             raise ValueError("tilt_rate_degps must be greater than zero")
         if self.untilt_rate_degps <= 0.0:
             raise ValueError("untilt_rate_degps must be greater than zero")
+        if self.max_pen_axis_angular_speed_degps <= 0.0:
+            raise ValueError(
+                "max_pen_axis_angular_speed_degps must be greater than zero"
+            )
+        if self.target_pen_tip_axis_length_m <= 0.0:
+            raise ValueError(
+                "target_pen_tip_axis_length_m must be greater than zero"
+            )
 
     def _on_joy_message(self, msg: Joy) -> None:
         self._latest_joy_control = self._joy_mapper.map(msg.axes, msg.buttons)
@@ -181,6 +205,7 @@ class PenWritingVisualizerNode(Node):
             velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
 
         pose = self._pen_state.update(velocity, dt_sec)
+        self._pen_orientation.update(pose, dt_sec)
         self._publish_tf_and_markers(velocity)
 
         if control.quit_requested:
@@ -231,18 +256,25 @@ class PenWritingVisualizerNode(Node):
         transform.transform.translation.x = pose.tip_x
         transform.transform.translation.y = pose.tip_y
         transform.transform.translation.z = 0.0
-        transform.transform.rotation.w = 1.0
+        orientation = self._pen_orientation.orientation
+        transform.transform.rotation.x = orientation.x
+        transform.transform.rotation.y = orientation.y
+        transform.transform.rotation.z = orientation.z
+        transform.transform.rotation.w = orientation.w
         return transform
 
     def _make_marker_array(self, velocity: PlanarVelocity) -> MarkerArray:
         pose = self._pen_state.pose
-        axis = pen_axis_vector(
-            tail_yaw=pose.yaw,
-            tilt_rad=pose.tilt_rad,
-            pen_length=self.pen_length_m,
+        z_axis = rotate_vector(
+            self._pen_orientation.orientation,
+            (0.0, 0.0, 1.0),
         )
         tip = Point3(pose.tip_x, pose.tip_y, 0.0)
-        tail = Point3(pose.tip_x + axis[0], pose.tip_y + axis[1], axis[2])
+        tail = Point3(
+            pose.tip_x - z_axis[0] * self.pen_length_m,
+            pose.tip_y - z_axis[1] * self.pen_length_m,
+            -z_axis[2] * self.pen_length_m,
+        )
 
         markers = [
             self._paper_marker(marker_id=0),
@@ -251,6 +283,27 @@ class PenWritingVisualizerNode(Node):
             self._axis_marker(marker_id=3, tip=tip, tail=tail),
             self._motion_marker(marker_id=4, tip=tip, velocity=velocity),
             self._tail_marker(marker_id=5, tail=tail),
+            self._pose_axis_marker(
+                marker_id=6,
+                tip=tip,
+                local_axis=(1.0, 0.0, 0.0),
+                namespace="target_pen_tip_x_axis",
+                color=ColorRGBA(r=0.95, g=0.10, b=0.10, a=1.0),
+            ),
+            self._pose_axis_marker(
+                marker_id=7,
+                tip=tip,
+                local_axis=(0.0, 1.0, 0.0),
+                namespace="target_pen_tip_y_axis",
+                color=ColorRGBA(r=0.10, g=0.85, b=0.20, a=1.0),
+            ),
+            self._pose_axis_marker(
+                marker_id=8,
+                tip=tip,
+                local_axis=(0.0, 0.0, 1.0),
+                namespace="target_pen_tip_z_axis",
+                color=ColorRGBA(r=0.10, g=0.35, b=1.0, a=1.0),
+            ),
         ]
         return MarkerArray(markers=markers)
 
@@ -356,6 +409,33 @@ class PenWritingVisualizerNode(Node):
         marker.scale.y = 0.012
         marker.scale.z = 0.012
         marker.color = ColorRGBA(r=0.85, g=0.10, b=0.18, a=1.0)
+        return marker
+
+    def _pose_axis_marker(
+        self,
+        *,
+        marker_id: int,
+        tip: Point3,
+        local_axis: tuple[float, float, float],
+        namespace: str,
+        color: ColorRGBA,
+    ) -> Marker:
+        axis = rotate_vector(self._pen_orientation.orientation, local_axis)
+        marker = self._base_marker(marker_id, Marker.ARROW, namespace)
+        marker.points = self._points(
+            [
+                (tip.x, tip.y, tip.z),
+                (
+                    tip.x + axis[0] * self.target_pen_tip_axis_length_m,
+                    tip.y + axis[1] * self.target_pen_tip_axis_length_m,
+                    tip.z + axis[2] * self.target_pen_tip_axis_length_m,
+                ),
+            ]
+        )
+        marker.scale.x = 0.004
+        marker.scale.y = 0.010
+        marker.scale.z = 0.010
+        marker.color = color
         return marker
 
     @staticmethod

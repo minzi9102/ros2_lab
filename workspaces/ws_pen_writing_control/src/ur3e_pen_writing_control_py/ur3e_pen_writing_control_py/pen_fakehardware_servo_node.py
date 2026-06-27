@@ -21,6 +21,7 @@ from .pen_math import (
     VirtualPenState,
 )
 from .pose_math import (
+    ContinuousPenOrientation,
     Point3,
     PoseTarget,
     Quaternion,
@@ -53,10 +54,12 @@ def is_virtual_pen_settling(
     tilt_rad: float,
     speed_tolerance_mps: float,
     tilt_tolerance_rad: float,
+    orientation_error_rad: float = 0.0,
 ) -> bool:
     return (
         math.hypot(velocity.x, velocity.y) > speed_tolerance_mps
         or abs(tilt_rad) > tilt_tolerance_rad
+        or abs(orientation_error_rad) > tilt_tolerance_rad
     )
 
 
@@ -282,6 +285,12 @@ class PenFakeHardwareServoNode(Node):
         self.untilt_rate_degps = float(
             self.declare_parameter("untilt_rate_degps", 60.0).value
         )
+        self.max_pen_axis_angular_speed_degps = float(
+            self.declare_parameter(
+                "max_pen_axis_angular_speed_degps",
+                55.0,
+            ).value
+        )
         self.tool_position_tolerance_m = float(
             self.declare_parameter("tool_position_tolerance_m", 0.005).value
         )
@@ -389,6 +398,13 @@ class PenFakeHardwareServoNode(Node):
             tilt_rate_radps=math.radians(self.tilt_rate_degps),
             untilt_rate_radps=math.radians(self.untilt_rate_degps),
         )
+        self._pen_orientation = ContinuousPenOrientation(
+            initial_pen_pose=self._pen_state.pose,
+            pen_length=self.pen_length_m,
+            max_axis_angular_speed_radps=math.radians(
+                self.max_pen_axis_angular_speed_degps
+            ),
+        )
         self._last_timer_time = time.monotonic()
 
         self._timer = self.create_timer(1.0 / self.publish_rate_hz, self._on_timer)
@@ -403,6 +419,8 @@ class PenFakeHardwareServoNode(Node):
             f"require_motion_before_pose_command={self.require_motion_before_pose_command} "
             f"tool_position_tolerance={self.tool_position_tolerance_m:.3f}m "
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
+            f"max_pen_axis_rate="
+            f"{self.max_pen_axis_angular_speed_degps:.1f}deg/s "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
         )
@@ -459,6 +477,10 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("tilt_rate_degps must be greater than zero")
         if self.untilt_rate_degps <= 0.0:
             raise ValueError("untilt_rate_degps must be greater than zero")
+        if self.max_pen_axis_angular_speed_degps <= 0.0:
+            raise ValueError(
+                "max_pen_axis_angular_speed_degps must be greater than zero"
+            )
 
     def _on_joy_message(self, msg: Joy) -> None:
         self._latest_joy_control = self._joy_mapper.map(msg.axes, msg.buttons)
@@ -521,7 +543,8 @@ class PenFakeHardwareServoNode(Node):
         else:
             velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
 
-        self._pen_state.update(velocity, dt_sec)
+        pen_pose = self._pen_state.update(velocity, dt_sec)
+        self._pen_orientation.update(pen_pose, dt_sec)
         target_tool_pose = self._make_tool_pose_target()
         current_tool_pose = self._lookup_current_tool_pose()
         tool_pose_aligned = (
@@ -540,6 +563,7 @@ class PenFakeHardwareServoNode(Node):
             tilt_rad=self._pen_state.pose.tilt_rad,
             speed_tolerance_mps=self.pose_settle_speed_mps,
             tilt_tolerance_rad=math.radians(self.pose_settle_tilt_deg),
+            orientation_error_rad=self._pen_orientation.axis_error_rad,
         )
         self._publish_tf_markers_and_pose(
             velocity,
@@ -663,6 +687,7 @@ class PenFakeHardwareServoNode(Node):
             paper_origin=self._paper_origin,
             pen_length=self.pen_length_m,
             tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
+            orientation_override=self._pen_orientation.orientation,
         )
 
     def _publish_tf_markers_and_pose(

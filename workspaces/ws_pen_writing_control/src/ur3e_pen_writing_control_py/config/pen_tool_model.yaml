@@ -14,10 +14,12 @@ pen_writing_visualizer_node:
     tilt_activate_speed_mps: 0.01
     tilt_rate_degps: 45.0
     untilt_rate_degps: 60.0
+    max_pen_axis_angular_speed_degps: 55.0
     pen_length_m: 0.14
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
     pen_radius_m: 0.006
     pen_tip_radius_m: 0.01
+    target_pen_tip_axis_length_m: 0.08
     fixed_tilt_deg: 20.0
     paper_width_m: 0.24
     paper_height_m: 0.16
@@ -28,6 +30,7 @@ pen_fakehardware_servo:
   ros__parameters:
     paper_origin_xyz: [0.45, 0.0, 0.12]
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
+    max_pen_axis_angular_speed_degps: 55.0
     target_pen_tip_axis_length_m: 0.08
     tool0_axis_length_m: 0.08
     tool_position_tolerance_m: 0.005

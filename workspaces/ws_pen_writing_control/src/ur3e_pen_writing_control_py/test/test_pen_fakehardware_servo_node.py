@@ -154,6 +154,13 @@ def test_virtual_pen_settling_detects_speed_or_tilt():
         speed_tolerance_mps=0.002,
         tilt_tolerance_rad=math.radians(0.5),
     )
+    assert is_virtual_pen_settling(
+        velocity=PlanarVelocity(),
+        tilt_rad=0.0,
+        speed_tolerance_mps=0.002,
+        tilt_tolerance_rad=math.radians(0.5),
+        orientation_error_rad=math.radians(1.0),
+    )
 
 
 def test_tool_pose_alignment_checks_position_and_tool_z_axis():
