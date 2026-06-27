@@ -167,6 +167,47 @@ class VirtualPenState:
         return self._pose
 
 
+def planar_turn_speed_scale(
+    *,
+    current_velocity: PlanarVelocity,
+    target_x: float,
+    target_y: float,
+    active_speed_mps: float,
+    soft_turn_deg: float,
+    hard_turn_deg: float,
+    min_scale: float,
+) -> float:
+    if active_speed_mps < 0.0:
+        raise ValueError("active_speed_mps must be non-negative")
+    if soft_turn_deg < 0.0:
+        raise ValueError("soft_turn_deg must be non-negative")
+    if hard_turn_deg <= soft_turn_deg:
+        raise ValueError("hard_turn_deg must be greater than soft_turn_deg")
+    if min_scale <= 0.0 or min_scale > 1.0:
+        raise ValueError("min_scale must be in (0, 1]")
+
+    target_norm = math.hypot(target_x, target_y)
+    current_speed = math.hypot(current_velocity.x, current_velocity.y)
+    if target_norm < 1e-9 or current_speed < active_speed_mps:
+        return 1.0
+
+    dot = clamp(
+        (
+            current_velocity.x * target_x + current_velocity.y * target_y
+        ) / (current_speed * target_norm),
+        -1.0,
+        1.0,
+    )
+    turn_deg = math.degrees(math.acos(dot))
+    if turn_deg <= soft_turn_deg:
+        return 1.0
+    if turn_deg >= hard_turn_deg:
+        return min_scale
+
+    blend = (turn_deg - soft_turn_deg) / (hard_turn_deg - soft_turn_deg)
+    return 1.0 - blend * (1.0 - min_scale)
+
+
 def desired_pen_tail_yaw(linear_x: float, linear_y: float) -> float:
     yaw = math.atan2(linear_y, linear_x)
     if math.isclose(yaw, -math.pi):

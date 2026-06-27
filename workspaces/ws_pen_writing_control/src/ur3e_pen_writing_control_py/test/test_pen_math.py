@@ -5,6 +5,7 @@ import pytest
 from ur3e_pen_writing_control_py.pen_math import (
     PaperBounds,
     PlanarVelocity,
+    planar_turn_speed_scale,
     SmoothPlanarVelocity,
     VirtualPenState,
     desired_pen_tail_yaw,
@@ -172,6 +173,62 @@ def test_smooth_velocity_caps_diagonal_speed():
 
     assert math.hypot(command.x, command.y) == pytest.approx(0.08)
     assert command.x == pytest.approx(command.y)
+
+
+def test_turn_speed_scale_stays_full_for_small_heading_change():
+    scale = planar_turn_speed_scale(
+        current_velocity=PlanarVelocity(x=0.03, y=0.0),
+        target_x=1.0,
+        target_y=0.1,
+        active_speed_mps=0.01,
+        soft_turn_deg=45.0,
+        hard_turn_deg=135.0,
+        min_scale=0.35,
+    )
+
+    assert scale == pytest.approx(1.0)
+
+
+def test_turn_speed_scale_reaches_min_for_reverse_command():
+    scale = planar_turn_speed_scale(
+        current_velocity=PlanarVelocity(x=0.03, y=0.0),
+        target_x=-1.0,
+        target_y=0.0,
+        active_speed_mps=0.01,
+        soft_turn_deg=45.0,
+        hard_turn_deg=135.0,
+        min_scale=0.35,
+    )
+
+    assert scale == pytest.approx(0.35)
+
+
+def test_turn_speed_scale_blends_for_mid_angle_change():
+    scale = planar_turn_speed_scale(
+        current_velocity=PlanarVelocity(x=0.03, y=0.0),
+        target_x=0.0,
+        target_y=1.0,
+        active_speed_mps=0.01,
+        soft_turn_deg=45.0,
+        hard_turn_deg=135.0,
+        min_scale=0.35,
+    )
+
+    assert scale == pytest.approx(0.675)
+
+
+def test_turn_speed_scale_does_not_slow_from_near_stop():
+    scale = planar_turn_speed_scale(
+        current_velocity=PlanarVelocity(x=0.001, y=0.0),
+        target_x=-1.0,
+        target_y=0.0,
+        active_speed_mps=0.01,
+        soft_turn_deg=45.0,
+        hard_turn_deg=135.0,
+        min_scale=0.35,
+    )
+
+    assert scale == pytest.approx(1.0)
 
 
 def test_move_toward_limits_step_without_overshoot():

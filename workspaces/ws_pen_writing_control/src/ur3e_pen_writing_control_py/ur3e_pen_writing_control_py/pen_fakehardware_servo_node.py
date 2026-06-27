@@ -19,6 +19,7 @@ from .joy_mapping import JoyControl, JoyMapper
 from .pen_math import (
     PaperBounds,
     PlanarVelocity,
+    planar_turn_speed_scale,
     SmoothPlanarVelocity,
     VirtualPenState,
 )
@@ -398,6 +399,18 @@ class PenFakeHardwareServoNode(Node):
         self.max_planar_speed_mps = float(
             self.declare_parameter("max_planar_speed_mps", 0.03).value
         )
+        self.turn_speed_scale_active_speed_mps = float(
+            self.declare_parameter("turn_speed_scale_active_speed_mps", 0.01).value
+        )
+        self.turn_speed_scale_soft_deg = float(
+            self.declare_parameter("turn_speed_scale_soft_deg", 45.0).value
+        )
+        self.turn_speed_scale_hard_deg = float(
+            self.declare_parameter("turn_speed_scale_hard_deg", 135.0).value
+        )
+        self.turn_speed_scale_min = float(
+            self.declare_parameter("turn_speed_scale_min", 0.35).value
+        )
         self.acceleration_mps2 = float(
             self.declare_parameter("acceleration_mps2", 0.08).value
         )
@@ -624,6 +637,15 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError(
                 "max_pen_axis_angular_speed_degps must be greater than zero"
             )
+        planar_turn_speed_scale(
+            current_velocity=PlanarVelocity(),
+            target_x=0.0,
+            target_y=0.0,
+            active_speed_mps=self.turn_speed_scale_active_speed_mps,
+            soft_turn_deg=self.turn_speed_scale_soft_deg,
+            hard_turn_deg=self.turn_speed_scale_hard_deg,
+            min_scale=self.turn_speed_scale_min,
+        )
 
     def _on_joy_message(self, msg: Joy) -> None:
         self._latest_joy_control = self._joy_mapper.map(msg.axes, msg.buttons)
@@ -694,7 +716,20 @@ class PenFakeHardwareServoNode(Node):
                 rclpy.shutdown()
             return
         else:
-            velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
+            turn_scale = planar_turn_speed_scale(
+                current_velocity=self._velocity.current(),
+                target_x=control.target_x,
+                target_y=control.target_y,
+                active_speed_mps=self.turn_speed_scale_active_speed_mps,
+                soft_turn_deg=self.turn_speed_scale_soft_deg,
+                hard_turn_deg=self.turn_speed_scale_hard_deg,
+                min_scale=self.turn_speed_scale_min,
+            )
+            velocity = self._velocity.update(
+                control.target_x * turn_scale,
+                control.target_y * turn_scale,
+                dt_sec,
+            )
 
         pen_pose = self._pen_state.update(velocity, dt_sec)
         self._pen_orientation.update(pen_pose, dt_sec)

@@ -8,6 +8,10 @@ pen_writing_visualizer_node:
     joy_deadzone: 0.08
     joy_timeout_sec: 0.25
     max_planar_speed_mps: 0.03
+    turn_speed_scale_active_speed_mps: 0.01
+    turn_speed_scale_soft_deg: 45.0
+    turn_speed_scale_hard_deg: 135.0
+    turn_speed_scale_min: 0.35
     acceleration_mps2: 0.08
     deceleration_mps2: 0.16
     yaw_hold_speed_mps: 0.005
@@ -31,6 +35,10 @@ pen_fakehardware_servo:
     paper_origin_xyz: [0.45, 0.0, 0.12]
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
     max_planar_speed_mps: 0.03
+    turn_speed_scale_active_speed_mps: 0.01
+    turn_speed_scale_soft_deg: 45.0
+    turn_speed_scale_hard_deg: 135.0
+    turn_speed_scale_min: 0.35
     tilt_rate_degps: 10.0
     untilt_rate_degps: 12.0
     max_pen_axis_angular_speed_degps: 12.0
