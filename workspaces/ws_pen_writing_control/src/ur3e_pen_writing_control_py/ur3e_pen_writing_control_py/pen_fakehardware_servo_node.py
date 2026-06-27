@@ -311,6 +311,9 @@ class PenFakeHardwareServoNode(Node):
         self.target_pen_tip_axis_length_m = float(
             self.declare_parameter("target_pen_tip_axis_length_m", 0.08).value
         )
+        self.target_tool0_axis_length_m = float(
+            self.declare_parameter("target_tool0_axis_length_m", 0.08).value
+        )
         self.tool0_axis_length_m = float(
             self.declare_parameter("tool0_axis_length_m", 0.08).value
         )
@@ -465,6 +468,8 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("pen_tip_radius_m must be greater than zero")
         if self.target_pen_tip_axis_length_m <= 0.0:
             raise ValueError("target_pen_tip_axis_length_m must be greater than zero")
+        if self.target_tool0_axis_length_m <= 0.0:
+            raise ValueError("target_tool0_axis_length_m must be greater than zero")
         if self.tool0_axis_length_m <= 0.0:
             raise ValueError("tool0_axis_length_m must be greater than zero")
         if self.paper_width_m <= 0.0 or self.paper_height_m <= 0.0:
@@ -812,6 +817,30 @@ class PenFakeHardwareServoNode(Node):
             ),
             self._pose_axis_marker(
                 marker_id=10,
+                pose=target_tool_pose,
+                local_axis=Point3(x=1.0, y=0.0, z=0.0),
+                axis_length_m=self.target_tool0_axis_length_m,
+                namespace="target_tool0_x_axis",
+                color=ColorRGBA(r=1.0, g=0.10, b=0.85, a=1.0),
+            ),
+            self._pose_axis_marker(
+                marker_id=11,
+                pose=target_tool_pose,
+                local_axis=Point3(x=0.0, y=1.0, z=0.0),
+                axis_length_m=self.target_tool0_axis_length_m,
+                namespace="target_tool0_y_axis",
+                color=ColorRGBA(r=1.0, g=0.85, b=0.05, a=1.0),
+            ),
+            self._pose_axis_marker(
+                marker_id=12,
+                pose=target_tool_pose,
+                local_axis=Point3(x=0.0, y=0.0, z=1.0),
+                axis_length_m=self.target_tool0_axis_length_m,
+                namespace="target_tool0_z_axis",
+                color=ColorRGBA(r=0.95, g=0.95, b=1.0, a=1.0),
+            ),
+            self._pose_axis_marker(
+                marker_id=13,
                 pose=current_tool_pose,
                 local_axis=Point3(x=1.0, y=0.0, z=0.0),
                 axis_length_m=self.tool0_axis_length_m,
@@ -819,7 +848,7 @@ class PenFakeHardwareServoNode(Node):
                 color=ColorRGBA(r=0.95, g=0.10, b=0.10, a=1.0),
             ),
             self._pose_axis_marker(
-                marker_id=11,
+                marker_id=14,
                 pose=current_tool_pose,
                 local_axis=Point3(x=0.0, y=1.0, z=0.0),
                 axis_length_m=self.tool0_axis_length_m,
@@ -827,7 +856,7 @@ class PenFakeHardwareServoNode(Node):
                 color=ColorRGBA(r=0.10, g=0.85, b=0.20, a=1.0),
             ),
             self._pose_axis_marker(
-                marker_id=12,
+                marker_id=15,
                 pose=current_tool_pose,
                 local_axis=Point3(x=0.0, y=0.0, z=1.0),
                 axis_length_m=self.tool0_axis_length_m,

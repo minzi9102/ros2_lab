@@ -32,6 +32,7 @@ pen_fakehardware_servo:
     tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
     max_pen_axis_angular_speed_degps: 55.0
     target_pen_tip_axis_length_m: 0.08
+    target_tool0_axis_length_m: 0.08
     tool0_axis_length_m: 0.08
     tool_position_tolerance_m: 0.005
     tool_orientation_tolerance_deg: 3.0
