@@ -183,6 +183,7 @@ def generate_launch_description() -> LaunchDescription:
 
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
+    servo_yaml["scale"]["rotational"] = 0.5
     servo_params = {"moveit_servo": servo_yaml}
 
     driver_launch = IncludeLaunchDescription(
