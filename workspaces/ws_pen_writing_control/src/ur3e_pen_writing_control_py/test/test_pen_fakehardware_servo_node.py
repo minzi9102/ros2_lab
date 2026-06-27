@@ -10,6 +10,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_tool_pose_aligned,
     is_virtual_pen_settling,
     paper_origin_from_current_tool0,
+    pose_axis_points,
     raw_follow_scale,
     scaled_motion_control,
     should_publish_pose_command,
@@ -431,3 +432,26 @@ def test_tool_tail_to_tip_points_make_arrow_match_virtual_pen_axis():
 
     assert start.z == pytest.approx(0.3)
     assert end.z == pytest.approx(0.44)
+
+
+def test_pose_axis_points_rotate_and_enlarge_target_pen_tip_axes():
+    pose = PoseTarget(
+        position=Point3(x=0.1, y=0.2, z=0.3),
+        orientation=Quaternion(
+            x=0.0,
+            y=0.0,
+            z=math.sin(math.pi / 4.0),
+            w=math.cos(math.pi / 4.0),
+        ),
+    )
+
+    start, end = pose_axis_points(
+        pose=pose,
+        local_axis=Point3(x=1.0, y=0.0, z=0.0),
+        axis_length_m=0.08,
+    )
+
+    assert start == pose.position
+    assert end.x == pytest.approx(0.1)
+    assert end.y == pytest.approx(0.28)
+    assert end.z == pytest.approx(0.3)

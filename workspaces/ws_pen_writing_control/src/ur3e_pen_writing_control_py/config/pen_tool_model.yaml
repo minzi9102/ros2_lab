@@ -31,6 +31,7 @@ pen_fakehardware_servo:
     max_planar_speed_mps: 0.03
     acceleration_mps2: 0.04
     deceleration_mps2: 0.08
+    target_pen_tip_axis_length_m: 0.08
     tool_position_tolerance_m: 0.005
     pen_tip_position_tolerance_m: 0.002
     tool_orientation_tolerance_deg: 0.75

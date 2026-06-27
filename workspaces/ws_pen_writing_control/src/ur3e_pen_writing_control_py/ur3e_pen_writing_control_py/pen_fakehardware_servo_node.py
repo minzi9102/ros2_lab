@@ -269,6 +269,23 @@ def tool_tail_to_tip_points(
     )
 
 
+def pose_axis_points(
+    *,
+    pose: PoseTarget,
+    local_axis: Point3,
+    axis_length_m: float,
+) -> tuple[Point3, Point3]:
+    endpoint = transform_point(
+        pose,
+        Point3(
+            x=local_axis.x * axis_length_m,
+            y=local_axis.y * axis_length_m,
+            z=local_axis.z * axis_length_m,
+        ),
+    )
+    return pose.position, endpoint
+
+
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
@@ -390,6 +407,9 @@ class PenFakeHardwareServoNode(Node):
         self.pen_radius_m = float(self.declare_parameter("pen_radius_m", 0.006).value)
         self.pen_tip_radius_m = float(
             self.declare_parameter("pen_tip_radius_m", 0.01).value
+        )
+        self.target_pen_tip_axis_length_m = float(
+            self.declare_parameter("target_pen_tip_axis_length_m", 0.08).value
         )
         self.fixed_tilt_deg = float(self.declare_parameter("fixed_tilt_deg", 20.0).value)
         self.paper_width_m = float(self.declare_parameter("paper_width_m", 0.24).value)
@@ -569,6 +589,8 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("pen_radius_m must be greater than zero")
         if self.pen_tip_radius_m <= 0.0:
             raise ValueError("pen_tip_radius_m must be greater than zero")
+        if self.target_pen_tip_axis_length_m <= 0.0:
+            raise ValueError("target_pen_tip_axis_length_m must be greater than zero")
         if self.paper_width_m <= 0.0 or self.paper_height_m <= 0.0:
             raise ValueError("paper dimensions must be greater than zero")
         if self.fixed_tilt_deg < 0.0 or self.fixed_tilt_deg >= 90.0:
@@ -905,7 +927,7 @@ class PenFakeHardwareServoNode(Node):
         self._tf_broadcaster.sendTransform(
             [
                 self._paper_transform(stamp),
-                self._pen_tip_transform(stamp),
+                self._pen_tip_transform(stamp, target_tool_pose),
             ]
         )
         self._marker_publisher.publish(
@@ -929,16 +951,24 @@ class PenFakeHardwareServoNode(Node):
         transform.transform.rotation.w = 1.0
         return transform
 
-    def _pen_tip_transform(self, stamp) -> TransformStamped:
-        pose = self._pen_state.pose
+    def _pen_tip_transform(
+        self,
+        stamp,
+        target_tool_pose: PoseTarget,
+    ) -> TransformStamped:
+        tip_base = transform_point(target_tool_pose, self.tool0_to_pen_tip)
+        tip = self._base_to_paper_point(tip_base)
         transform = TransformStamped()
         transform.header.stamp = stamp
         transform.header.frame_id = self.frames.paper_frame
         transform.child_frame_id = "pen_tip"
-        transform.transform.translation.x = pose.tip_x
-        transform.transform.translation.y = pose.tip_y
-        transform.transform.translation.z = 0.0
-        transform.transform.rotation.w = 1.0
+        transform.transform.translation.x = tip.x
+        transform.transform.translation.y = tip.y
+        transform.transform.translation.z = tip.z
+        transform.transform.rotation.x = target_tool_pose.orientation.x
+        transform.transform.rotation.y = target_tool_pose.orientation.y
+        transform.transform.rotation.z = target_tool_pose.orientation.z
+        transform.transform.rotation.w = target_tool_pose.orientation.w
         return transform
 
     def _make_pose_stamped(self, stamp, target: PoseTarget) -> PoseStamped:
@@ -965,6 +995,10 @@ class PenFakeHardwareServoNode(Node):
         tool_base = target_tool_pose.position
         tip = self._base_to_paper_point(tip_base)
         tool = self._base_to_paper_point(tool_base)
+        target_pen_tip_pose = PoseTarget(
+            position=tip_base,
+            orientation=target_tool_pose.orientation,
+        )
 
         markers = [
             self._paper_marker(marker_id=0),
@@ -976,6 +1010,27 @@ class PenFakeHardwareServoNode(Node):
             self._actual_tool_to_pen_tip_marker(
                 marker_id=6,
                 current_tool_pose=current_tool_pose,
+            ),
+            self._target_pen_tip_axis_marker(
+                marker_id=7,
+                target_pen_tip_pose=target_pen_tip_pose,
+                local_axis=Point3(x=1.0, y=0.0, z=0.0),
+                namespace="target_pen_tip_x_axis",
+                color=ColorRGBA(r=0.95, g=0.10, b=0.10, a=1.0),
+            ),
+            self._target_pen_tip_axis_marker(
+                marker_id=8,
+                target_pen_tip_pose=target_pen_tip_pose,
+                local_axis=Point3(x=0.0, y=1.0, z=0.0),
+                namespace="target_pen_tip_y_axis",
+                color=ColorRGBA(r=0.10, g=0.85, b=0.20, a=1.0),
+            ),
+            self._target_pen_tip_axis_marker(
+                marker_id=9,
+                target_pen_tip_pose=target_pen_tip_pose,
+                local_axis=Point3(x=0.0, y=0.0, z=1.0),
+                namespace="target_pen_tip_z_axis",
+                color=ColorRGBA(r=0.10, g=0.35, b=1.0, a=1.0),
             ),
         ]
         return MarkerArray(markers=markers)
@@ -1110,6 +1165,35 @@ class PenFakeHardwareServoNode(Node):
         marker.scale.y = 0.010
         marker.scale.z = 0.010
         marker.color = ColorRGBA(r=0.05, g=0.85, b=0.95, a=1.0)
+        return marker
+
+    def _target_pen_tip_axis_marker(
+        self,
+        *,
+        marker_id: int,
+        target_pen_tip_pose: PoseTarget,
+        local_axis: Point3,
+        namespace: str,
+        color: ColorRGBA,
+    ) -> Marker:
+        start_base, end_base = pose_axis_points(
+            pose=target_pen_tip_pose,
+            local_axis=local_axis,
+            axis_length_m=self.target_pen_tip_axis_length_m,
+        )
+        start = self._base_to_paper_point(start_base)
+        end = self._base_to_paper_point(end_base)
+        marker = self._base_marker(marker_id, Marker.ARROW, namespace)
+        marker.points = self._points(
+            [
+                (start.x, start.y, start.z),
+                (end.x, end.y, end.z),
+            ]
+        )
+        marker.scale.x = 0.004
+        marker.scale.y = 0.010
+        marker.scale.z = 0.010
+        marker.color = color
         return marker
 
     def _configured_paper_origin(self) -> Point3:
