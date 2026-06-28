@@ -28,6 +28,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
+STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = 1.5708
+
 
 def load_yaml(package_name: str, file_path: str):
     package_path = get_package_share_directory(package_name)
@@ -94,6 +96,13 @@ def _refuse_launch(reason: str):
 
 def _as_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes", "on")
+
+
+def configured_stage2_servo_yaml():
+    servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
+    servo_yaml["scale"]["rotational"] = STAGE2_SERVO_ROTATIONAL_SCALE_RADPS
+    return servo_yaml
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -191,9 +200,7 @@ def generate_launch_description() -> LaunchDescription:
         .to_moveit_configs()
     )
 
-    servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
-    servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
-    servo_yaml["scale"]["rotational"] = 0.6
+    servo_yaml = configured_stage2_servo_yaml()
     servo_params = {"moveit_servo": servo_yaml}
 
     driver_launch = IncludeLaunchDescription(
