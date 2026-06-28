@@ -79,6 +79,30 @@ def test_alignment_csv_analysis_passes_good_tracking(tmp_path):
     assert all(check["passed"] for check in result["checks"])
 
 
+def test_alignment_csv_analysis_offsets_score_windows_after_real_alignment(tmp_path):
+    csv_path = tmp_path / "tool_alignment_error.csv"
+    _write_alignment_csv(
+        csv_path,
+        [
+            (0.0, 0.200, 80.0, 80.0),
+            (5.0, 0.002, 1.0, 1.0),
+            (7.0, 0.003, 2.0, 2.0),
+            (8.0, 0.004, 3.0, 3.0),
+            (23.9, 0.001, 1.0, 1.0),
+            (25.0, 0.300, 90.0, 90.0),
+        ],
+    )
+
+    result = analyze_alignment_csv(csv_path, score_start_sec=5.0)
+
+    assert result["status"] == "PASS"
+    assert result["score_start_sec"] == pytest.approx(5.0)
+    assert result["score_end_sec"] == pytest.approx(24.0)
+    assert result["initial_exclusion_sec"] == pytest.approx(7.0)
+    assert result["phases"]["plus_x"]["finite_sample_count"] == 2
+    assert result["overall"]["position_m"]["max"] == pytest.approx(0.004)
+
+
 def test_alignment_csv_analysis_marks_metric_fail_without_infrastructure_error(tmp_path):
     csv_path = tmp_path / "tool_alignment_error.csv"
     _write_alignment_csv(

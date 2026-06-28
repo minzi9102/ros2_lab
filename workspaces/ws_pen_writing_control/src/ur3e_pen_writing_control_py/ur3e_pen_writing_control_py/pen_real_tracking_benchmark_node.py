@@ -15,15 +15,32 @@ from .pen_tracking_benchmark_node import (
     analyze_alignment_csv,
     benchmark_phases,
     joy_message_for_target,
+    latest_alignment_row,
     write_summary_files,
 )
 
 
 NORMAL_OUTCOMES = {"completed", "performance_fail", "operator_b"}
+ALIGNMENT_POSITION_READY_M = 0.005
+ALIGNMENT_Z_AXIS_READY_DEG = 3.0
+ALIGNMENT_READY_HOLD_SEC = 0.5
 
 
 def should_return_home(outcome: str) -> bool:
     return outcome in NORMAL_OUTCOMES
+
+
+def alignment_row_ready(
+    row: dict[str, float],
+    *,
+    position_ready_m: float = ALIGNMENT_POSITION_READY_M,
+    z_axis_ready_deg: float = ALIGNMENT_Z_AXIS_READY_DEG,
+) -> bool:
+    return (
+        row["position_m"] <= position_ready_m
+        and row["z_axis_deg"] <= z_axis_ready_deg
+        and row.get("virtual_pen_settling", 0.0) == 0.0
+    )
 
 
 class BenchmarkSafetyAbort(RuntimeError):
@@ -73,6 +90,9 @@ class PenRealTrackingBenchmarkNode(Node):
         self.arm_timeout_sec = float(
             self.declare_parameter("arm_timeout_sec", 10.0).value
         )
+        self.alignment_ready_timeout_sec = float(
+            self.declare_parameter("alignment_ready_timeout_sec", 30.0).value
+        )
 
         self._status_seen = False
         self._safety_abort_reason: str | None = None
@@ -115,8 +135,12 @@ class PenRealTrackingBenchmarkNode(Node):
         try:
             self._wait_until_ready()
             self._publish_until_csv_starts()
+            score_start_sec = self._wait_until_alignment_ready()
             self._run_phases()
-            result = analyze_alignment_csv(self.alignment_error_log_path)
+            result = analyze_alignment_csv(
+                self.alignment_error_log_path,
+                score_start_sec=score_start_sec,
+            )
             write_summary_files(
                 result=result,
                 json_path=self.summary_json_path,
@@ -227,6 +251,35 @@ class PenRealTrackingBenchmarkNode(Node):
                 return
             time.sleep(1.0 / self.publish_rate_hz)
         raise BenchmarkInfrastructureError("timed out waiting for alignment CSV start")
+
+    def _wait_until_alignment_ready(self) -> float:
+        period_sec = 1.0 / self.publish_rate_hz
+        deadline = time.monotonic() + self.alignment_ready_timeout_sec
+        hold_started_at_sec = None
+        hold_started_at_elapsed = None
+        settle_message = joy_message_for_target(0.0, 0.0)
+        while rclpy.ok() and time.monotonic() < deadline:
+            self._joy_publisher.publish(settle_message)
+            rclpy.spin_once(self, timeout_sec=0.0)
+            self._check_stop_requests()
+            row = latest_alignment_row(self.alignment_error_log_path)
+            if row is not None and alignment_row_ready(row):
+                now_sec = time.monotonic()
+                if hold_started_at_sec is None:
+                    hold_started_at_sec = now_sec
+                    hold_started_at_elapsed = row["elapsed_sec"]
+                if now_sec - hold_started_at_sec >= ALIGNMENT_READY_HOLD_SEC:
+                    assert hold_started_at_elapsed is not None
+                    self.get_logger().info(
+                        "Alignment ready; tracking score starts at "
+                        f"{hold_started_at_elapsed:.3f}s in CSV."
+                    )
+                    return hold_started_at_elapsed
+            else:
+                hold_started_at_sec = None
+                hold_started_at_elapsed = None
+            time.sleep(period_sec)
+        raise BenchmarkInfrastructureError("timed out waiting for alignment ready")
 
     def _run_phases(self) -> None:
         for phase in benchmark_phases():

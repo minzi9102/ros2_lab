@@ -3,6 +3,7 @@ from ur3e_pen_writing_control_py.controller_switch_once_node import (
     non_empty_strings,
 )
 from ur3e_pen_writing_control_py.pen_real_tracking_benchmark_node import (
+    alignment_row_ready,
     should_return_home,
 )
 from ur3e_pen_writing_control_py.pen_tracking_benchmark_node import (
@@ -33,6 +34,28 @@ def test_real_benchmark_return_home_policy():
     assert not should_return_home("safety_abort")
     assert not should_return_home("infrastructure_error")
     assert not should_return_home("keyboard_interrupt")
+
+
+def test_real_alignment_ready_requires_low_error_and_not_settling():
+    ready_row = {
+        "position_m": 0.004,
+        "z_axis_deg": 2.0,
+        "virtual_pen_settling": 0.0,
+    }
+    settling_row = {
+        "position_m": 0.004,
+        "z_axis_deg": 2.0,
+        "virtual_pen_settling": 1.0,
+    }
+    high_error_row = {
+        "position_m": 0.020,
+        "z_axis_deg": 2.0,
+        "virtual_pen_settling": 0.0,
+    }
+
+    assert alignment_row_ready(ready_row)
+    assert not alignment_row_ready(settling_row)
+    assert not alignment_row_ready(high_error_row)
 
 
 def test_freeze_joy_uses_a_button_without_b():

@@ -90,6 +90,7 @@ def analyze_alignment_csv(
     *,
     phases: Iterable[BenchmarkPhase] | None = None,
     thresholds: MetricThresholds | None = None,
+    score_start_sec: float = 0.0,
 ) -> dict:
     phases = list(benchmark_phases() if phases is None else phases)
     thresholds = MetricThresholds() if thresholds is None else thresholds
@@ -97,9 +98,15 @@ def analyze_alignment_csv(
     if not rows:
         raise BenchmarkInfrastructureError(f"no rows found in {csv_path}")
 
-    initial_exclusion_sec = phases[0].duration_sec if phases else 0.0
+    total_sequence_sec = total_phase_duration(phases)
+    score_end_sec = score_start_sec + total_sequence_sec
+    initial_exclusion_sec = score_start_sec + (
+        phases[0].duration_sec if phases else 0.0
+    )
     post_initial_rows = [
-        row for row in rows if row["elapsed_sec"] >= initial_exclusion_sec
+        row
+        for row in rows
+        if initial_exclusion_sec <= row["elapsed_sec"] <= score_end_sec
     ]
     if not post_initial_rows:
         raise BenchmarkInfrastructureError(
@@ -112,7 +119,9 @@ def analyze_alignment_csv(
             [
                 row
                 for row in rows
-                if start_sec <= row["elapsed_sec"] < end_sec
+                if score_start_sec + start_sec
+                <= row["elapsed_sec"]
+                < score_start_sec + end_sec
             ]
         )
         for label, (start_sec, end_sec) in windows.items()
@@ -134,8 +143,10 @@ def analyze_alignment_csv(
         "csv_path": str(csv_path),
         "sample_count": len(rows),
         "post_initial_sample_count": len(post_initial_rows),
+        "score_start_sec": score_start_sec,
+        "score_end_sec": score_end_sec,
         "initial_exclusion_sec": initial_exclusion_sec,
-        "total_sequence_sec": total_phase_duration(phases),
+        "total_sequence_sec": total_sequence_sec,
         "overall": overall,
         "phases": phase_summaries,
         "final": {
@@ -184,15 +195,27 @@ def _read_alignment_rows(csv_path: Path) -> list[dict[str, float]]:
             )
 
         for raw in reader:
-            rows.append(
-                {
-                    "elapsed_sec": float(raw["elapsed_sec"]),
-                    "position_m": float(raw["position_m"]),
-                    "z_axis_deg": float(raw["z_axis_deg"]),
-                    "full_quaternion_deg": float(raw["full_quaternion_deg"]),
-                }
-            )
+            row = {
+                "elapsed_sec": float(raw["elapsed_sec"]),
+                "position_m": float(raw["position_m"]),
+                "z_axis_deg": float(raw["z_axis_deg"]),
+                "full_quaternion_deg": float(raw["full_quaternion_deg"]),
+            }
+            for column in (
+                "pose_command_armed",
+                "pose_command_published",
+                "has_motion_intent",
+                "virtual_pen_settling",
+            ):
+                if column in raw and raw[column] != "":
+                    row[column] = float(raw[column])
+            rows.append(row)
     return rows
+
+
+def latest_alignment_row(csv_path: Path) -> dict[str, float] | None:
+    rows = _read_alignment_rows(csv_path)
+    return _last_finite_row(rows)
 
 
 def _summarize_rows(rows: list[dict[str, float]]) -> dict:
@@ -345,6 +368,8 @@ def _format_markdown_summary(result: dict) -> str:
         f"CSV: `{result['csv_path']}`",
         f"Samples: {result['post_initial_sample_count']} post-initial / "
         f"{result['sample_count']} total",
+        f"Score start: {result.get('score_start_sec', 0.0):.3f} s",
+        f"Score end: {result.get('score_end_sec', 0.0):.3f} s",
         f"Initial exclusion: {result['initial_exclusion_sec']:.3f} s",
         "",
         "## Overall",
