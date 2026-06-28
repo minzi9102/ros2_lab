@@ -5,6 +5,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "moveit/move_group_interface/move_group_interface.hpp"
@@ -57,7 +58,14 @@ public:
 
     start_timer_ = create_wall_timer(
       std::chrono::milliseconds(250),
-      std::bind(&PlannedHomeMotionNode::run_once, this));
+      std::bind(&PlannedHomeMotionNode::start_worker_once, this));
+  }
+
+  ~PlannedHomeMotionNode() override
+  {
+    if (worker_.joinable()) {
+      worker_.join();
+    }
   }
 
   int exit_code() const
@@ -66,14 +74,18 @@ public:
   }
 
 private:
-  void run_once()
+  void start_worker_once()
   {
     if (started_) {
       return;
     }
     started_ = true;
     start_timer_->cancel();
+    worker_ = std::thread([this]() {run_once();});
+  }
 
+  void run_once()
+  {
     if (!validate_parameters()) {
       finish(false, false, false, INFINITY, "invalid parameters");
       return;
@@ -236,6 +248,7 @@ private:
   bool started_{false};
   int exit_code_{1};
   rclcpp::TimerBase::SharedPtr start_timer_;
+  std::thread worker_;
   std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
 };
 
