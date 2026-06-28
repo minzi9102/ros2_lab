@@ -34,6 +34,10 @@ setup(
             "ur3e_pen_writing_control_py.pen_fakehardware_servo_node:main",
             "pen_tracking_benchmark_node = "
             "ur3e_pen_writing_control_py.pen_tracking_benchmark_node:main",
+            "pen_real_tracking_benchmark_node = "
+            "ur3e_pen_writing_control_py.pen_real_tracking_benchmark_node:main",
+            "controller_switch_once_node = "
+            "ur3e_pen_writing_control_py.controller_switch_once_node:main",
         ],
     },
 )

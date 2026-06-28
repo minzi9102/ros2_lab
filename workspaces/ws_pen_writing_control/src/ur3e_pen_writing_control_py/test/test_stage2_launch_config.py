@@ -17,6 +17,11 @@ REAL_AIR_LAUNCH_PATH = (
     / "launch"
     / "stage3_real_air_pen_servo.launch.py"
 )
+REAL_BENCHMARK_LAUNCH_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "launch"
+    / "stage3_real_tracking_benchmark.launch.py"
+)
 
 
 def _load_stage2_launch_module():
@@ -45,6 +50,17 @@ def _load_stage3_real_air_launch_module():
     spec = importlib.util.spec_from_file_location(
         "stage3_real_air_pen_servo_launch",
         REAL_AIR_LAUNCH_PATH,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_stage3_real_benchmark_launch_module():
+    spec = importlib.util.spec_from_file_location(
+        "stage3_real_tracking_benchmark_launch",
+        REAL_BENCHMARK_LAUNCH_PATH,
     )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -145,3 +161,45 @@ def test_stage3_real_air_pen_parameters_match_fakehardware_motion_strategy():
     assert parameters["tilt_rate_degps"] == 10.0
     assert parameters["untilt_rate_degps"] == 12.0
     assert parameters["max_session_duration_sec"] == 30.0
+
+
+def test_stage3_real_benchmark_uses_reviewed_home_and_safe_defaults():
+    module = _load_stage3_real_benchmark_launch_module()
+
+    home = module.reviewed_home_parameters()
+
+    assert len(home["home_joint_names"]) == 6
+    assert home["home_positions_rad"] == [
+        1.537635326385498,
+        -1.6185537777342738,
+        1.408759895955221,
+        -2.9421216450133265,
+        -1.5928295294391077,
+        -0.09980899492372686,
+    ]
+    assert home["home_reviewed_by"] == "用户现场确认"
+    assert home["max_velocity_scaling"] == 0.10
+    assert home["max_acceleration_scaling"] == 0.10
+    assert module.INITIAL_CONTROLLER == "scaled_joint_trajectory_controller"
+    assert module.SERVO_CONTROLLER == "forward_position_controller"
+    assert module.JOINT_STATE_RELAY_PERIOD_SEC == 0.004
+
+
+def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
+    module = _load_stage3_real_benchmark_launch_module()
+
+    assert module.validate_benchmark_configuration(
+        human_confirmation="",
+        max_session_duration_sec=60.0,
+    )
+    assert module.validate_benchmark_configuration(
+        human_confirmation=module.REQUIRED_CONFIRMATION,
+        max_session_duration_sec=60.1,
+    )
+    assert (
+        module.validate_benchmark_configuration(
+            human_confirmation=module.REQUIRED_CONFIRMATION,
+            max_session_duration_sec=60.0,
+        )
+        is None
+    )

@@ -41,11 +41,15 @@ def joy_message_for_target(
     target_x: float,
     target_y: float,
     *,
+    emergency_stop: bool = False,
     quit_requested: bool = False,
 ) -> Joy:
     msg = Joy()
     msg.axes = [-target_y, -target_x]
-    msg.buttons = [0, 1 if quit_requested else 0]
+    msg.buttons = [
+        1 if emergency_stop else 0,
+        1 if quit_requested else 0,
+    ]
     return msg
 
 
