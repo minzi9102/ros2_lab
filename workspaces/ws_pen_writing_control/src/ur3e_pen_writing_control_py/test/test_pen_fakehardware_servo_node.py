@@ -9,6 +9,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     AlignmentErrorCsvLogger,
     ToolAlignmentError,
     has_planar_motion_intent,
+    is_session_timed_out,
     is_servo_status_fresh,
     is_tool_pose_aligned,
     is_virtual_pen_settling,
@@ -65,6 +66,27 @@ def test_servo_status_fresh_requires_seen_recent_status():
         last_status_time=8.0,
         now_sec=10.0,
         timeout_sec=1.0,
+    )
+
+
+def test_session_timeout_is_disabled_when_duration_is_zero():
+    assert not is_session_timed_out(
+        max_session_duration_sec=0.0,
+        session_started_at_sec=10.0,
+        now_sec=1000.0,
+    )
+
+
+def test_session_timeout_triggers_after_configured_duration():
+    assert not is_session_timed_out(
+        max_session_duration_sec=30.0,
+        session_started_at_sec=10.0,
+        now_sec=39.99,
+    )
+    assert is_session_timed_out(
+        max_session_duration_sec=30.0,
+        session_started_at_sec=10.0,
+        now_sec=40.0,
     )
 
 

@@ -104,6 +104,18 @@ def is_servo_status_fresh(
     return status_seen and now_sec - last_status_time <= timeout_sec
 
 
+def is_session_timed_out(
+    *,
+    max_session_duration_sec: float,
+    session_started_at_sec: float,
+    now_sec: float,
+) -> bool:
+    return (
+        max_session_duration_sec > 0.0
+        and now_sec - session_started_at_sec >= max_session_duration_sec
+    )
+
+
 @dataclass(frozen=True)
 class ToolAlignmentError:
     position_m: float
@@ -395,6 +407,9 @@ class PenFakeHardwareServoNode(Node):
         self.alignment_error_log_rate_hz = float(
             self.declare_parameter("alignment_error_log_rate_hz", 20.0).value
         )
+        self.max_session_duration_sec = float(
+            self.declare_parameter("max_session_duration_sec", 0.0).value
+        )
         self.max_planar_speed_mps = float(
             self.declare_parameter("max_planar_speed_mps", 0.03).value
         )
@@ -543,6 +558,7 @@ class PenFakeHardwareServoNode(Node):
                 self.max_pen_axis_angular_speed_degps
             ),
         )
+        self._session_started_at_sec = time.monotonic()
         self._last_timer_time = time.monotonic()
 
         self._timer = self.create_timer(1.0 / self.publish_rate_hz, self._on_timer)
@@ -559,6 +575,7 @@ class PenFakeHardwareServoNode(Node):
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
             f"max_pen_axis_rate="
             f"{self.max_pen_axis_angular_speed_degps:.1f}deg/s "
+            f"max_session_duration={self.max_session_duration_sec:.1f}s "
             f"alignment_error_log_rate={self.alignment_error_log_rate_hz:.1f}Hz "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
@@ -590,6 +607,8 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("tf_lookup_warn_period_sec must be greater than zero")
         if self.alignment_error_log_rate_hz <= 0.0:
             raise ValueError("alignment_error_log_rate_hz must be greater than zero")
+        if self.max_session_duration_sec < 0.0:
+            raise ValueError("max_session_duration_sec must be non-negative")
         if self.tool_position_tolerance_m <= 0.0:
             raise ValueError("tool_position_tolerance_m must be greater than zero")
         if self.tool_orientation_tolerance_deg <= 0.0:
@@ -644,13 +663,27 @@ class PenFakeHardwareServoNode(Node):
             )
 
     def _on_timer(self) -> None:
+        now_sec = time.monotonic()
+        if is_session_timed_out(
+            max_session_duration_sec=self.max_session_duration_sec,
+            session_started_at_sec=self._session_started_at_sec,
+            now_sec=now_sec,
+        ):
+            self._velocity.stop_immediately()
+            self._pose_command_armed = False
+            self.get_logger().warn(
+                "Maximum pen Servo session duration reached. "
+                "Stopping pose publication and shutting down."
+            )
+            rclpy.shutdown()
+            return
+
         if self._paper_origin is None:
             self._initialize_paper_origin()
             return
         if not self._ensure_pose_mode_ready():
             return
 
-        now_sec = time.monotonic()
         dt_sec = now_sec - self._last_timer_time
         self._last_timer_time = now_sec
 
