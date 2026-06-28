@@ -51,6 +51,10 @@ def should_publish_pose_command(
     return has_motion_intent or virtual_pen_settling or not tool_pose_aligned
 
 
+def pose_mode_became_ready(*, was_ready: bool, is_ready: bool) -> bool:
+    return is_ready and not was_ready
+
+
 def is_virtual_pen_settling(
     *,
     velocity: PlanarVelocity,
@@ -685,7 +689,13 @@ class PenFakeHardwareServoNode(Node):
         if self._paper_origin is None:
             self._initialize_paper_origin()
             return
+        was_pose_mode_ready = self._pose_mode_ready
         if not self._ensure_pose_mode_ready():
+            return
+        if pose_mode_became_ready(
+            was_ready=was_pose_mode_ready,
+            is_ready=self._pose_mode_ready,
+        ):
             return
 
         dt_sec = now_sec - self._last_timer_time

@@ -14,6 +14,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_tool_pose_aligned,
     is_virtual_pen_settling,
     paper_origin_from_current_tool0,
+    pose_mode_became_ready,
     pose_axis_points,
     should_publish_pose_command,
     tool_alignment_error,
@@ -98,6 +99,12 @@ def test_pose_command_publishes_only_after_arm():
         tool_pose_aligned=False,
         servo_health_fault=False,
     )
+
+
+def test_pose_mode_became_ready_only_on_first_successful_transition():
+    assert pose_mode_became_ready(was_ready=False, is_ready=True)
+    assert not pose_mode_became_ready(was_ready=False, is_ready=False)
+    assert not pose_mode_became_ready(was_ready=True, is_ready=True)
 
 
 def test_pose_command_publishes_while_motion_is_requested():
