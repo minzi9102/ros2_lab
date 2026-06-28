@@ -9,7 +9,6 @@ from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
-    GroupAction,
     IncludeLaunchDescription,
     LogInfo,
     OpaqueFunction,
@@ -22,7 +21,7 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node, SetRemap
+from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -96,6 +95,23 @@ def trajectory_gate_parameters(timeout_sec) -> dict:
             INITIAL_CONTROLLER,
         ],
     }
+
+
+def move_group_parameters(moveit_config) -> list:
+    moveit_parameters = (
+        moveit_config.to_dict() if hasattr(moveit_config, "to_dict") else moveit_config
+    )
+    return [
+        moveit_parameters,
+        {
+            "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
+            "warehouse_host": str(Path.home() / ".ros" / "warehouse_ros.sqlite"),
+        },
+        {
+            "use_sim_time": False,
+            "publish_robot_description_semantic": True,
+        },
+    ]
 
 
 def _bool_value(context: LaunchContext, name: str) -> bool:
@@ -275,26 +291,19 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             }
         ],
     )
-    moveit_launch = GroupAction(
-        actions=[
-            SetRemap(src=RAW_JOINT_STATES_TOPIC, dst=FRESH_JOINT_STATES_TOPIC),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    PathJoinSubstitution(
-                        [
-                            FindPackageShare("ur_moveit_config"),
-                            "launch",
-                            "ur_moveit.launch.py",
-                        ]
-                    )
-                ),
-                launch_arguments={
-                    "ur_type": LaunchConfiguration("ur_type"),
-                    "launch_rviz": "false",
-                    "launch_servo": "false",
-                }.items(),
-            ),
-        ]
+    wait_robot_description = Node(
+        package="ur_robot_driver",
+        executable="wait_for_robot_description",
+        name="real_benchmark_wait_robot_description",
+        output="screen",
+    )
+    move_group_node = Node(
+        package="moveit_ros_move_group",
+        executable="move_group",
+        name="move_group",
+        output="screen",
+        parameters=move_group_parameters(moveit_config),
+        remappings=[(RAW_JOINT_STATES_TOPIC, FRESH_JOINT_STATES_TOPIC)],
     )
     rviz_node = Node(
         package="rviz2",
@@ -504,7 +513,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             dashboard_launch,
             external_control_manager,
             joint_state_relay,
-            moveit_launch,
+            wait_robot_description,
             rviz_node,
             TimerAction(period=3.0, actions=[trajectory_gate]),
         ]
@@ -612,6 +621,12 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         hardware_gate,
         RegisterEventHandler(
             OnProcessExit(target_action=hardware_gate, on_exit=on_hardware_exit)
+        ),
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=wait_robot_description,
+                on_exit=[move_group_node],
+            )
         ),
         RegisterEventHandler(
             OnProcessExit(target_action=trajectory_gate, on_exit=on_trajectory_gate_exit)

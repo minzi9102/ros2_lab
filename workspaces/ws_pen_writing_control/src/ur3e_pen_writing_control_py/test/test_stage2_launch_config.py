@@ -206,6 +206,17 @@ def test_stage3_real_benchmark_uses_fresh_joint_states_for_prehome_and_servo():
     assert servo_yaml["joint_topic"] == module.FRESH_JOINT_STATES_TOPIC
 
 
+def test_stage3_real_benchmark_move_group_uses_explicit_warehouse_config():
+    module = _load_stage3_real_benchmark_launch_module()
+
+    parameters = module.move_group_parameters(moveit_config={})
+
+    assert parameters[1]["warehouse_plugin"] == "warehouse_ros_sqlite::DatabaseConnection"
+    assert parameters[1]["warehouse_host"].endswith("/.ros/warehouse_ros.sqlite")
+    assert parameters[2]["use_sim_time"] is False
+    assert parameters[2]["publish_robot_description_semantic"] is True
+
+
 def test_stage3_real_benchmark_starts_relay_before_prehome_only_once():
     source = REAL_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
 
@@ -216,6 +227,9 @@ def test_stage3_real_benchmark_starts_relay_before_prehome_only_once():
 
     assert "joint_state_relay" in hardware_block
     assert "joint_state_relay" not in servo_block
+    assert "ur_moveit.launch.py" not in source
+    assert "move_group_node = Node(" in source
+    assert "remappings=[(RAW_JOINT_STATES_TOPIC, FRESH_JOINT_STATES_TOPIC)]" in source
 
 
 def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
