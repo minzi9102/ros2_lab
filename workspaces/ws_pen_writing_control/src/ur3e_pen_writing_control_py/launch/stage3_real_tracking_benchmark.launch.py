@@ -14,6 +14,7 @@ from launch.actions import (
     OpaqueFunction,
     RegisterEventHandler,
     SetEnvironmentVariable,
+    SetLaunchConfiguration,
     TimerAction,
 )
 from launch.conditions import IfCondition
@@ -35,6 +36,7 @@ JOINT_STATE_RELAY_PERIOD_SEC = 0.004
 RAW_JOINT_STATES_TOPIC = "/joint_states"
 FRESH_JOINT_STATES_TOPIC = "/task7e/joint_states_fresh"
 MAX_SESSION_DURATION_SEC = 60.0
+RVIZ_LAUNCH_CONFIG = "real_benchmark_launch_rviz"
 
 
 def load_yaml(package_name: str, relative_path: str):
@@ -310,7 +312,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         package="rviz2",
         executable="rviz2",
         name="rviz2_pen_real_benchmark",
-        condition=IfCondition(LaunchConfiguration("launch_rviz")),
+        condition=IfCondition(LaunchConfiguration(RVIZ_LAUNCH_CONFIG)),
         output="both",
         arguments=[
             "-d",
@@ -611,6 +613,10 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
     return [
         SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
         SetEnvironmentVariable(name="RCUTILS_LOGGING_BUFFERED_STREAM", value="1"),
+        SetLaunchConfiguration(
+            name=RVIZ_LAUNCH_CONFIG,
+            value=LaunchConfiguration("launch_rviz"),
+        ),
         LogInfo(msg=f"Real tracking benchmark logs: {run_log_dir}"),
         LogInfo(
             msg=(

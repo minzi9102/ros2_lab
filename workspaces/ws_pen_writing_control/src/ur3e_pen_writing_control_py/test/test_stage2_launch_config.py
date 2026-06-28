@@ -233,6 +233,15 @@ def test_stage3_real_benchmark_starts_relay_before_prehome_only_once():
     assert "remappings=[(RAW_JOINT_STATES_TOPIC, FRESH_JOINT_STATES_TOPIC)]" in source
 
 
+def test_stage3_real_benchmark_uses_runtime_rviz_launch_config():
+    source = REAL_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert 'RVIZ_LAUNCH_CONFIG = "real_benchmark_launch_rviz"' in source
+    assert "SetLaunchConfiguration(" in source
+    assert 'value=LaunchConfiguration("launch_rviz")' in source
+    assert "condition=IfCondition(LaunchConfiguration(RVIZ_LAUNCH_CONFIG))" in source
+
+
 def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
     module = _load_stage3_real_benchmark_launch_module()
 
