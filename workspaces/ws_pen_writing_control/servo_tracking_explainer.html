@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>真机笔姿态跟踪误差解释</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #5f6b76;
+      --line: #d8dde2;
+      --paper: #f7f8f9;
+      --target: #d44333;
+      --servo: #2368a2;
+      --actual: #16825d;
+      --warning: #d69b21;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fff;
+      font-family: Inter, "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input { font: inherit; }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .header-inner, main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 72px;
+      gap: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status {
+      padding: 6px 9px;
+      border: 1px solid #b9cfc7;
+      border-radius: 4px;
+      color: #0e6246;
+      background: #f0f8f5;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    main { padding: 20px 0 36px; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-bottom: 16px;
+    }
+
+    .icon-button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #bdc5cc;
+      border-radius: 4px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font-size: 17px;
+    }
+
+    .icon-button:hover, .icon-button:focus-visible {
+      border-color: #586875;
+      background: var(--paper);
+      outline: none;
+    }
+
+    .speed-control {
+      display: inline-flex;
+      flex: 0 0 auto;
+      border: 1px solid #bdc5cc;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .speed-control button {
+      flex: 0 0 44px;
+      min-width: 44px;
+      height: 36px;
+      border: 0;
+      border-right: 1px solid #d5dade;
+      background: #fff;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .speed-control button:last-child { border-right: 0; }
+    .speed-control button.active { color: #fff; background: #344b5e; }
+
+    .scrubber {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1 1 340px;
+    }
+
+    .scrubber input { width: 100%; accent-color: var(--servo); }
+    .time-readout {
+      width: 82px;
+      text-align: right;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+    }
+
+    .animation-shell {
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+      overflow: hidden;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      aspect-ratio: 2 / 1;
+      min-height: 360px;
+    }
+
+    svg text {
+      font-family: inherit;
+      letter-spacing: 0;
+    }
+
+    .legend {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      padding: 12px 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 18px; height: 3px; display: inline-block; }
+
+    .explanation {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 30px;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .explanation h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .explanation p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    #liveExplanation {
+      border-left: 4px solid var(--warning);
+      padding-left: 14px;
+      color: var(--ink);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric {
+      min-height: 104px;
+      padding: 18px 20px;
+      border-right: 1px solid var(--line);
+    }
+
+    .metric:last-child { border-right: 0; }
+    .metric strong {
+      display: block;
+      margin: 8px 0 5px;
+      font-size: 23px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric small, .metric-label { color: var(--muted); font-size: 12px; }
+
+    .conclusion {
+      padding-top: 20px;
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .conclusion h2 { margin: 0; font-size: 17px; }
+    .conclusion ol {
+      margin: 0;
+      padding-left: 20px;
+      line-height: 1.75;
+      font-size: 14px;
+    }
+
+    @media (max-width: 760px) {
+      .header-inner { align-items: flex-start; padding: 16px 0; }
+      .status { display: none; }
+      .animation-shell {
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+      }
+      svg {
+        width: 760px;
+        min-height: 380px;
+        aspect-ratio: 2 / 1;
+        scroll-snap-align: start;
+      }
+      .explanation, .conclusion { grid-template-columns: 1fr; gap: 12px; }
+      .metrics { grid-template-columns: 1fr; }
+      .metric { border-right: 0; border-bottom: 1px solid var(--line); }
+      .metric:last-child { border-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>真机笔姿态跟踪误差</h1>
+        <p class="subtitle">二维投影动画，参数来自 2026-06-28 真机 benchmark</p>
+      </div>
+      <div class="status">结论：主要滞后发生在 Servo 输出前</div>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar" aria-label="动画控制">
+      <button id="playButton" class="icon-button" type="button" title="播放或暂停" aria-label="播放或暂停">▶</button>
+      <button id="resetButton" class="icon-button" type="button" title="回到起点" aria-label="回到起点">↺</button>
+      <div class="speed-control" aria-label="播放速度">
+        <button type="button" data-speed="0.5">0.5×</button>
+        <button type="button" data-speed="1" class="active">1×</button>
+        <button type="button" data-speed="2">2×</button>
+      </div>
+      <div class="scrubber">
+        <input id="timeSlider" type="range" min="0" max="12" step="0.01" value="0" aria-label="动画时间">
+        <span id="timeReadout" class="time-readout">0.00 / 12 s</span>
+      </div>
+    </div>
+
+    <section class="animation-shell" aria-label="目标、Servo 命令和真机姿态动画">
+      <svg id="scene" viewBox="0 0 1000 500" role="img" aria-labelledby="sceneTitle sceneDesc">
+        <title id="sceneTitle">目标姿态、Servo 命令和真机实际姿态的动态对比</title>
+        <desc id="sceneDesc">红色目标换向最快，蓝色 Servo 命令姿态滞后，绿色真机紧跟蓝色命令。</desc>
+        <defs>
+          <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#e2e6e9" stroke-width="1"/>
+          </pattern>
+          <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#d44333"/>
+          </marker>
+        </defs>
+
+        <rect x="24" y="38" width="450" height="400" fill="url(#grid)" stroke="#cbd2d8"/>
+        <text x="42" y="67" font-size="14" font-weight="700" fill="#17212b">笔尖与 tool0 的二维投影</text>
+        <text x="42" y="88" font-size="11" fill="#66727c">杆长 140 mm，位移为便于观察放大显示</text>
+
+        <line x1="66" y1="402" x2="112" y2="402" stroke="#77838c" stroke-width="2"/>
+        <line x1="66" y1="402" x2="66" y2="356" stroke="#77838c" stroke-width="2"/>
+        <text x="118" y="406" font-size="11" fill="#66727c">X</text>
+        <text x="61" y="348" font-size="11" fill="#66727c">Y</text>
+
+        <g id="targetPen">
+          <line id="targetRod" stroke="#d44333" stroke-width="5" stroke-linecap="round"/>
+          <circle id="targetTool" r="9" fill="#fff" stroke="#d44333" stroke-width="3"/>
+          <circle id="targetTip" r="6" fill="#d44333"/>
+        </g>
+        <g id="servoPen">
+          <line id="servoRod" stroke="#2368a2" stroke-width="5" stroke-linecap="round"/>
+          <circle id="servoTool" r="9" fill="#fff" stroke="#2368a2" stroke-width="3"/>
+          <circle id="servoTip" r="6" fill="#2368a2"/>
+        </g>
+        <g id="actualPen">
+          <line id="actualRod" stroke="#16825d" stroke-width="3" stroke-linecap="round"/>
+          <circle id="actualTool" r="7" fill="#fff" stroke="#16825d" stroke-width="3"/>
+          <circle id="actualTip" r="4" fill="#16825d"/>
+        </g>
+
+        <line id="servoErrorArrow" stroke="#d44333" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrowRed)"/>
+        <text id="servoErrorText" x="42" y="422" font-size="12" fill="#a93225">Servo 姿态误差</text>
+        <rect id="transientBadge" x="310" y="54" width="142" height="28" rx="4" fill="#fff4d6" stroke="#d69b21"/>
+        <text id="transientText" x="381" y="73" text-anchor="middle" font-size="11" font-weight="700" fill="#875d07">换向瞬态 0.5 s</text>
+
+        <text x="510" y="67" font-size="14" font-weight="700" fill="#17212b">姿态通道响应</text>
+        <text x="510" y="88" font-size="11" fill="#66727c">纵轴：笔轴投影角度；横轴：12 秒方向序列</text>
+        <rect x="510" y="105" width="450" height="225" fill="#fff" stroke="#cbd2d8"/>
+        <line x1="510" y1="218" x2="960" y2="218" stroke="#cbd2d8"/>
+        <line x1="510" y1="105" x2="510" y2="330" stroke="#97a2aa"/>
+        <line x1="510" y1="330" x2="960" y2="330" stroke="#97a2aa"/>
+        <text x="484" y="111" font-size="10" fill="#66727c">+20°</text>
+        <text x="489" y="222" font-size="10" fill="#66727c">0°</text>
+        <text x="484" y="329" font-size="10" fill="#66727c">−20°</text>
+        <path id="targetPath" fill="none" stroke="#d44333" stroke-width="2.5"/>
+        <path id="servoPath" fill="none" stroke="#2368a2" stroke-width="2.5"/>
+        <path id="actualPath" fill="none" stroke="#16825d" stroke-width="1.5"/>
+        <line id="timeCursor" x1="510" y1="105" x2="510" y2="330" stroke="#17212b" stroke-width="1.5"/>
+
+        <text x="510" y="365" font-size="13" font-weight="700" fill="#17212b">速度上限并未触发</text>
+        <text x="510" y="389" font-size="11" fill="#66727c">目标姿态峰值</text>
+        <rect x="620" y="378" width="65" height="13" fill="#d44333"/>
+        <text x="694" y="389" font-size="11" fill="#17212b">13°/s</text>
+        <text x="510" y="414" font-size="11" fill="#66727c">Servo 硬上限</text>
+        <rect x="620" y="403" width="310" height="13" fill="#344b5e"/>
+        <text x="938" y="414" font-size="11" fill="#17212b">90°/s</text>
+
+        <text id="phaseLabel" x="510" y="456" font-size="17" font-weight="700" fill="#17212b">阶段：+X</text>
+        <text id="phaseDetail" x="510" y="478" font-size="12" fill="#66727c">目标开始移动，三层姿态接近重合</text>
+      </svg>
+    </section>
+
+    <div class="legend" aria-label="颜色图例">
+      <span><i class="swatch" style="background:#d44333"></i>目标 Pose</span>
+      <span><i class="swatch" style="background:#2368a2"></i>Servo 命令 FK</span>
+      <span><i class="swatch" style="background:#16825d"></i>真机实际 FK</span>
+      <span>红蓝距离：Servo 侧误差</span>
+      <span>蓝绿距离：servoj 跟随误差</span>
+    </div>
+
+    <section class="explanation">
+      <div>
+        <h2>此刻发生了什么</h2>
+        <p id="liveExplanation">目标刚开始运动。Servo 命令和真机反馈几乎重合，说明 UR servoj 能跟上关节命令。</p>
+      </div>
+      <div>
+        <h2>怎么看这幅图</h2>
+        <p>红线代表虚拟笔要求的目标，蓝线是 MoveIt Servo 解算并平滑后的关节命令 FK，绿线是真机反馈 FK。红蓝分开说明误差在 Servo 输出前产生；蓝绿分开才说明 servoj 跟随不足。</p>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="实测误差分解">
+      <div class="metric">
+        <span class="metric-label">目标 → Servo 命令 FK</span>
+        <strong style="color:var(--target)">4.55 mm / 3.59°</strong>
+        <small>主要误差来源，姿态等效延迟约 296 ms</small>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Servo 命令 FK → 真机</span>
+        <strong style="color:var(--actual)">1.80 mm / 0.30°</strong>
+        <small>servoj 基本忠实跟随，关节延迟约 34–38 ms</small>
+      </div>
+      <div class="metric">
+        <span class="metric-label">换向前 0.5 秒</span>
+        <strong style="color:#875d07">5.75 mm / 4.58°</strong>
+        <small>显著高于随后 1 秒的 3.96 mm / 3.10°</small>
+      </div>
+    </section>
+
+    <section class="conclusion">
+      <h2>直观结论</h2>
+      <ol>
+        <li>目标方向一换，红色笔杆先转；蓝色 Servo 命令受姿态通道带宽和平滑影响，追得更慢。</li>
+        <li>绿色真机几乎贴着蓝色命令走，因此 UR servoj 不是主要瓶颈。</li>
+        <li>目标只有约 13°/s，远低于 90°/s 硬上限；问题不是上限太小，而是换向和滤波造成的动态滞后。</li>
+        <li>把目标笔轴速度从 12°/s 降到约 10°/s，是当前最小、最有针对性的优化实验。</li>
+      </ol>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const duration = 12;
+      const dt = 0.01;
+      const phaseNames = ["+X", "−X", "+Y", "−Y", "+X+Y", "−X−Y", "+X−Y", "−X+Y"];
+      const desiredAngles = [12, -12, 20, -20, 14, -14, -14, 14];
+      const phaseDetails = [
+        "目标开始移动，三层姿态接近重合",
+        "第一次反向，Servo 出现短暂姿态滞后",
+        "Y 向要求更大的笔轴变化，红蓝误差扩大",
+        "最强反向段，目标与 Servo 命令明显分离",
+        "平移和转姿同时发生，tool0 位移需求增大",
+        "对角反向后，Servo 逐步追上目标",
+        "新的倾斜方向再次激发姿态滞后",
+        "最后一次反向，真机仍紧贴 Servo 命令"
+      ];
+
+      const samples = [];
+      let targetAngle = 0;
+      let servoAngle = 0;
+      let actualAngle = 0;
+      let targetX = 0;
+      let servoX = 0;
+      let actualX = 0;
+
+      const moveToward = (value, target, maxStep) => {
+        if (Math.abs(target - value) <= maxStep) return target;
+        return value + Math.sign(target - value) * maxStep;
+      };
+
+      for (let t = 0; t <= duration + dt / 2; t += dt) {
+        const phase = Math.min(7, Math.floor(t / 1.5));
+        const desired = desiredAngles[phase];
+        targetAngle = moveToward(targetAngle, desired, 12.2 * dt);
+        const servoDesired = targetAngle;
+        const servoStep = Math.min(9.3 * dt, Math.abs(servoDesired - servoAngle) * dt / 0.296);
+        servoAngle = moveToward(servoAngle, servoDesired, servoStep);
+        actualAngle += (servoAngle - actualAngle) * Math.min(1, dt / 0.036);
+
+        const direction = phase % 2 === 0 ? 1 : -1;
+        targetX += direction * 18 * dt;
+        servoX += (targetX - servoX) * Math.min(1, dt / 0.022);
+        actualX += (servoX - actualX) * Math.min(1, dt / 0.036);
+        samples.push({ t, phase, targetAngle, servoAngle, actualAngle, targetX, servoX, actualX });
+      }
+
+      const $ = id => document.getElementById(id);
+      const playButton = $("playButton");
+      const resetButton = $("resetButton");
+      const slider = $("timeSlider");
+      const readout = $("timeReadout");
+      let currentTime = 0;
+      let playing = false;
+      let speed = 1;
+      let lastFrame = performance.now();
+
+      const chartX = t => 510 + t / duration * 450;
+      const chartY = a => 218 - a / 20 * 108;
+      const pathFor = key => samples.map((s, i) =>
+        `${i === 0 ? "M" : "L"}${chartX(s.t).toFixed(1)},${chartY(s[key]).toFixed(1)}`
+      ).join(" ");
+      $("targetPath").setAttribute("d", pathFor("targetAngle"));
+      $("servoPath").setAttribute("d", pathFor("servoAngle"));
+      $("actualPath").setAttribute("d", pathFor("actualAngle"));
+
+      function placePen(prefix, tipX, tipY, angleDeg, length) {
+        const angle = (angleDeg - 90) * Math.PI / 180;
+        const toolX = tipX + Math.cos(angle) * length;
+        const toolY = tipY + Math.sin(angle) * length;
+        $(`${prefix}Rod`).setAttribute("x1", tipX);
+        $(`${prefix}Rod`).setAttribute("y1", tipY);
+        $(`${prefix}Rod`).setAttribute("x2", toolX);
+        $(`${prefix}Rod`).setAttribute("y2", toolY);
+        $(`${prefix}Tip`).setAttribute("cx", tipX);
+        $(`${prefix}Tip`).setAttribute("cy", tipY);
+        $(`${prefix}Tool`).setAttribute("cx", toolX);
+        $(`${prefix}Tool`).setAttribute("cy", toolY);
+        return { toolX, toolY };
+      }
+
+      function render() {
+        const index = Math.min(samples.length - 1, Math.round(currentTime / dt));
+        const s = samples[index];
+        const baseX = 244;
+        const baseY = 274;
+        const targetTipX = baseX + s.targetX * 1.7;
+        const servoTipX = baseX + s.servoX * 1.7;
+        const actualTipX = baseX + s.actualX * 1.7;
+        const target = placePen("target", targetTipX, baseY, s.targetAngle, 128);
+        const servo = placePen("servo", servoTipX, baseY + 4, s.servoAngle, 128);
+        placePen("actual", actualTipX, baseY + 8, s.actualAngle, 128);
+        $("servoErrorArrow").setAttribute("x1", servo.toolX);
+        $("servoErrorArrow").setAttribute("y1", servo.toolY);
+        $("servoErrorArrow").setAttribute("x2", target.toolX);
+        $("servoErrorArrow").setAttribute("y2", target.toolY);
+
+        const phaseOffset = currentTime % 1.5;
+        const transient = phaseOffset < 0.5;
+        $("transientBadge").style.opacity = transient ? "1" : "0.18";
+        $("transientText").textContent = transient ? `换向瞬态 ${phaseOffset.toFixed(2)} s` : "Servo 正在收敛";
+        $("phaseLabel").textContent = `阶段：${phaseNames[s.phase]}`;
+        $("phaseDetail").textContent = phaseDetails[s.phase];
+        $("timeCursor").setAttribute("x1", chartX(currentTime));
+        $("timeCursor").setAttribute("x2", chartX(currentTime));
+
+        const angleError = Math.abs(s.targetAngle - s.servoAngle);
+        $("servoErrorText").textContent = `Servo 姿态差 ${angleError.toFixed(1)}°`;
+        const explanations = transient
+          ? `方向刚切换，目标姿态以约 12°/s 改变；Servo 命令姿态带宽约 9.3°/s，红蓝差距迅速拉大。`
+          : `换向冲击过去后，Servo 继续追赶目标。蓝绿仍几乎重合，说明误差不是 UR servoj 没有执行命令。`;
+        $("liveExplanation").textContent = explanations;
+        readout.textContent = `${currentTime.toFixed(2)} / 12 s`;
+        slider.value = currentTime.toFixed(2);
+      }
+
+      function frame(now) {
+        const elapsed = (now - lastFrame) / 1000;
+        lastFrame = now;
+        if (playing) {
+          currentTime += elapsed * speed;
+          if (currentTime >= duration) {
+            currentTime = duration;
+            playing = false;
+            playButton.textContent = "▶";
+          }
+          render();
+        }
+        requestAnimationFrame(frame);
+      }
+
+      playButton.addEventListener("click", () => {
+        if (currentTime >= duration) currentTime = 0;
+        playing = !playing;
+        playButton.textContent = playing ? "Ⅱ" : "▶";
+      });
+      resetButton.addEventListener("click", () => {
+        currentTime = 0;
+        playing = false;
+        playButton.textContent = "▶";
+        render();
+      });
+      slider.addEventListener("input", event => {
+        currentTime = Number(event.target.value);
+        playing = false;
+        playButton.textContent = "▶";
+        render();
+      });
+      document.querySelectorAll("[data-speed]").forEach(button => {
+        button.addEventListener("click", () => {
+          speed = Number(button.dataset.speed);
+          document.querySelectorAll("[data-speed]").forEach(item => item.classList.toggle("active", item === button));
+        });
+      });
+
+      render();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>
