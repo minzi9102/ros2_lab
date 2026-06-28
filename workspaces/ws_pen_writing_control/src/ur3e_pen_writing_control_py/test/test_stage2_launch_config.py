@@ -171,8 +171,8 @@ def test_stage3_real_benchmark_uses_reviewed_home_and_safe_defaults():
     assert len(home["home_joint_names"]) == 6
     assert home["home_positions_rad"] == [
         1.537635326385498,
-        -1.6185537777342738,
-        1.408759895955221,
+        -2.0233602018370265,
+        1.7531832336283040,
         -2.9421216450133265,
         -1.5928295294391077,
         -0.09980899492372686,

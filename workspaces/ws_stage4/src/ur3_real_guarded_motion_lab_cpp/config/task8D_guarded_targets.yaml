@@ -5,7 +5,7 @@ task8d_guarded_joint_motion:
     example_home_positions_rad_do_not_execute: [0.00, -1.20, 1.80, -2.10, -1.57, 0.00]
     example_ready_positions_rad_do_not_execute: [0.05, -1.15, 1.75, -2.05, -1.57, 0.05]
 
-    # 2026-04-29 从 /joint_states 按 home_joint_names 顺序重排得到。
+    # 2026-04-29 从 /joint_states 按 home_joint_names 顺序重排；2026-06-28 更新 lift/elbow。
     home_joint_names:
       - shoulder_pan_joint
       - shoulder_lift_joint
@@ -15,8 +15,8 @@ task8d_guarded_joint_motion:
       - wrist_3_joint
     home_positions_rad:
       - 1.537635326385498
-      - -1.6185537777342738
-      - 1.408759895955221
+      - -2.0233602018370265
+      - 1.7531832336283040
       - -2.9421216450133265
       - -1.5928295294391077
       - -0.09980899492372686
