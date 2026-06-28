@@ -1,5 +1,6 @@
 from ur3e_pen_writing_control_py.controller_switch_once_node import (
     controller_states_match,
+    non_empty_strings,
 )
 from ur3e_pen_writing_control_py.pen_real_tracking_benchmark_node import (
     should_return_home,
@@ -58,3 +59,9 @@ def test_controller_switch_requires_expected_active_and_inactive_states():
         activate=["forward_position_controller"],
         deactivate=["scaled_joint_trajectory_controller"],
     )
+
+
+def test_controller_switch_ignores_empty_string_array_default():
+    assert non_empty_strings(["", "forward_position_controller"]) == [
+        "forward_position_controller"
+    ]

@@ -4,8 +4,13 @@ from pathlib import Path
 
 from builtin_interfaces.msg import Duration
 from controller_manager_msgs.srv import ListControllers, SwitchController
+from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 import rclpy
 from rclpy.node import Node
+
+
+def non_empty_strings(values) -> list[str]:
+    return [item for item in list(values) if item]
 
 
 def controller_states_match(
@@ -22,12 +27,20 @@ def controller_states_match(
 class ControllerSwitchOnceNode(Node):
     def __init__(self) -> None:
         super().__init__("controller_switch_once")
-        self.activate = list(
-            self.declare_parameter("activate_controllers", []).value
+        controller_list_descriptor = ParameterDescriptor(
+            type=ParameterType.PARAMETER_STRING_ARRAY
         )
-        self.deactivate = list(
-            self.declare_parameter("deactivate_controllers", []).value
-        )
+
+        def string_array_parameter(name: str) -> list[str]:
+            value = self.declare_parameter(
+                name,
+                [""],
+                descriptor=controller_list_descriptor,
+            ).value
+            return non_empty_strings(value)
+
+        self.activate = string_array_parameter("activate_controllers")
+        self.deactivate = string_array_parameter("deactivate_controllers")
         self.timeout_sec = float(
             self.declare_parameter("timeout_sec", 10.0).value
         )
