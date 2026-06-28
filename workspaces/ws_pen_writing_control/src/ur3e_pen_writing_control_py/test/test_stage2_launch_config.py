@@ -128,6 +128,7 @@ def test_stage3_real_air_launch_uses_current_servo_scale():
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
     assert servo_yaml["scale"]["rotational"] == 1.5708
+    assert module.STAGE3_JOINT_STATE_RELAY_PERIOD_SEC == 0.004
 
 
 def test_stage3_real_air_pen_parameters_match_fakehardware_motion_strategy():

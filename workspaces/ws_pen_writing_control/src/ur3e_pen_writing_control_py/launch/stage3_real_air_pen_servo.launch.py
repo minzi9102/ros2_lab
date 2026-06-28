@@ -37,6 +37,7 @@ STAGE3_REAL_INITIAL_JOINT_CONTROLLER = "forward_position_controller"
 STAGE3_REAL_DESCRIPTION_LAUNCHFILE_NAME = "task8B_real_calibrated_rsp.launch.py"
 STAGE3_REAL_PAPER_ORIGIN_XYZ = [0.45, 0.0, 0.12]
 STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ = [0.0, 0.0, 0.14]
+STAGE3_JOINT_STATE_RELAY_PERIOD_SEC = 0.004
 STAGE3_REAL_FAKEHARDWARE_MATCHED_PEN_PARAMS = {
     "max_planar_speed_mps": 0.03,
     "tilt_rate_degps": 10.0,
@@ -394,7 +395,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             {
                 "source_topic": "/joint_states",
                 "target_topic": "/task7e/joint_states_fresh",
-                "publish_period_sec": 0.02,
+                "publish_period_sec": STAGE3_JOINT_STATE_RELAY_PERIOD_SEC,
             }
         ],
     )
