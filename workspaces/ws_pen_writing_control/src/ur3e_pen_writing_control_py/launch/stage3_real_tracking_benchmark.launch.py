@@ -9,6 +9,7 @@ from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
+    GroupAction,
     IncludeLaunchDescription,
     LogInfo,
     OpaqueFunction,
@@ -21,7 +22,7 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -32,6 +33,8 @@ INITIAL_CONTROLLER = "scaled_joint_trajectory_controller"
 SERVO_CONTROLLER = "forward_position_controller"
 COMMAND_JOY_TOPIC = "/pen_writing/real_benchmark/joy"
 JOINT_STATE_RELAY_PERIOD_SEC = 0.004
+RAW_JOINT_STATES_TOPIC = "/joint_states"
+FRESH_JOINT_STATES_TOPIC = "/task7e/joint_states_fresh"
 MAX_SESSION_DURATION_SEC = 60.0
 
 
@@ -74,6 +77,25 @@ def validate_benchmark_configuration(
     if not home["home_reviewed_by"]:
         return "reviewed Task8D home is missing home_reviewed_by"
     return None
+
+
+def joint_state_relay_parameters() -> dict:
+    return {
+        "source_topic": RAW_JOINT_STATES_TOPIC,
+        "target_topic": FRESH_JOINT_STATES_TOPIC,
+        "publish_period_sec": JOINT_STATE_RELAY_PERIOD_SEC,
+    }
+
+
+def trajectory_gate_parameters(timeout_sec) -> dict:
+    return {
+        "topic": FRESH_JOINT_STATES_TOPIC,
+        "timeout_sec": timeout_sec,
+        "required_active_controllers": [
+            "joint_state_broadcaster",
+            INITIAL_CONTROLLER,
+        ],
+    }
 
 
 def _bool_value(context: LaunchContext, name: str) -> bool:
@@ -176,7 +198,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         .to_moveit_configs()
     )
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
-    servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
+    servo_yaml["joint_topic"] = FRESH_JOINT_STATES_TOPIC
     servo_yaml["scale"]["rotational"] = 1.5708
 
     description_launchfile = PathJoinSubstitution(
@@ -253,17 +275,26 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             }
         ],
     )
-    moveit_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [FindPackageShare("ur_moveit_config"), "launch", "ur_moveit.launch.py"]
-            )
-        ),
-        launch_arguments={
-            "ur_type": LaunchConfiguration("ur_type"),
-            "launch_rviz": "false",
-            "launch_servo": "false",
-        }.items(),
+    moveit_launch = GroupAction(
+        actions=[
+            SetRemap(src=RAW_JOINT_STATES_TOPIC, dst=FRESH_JOINT_STATES_TOPIC),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("ur_moveit_config"),
+                            "launch",
+                            "ur_moveit.launch.py",
+                        ]
+                    )
+                ),
+                launch_arguments={
+                    "ur_type": LaunchConfiguration("ur_type"),
+                    "launch_rviz": "false",
+                    "launch_servo": "false",
+                }.items(),
+            ),
+        ]
     )
     rviz_node = Node(
         package="rviz2",
@@ -289,14 +320,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         name="real_benchmark_trajectory_gate",
         output="both",
         parameters=[
-            {
-                "topic": "/joint_states",
-                "timeout_sec": LaunchConfiguration("joint_states_wait_timeout_sec"),
-                "required_active_controllers": [
-                    "joint_state_broadcaster",
-                    INITIAL_CONTROLLER,
-                ],
-            }
+            trajectory_gate_parameters(
+                LaunchConfiguration("joint_states_wait_timeout_sec")
+            )
         ],
     )
 
@@ -318,6 +344,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             name=f"real_benchmark_{phase}",
             output="both",
             parameters=[moveit_config.to_dict(), parameters],
+            remappings=[(RAW_JOINT_STATES_TOPIC, FRESH_JOINT_STATES_TOPIC)],
         )
 
     pre_home = home_node("pre_home", "pre_home_result.json")
@@ -354,13 +381,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         executable="joint_state_stamp_relay_node",
         name="real_benchmark_joint_state_stamp_relay",
         output="both",
-        parameters=[
-            {
-                "source_topic": "/joint_states",
-                "target_topic": "/task7e/joint_states_fresh",
-                "publish_period_sec": JOINT_STATE_RELAY_PERIOD_SEC,
-            }
-        ],
+        parameters=[joint_state_relay_parameters()],
     )
     servo_node = Node(
         package="moveit_servo",
@@ -482,6 +503,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         return [
             dashboard_launch,
             external_control_manager,
+            joint_state_relay,
             moveit_launch,
             rviz_node,
             TimerAction(period=3.0, actions=[trajectory_gate]),
@@ -514,7 +536,6 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             )
         _append_lifecycle(lifecycle_path, "servo_controller_active")
         return [
-            joint_state_relay,
             servo_node,
             servo_status_gate,
         ]

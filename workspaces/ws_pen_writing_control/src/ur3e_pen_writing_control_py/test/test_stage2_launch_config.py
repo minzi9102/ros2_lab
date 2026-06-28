@@ -183,6 +183,39 @@ def test_stage3_real_benchmark_uses_reviewed_home_and_safe_defaults():
     assert module.INITIAL_CONTROLLER == "scaled_joint_trajectory_controller"
     assert module.SERVO_CONTROLLER == "forward_position_controller"
     assert module.JOINT_STATE_RELAY_PERIOD_SEC == 0.004
+    assert module.RAW_JOINT_STATES_TOPIC == "/joint_states"
+    assert module.FRESH_JOINT_STATES_TOPIC == "/task7e/joint_states_fresh"
+
+
+def test_stage3_real_benchmark_uses_fresh_joint_states_for_prehome_and_servo():
+    module = _load_stage3_real_benchmark_launch_module()
+
+    relay_parameters = module.joint_state_relay_parameters()
+    gate_parameters = module.trajectory_gate_parameters(timeout_sec=30.0)
+    servo_yaml = module.load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    servo_yaml["joint_topic"] = module.FRESH_JOINT_STATES_TOPIC
+
+    assert relay_parameters["source_topic"] == module.RAW_JOINT_STATES_TOPIC
+    assert relay_parameters["target_topic"] == module.FRESH_JOINT_STATES_TOPIC
+    assert relay_parameters["publish_period_sec"] == module.JOINT_STATE_RELAY_PERIOD_SEC
+    assert gate_parameters["topic"] == module.FRESH_JOINT_STATES_TOPIC
+    assert gate_parameters["required_active_controllers"] == [
+        "joint_state_broadcaster",
+        module.INITIAL_CONTROLLER,
+    ]
+    assert servo_yaml["joint_topic"] == module.FRESH_JOINT_STATES_TOPIC
+
+
+def test_stage3_real_benchmark_starts_relay_before_prehome_only_once():
+    source = REAL_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    hardware_start = source.index("def on_hardware_exit")
+    servo_start = source.index("def on_switch_to_servo_exit")
+    hardware_block = source[hardware_start:servo_start]
+    servo_block = source[servo_start : source.index("def on_servo_gate_exit")]
+
+    assert "joint_state_relay" in hardware_block
+    assert "joint_state_relay" not in servo_block
 
 
 def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
