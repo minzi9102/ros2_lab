@@ -18,6 +18,9 @@ class WaitForJointStatesNode(Node):
         super().__init__("task7e_joint_states_gate")
         self.topic = self.declare_parameter("topic", "/joint_states").value
         self.timeout_sec = float(self.declare_parameter("timeout_sec", 15.0).value)
+        self.reliability = str(
+            self.declare_parameter("reliability", "reliable").value
+        ).lower()
         self.controller_manager_service = self.declare_parameter(
             "controller_manager_service",
             "/controller_manager/list_controllers",
@@ -28,6 +31,14 @@ class WaitForJointStatesNode(Node):
                 ["joint_state_broadcaster", "forward_position_controller"],
             ).value
         )
+
+
+def reliability_policy(reliability: str) -> ReliabilityPolicy | None:
+    if reliability == "reliable":
+        return ReliabilityPolicy.RELIABLE
+    if reliability == "best_effort":
+        return ReliabilityPolicy.BEST_EFFORT
+    return None
 
 
 def wait_for_active_controllers(node: WaitForJointStatesNode) -> bool:
@@ -89,15 +100,25 @@ def wait_for_active_controllers(node: WaitForJointStatesNode) -> bool:
 def main(args=None) -> int:
     rclpy.init(args=args)
     node = WaitForJointStatesNode()
+    reliability = reliability_policy(node.reliability)
+    if reliability is None:
+        node.get_logger().error(
+            "Invalid reliability parameter '%s'. Expected 'reliable' or 'best_effort'.",
+            node.reliability,
+        )
+        node.destroy_node()
+        rclpy.shutdown()
+        return 1
     qos_profile = QoSProfile(
         history=HistoryPolicy.KEEP_LAST,
         depth=1,
-        reliability=ReliabilityPolicy.RELIABLE,
+        reliability=reliability,
     )
 
     try:
         node.get_logger().info(
-            f"Waiting for the first JointState message on {node.topic} for up to {node.timeout_sec:.1f}s."
+            f"Waiting for the first JointState message on {node.topic} with "
+            f"{node.reliability} reliability for up to {node.timeout_sec:.1f}s."
         )
         received, _ = wait_for_message(
             JointState,

@@ -90,6 +90,7 @@ def trajectory_gate_parameters(timeout_sec) -> dict:
     return {
         "topic": FRESH_JOINT_STATES_TOPIC,
         "timeout_sec": timeout_sec,
+        "reliability": "best_effort",
         "required_active_controllers": [
             "joint_state_broadcaster",
             INITIAL_CONTROLLER,

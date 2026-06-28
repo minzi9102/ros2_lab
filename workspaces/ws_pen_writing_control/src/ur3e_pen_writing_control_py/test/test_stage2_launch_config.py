@@ -199,6 +199,7 @@ def test_stage3_real_benchmark_uses_fresh_joint_states_for_prehome_and_servo():
     assert relay_parameters["target_topic"] == module.FRESH_JOINT_STATES_TOPIC
     assert relay_parameters["publish_period_sec"] == module.JOINT_STATE_RELAY_PERIOD_SEC
     assert gate_parameters["topic"] == module.FRESH_JOINT_STATES_TOPIC
+    assert gate_parameters["reliability"] == "best_effort"
     assert gate_parameters["required_active_controllers"] == [
         "joint_state_broadcaster",
         module.INITIAL_CONTROLLER,
