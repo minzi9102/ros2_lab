@@ -2,6 +2,7 @@ import csv
 import math
 from pathlib import Path
 import time
+import traceback
 from dataclasses import dataclass
 from typing import Iterable, TextIO
 
@@ -528,6 +529,8 @@ class PenFakeHardwareServoNode(Node):
         self._last_servo_status_warn_time = 0.0
         self._servo_status_seen = False
         self._servo_health_fault = False
+        self._shutdown_reason = "not requested"
+        self._shutdown_requested_at_sec: float | None = None
         self._alignment_error_logger = AlignmentErrorCsvLogger(
             path=self.alignment_error_log_path,
             sample_rate_hz=self.alignment_error_log_rate_hz,
@@ -671,11 +674,12 @@ class PenFakeHardwareServoNode(Node):
         ):
             self._velocity.stop_immediately()
             self._pose_command_armed = False
-            self.get_logger().warn(
-                "Maximum pen Servo session duration reached. "
-                "Stopping pose publication and shutting down."
+            self._request_shutdown(
+                "maximum session duration reached: "
+                f"elapsed={now_sec - self._session_started_at_sec:.3f}s "
+                f"limit={self.max_session_duration_sec:.3f}s",
+                level="warn",
             )
-            rclpy.shutdown()
             return
 
         if self._paper_origin is None:
@@ -696,11 +700,12 @@ class PenFakeHardwareServoNode(Node):
         if self._pose_command_armed and not self._is_servo_status_healthy(now_sec):
             self._servo_health_fault = True
             self._pose_command_armed = False
-            self.get_logger().error(
-                "MoveIt Servo status timed out after pose commands were armed. "
-                "Stopping pen pose publication and shutting down this node."
+            self._request_shutdown(
+                "MoveIt Servo status timed out after pose commands were armed: "
+                f"last_status_age={now_sec - self._last_servo_status_time:.3f}s "
+                f"timeout={self.servo_status_timeout_sec:.3f}s",
+                level="error",
             )
-            rclpy.shutdown()
             return
 
         if control.emergency_stop:
@@ -723,8 +728,9 @@ class PenFakeHardwareServoNode(Node):
                 virtual_pen_settling=False,
             )
             if control.quit_requested:
-                self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
-                rclpy.shutdown()
+                self._request_shutdown(
+                    "Joy B quit requested while emergency stop branch was active",
+                )
             return
         else:
             velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
@@ -774,8 +780,41 @@ class PenFakeHardwareServoNode(Node):
         )
 
         if control.quit_requested:
-            self.get_logger().info("Joy quit requested. Pen Servo node shutting down.")
-            rclpy.shutdown()
+            self._request_shutdown("Joy B quit requested after normal update branch")
+
+    def _request_shutdown(self, reason: str, *, level: str = "info") -> None:
+        now_sec = time.monotonic()
+        if self._shutdown_requested_at_sec is None:
+            self._shutdown_reason = reason
+            self._shutdown_requested_at_sec = now_sec
+
+        joy_age = (
+            math.inf
+            if self._last_joy_msg_time == 0.0
+            else now_sec - self._last_joy_msg_time
+        )
+        status_age = (
+            math.inf
+            if self._last_servo_status_time == 0.0
+            else now_sec - self._last_servo_status_time
+        )
+        message = (
+            "Pen Servo node requesting shutdown. "
+            f"reason={self._shutdown_reason!r} "
+            f"pose_command_armed={self._pose_command_armed} "
+            f"pose_mode_ready={self._pose_mode_ready} "
+            f"servo_status_seen={self._servo_status_seen} "
+            f"servo_status_age_sec={status_age:.3f} "
+            f"joy_msg_age_sec={joy_age:.3f} "
+            f"latest_control={self._latest_joy_control}"
+        )
+        if level == "error":
+            self.get_logger().error(message)
+        elif level == "warn":
+            self.get_logger().warn(message)
+        else:
+            self.get_logger().info(message)
+        rclpy.shutdown()
 
     def _initialize_paper_origin(self) -> None:
         try:
@@ -1275,6 +1314,15 @@ class PenFakeHardwareServoNode(Node):
             self.get_logger().warn(message)
 
     def destroy_node(self):
+        self.get_logger().info(
+            "Pen Servo node destroy requested. "
+            f"shutdown_reason={self._shutdown_reason!r} "
+            f"shutdown_requested={self._shutdown_requested_at_sec is not None} "
+            f"pose_command_armed={self._pose_command_armed} "
+            f"pose_mode_ready={self._pose_mode_ready} "
+            f"servo_status_seen={self._servo_status_seen} "
+            f"alignment_log_started={self._alignment_error_logger.started}"
+        )
         if self._alignment_error_logger.started:
             self.get_logger().info(
                 "Tool alignment error recording stopped after "
@@ -1302,13 +1350,30 @@ def main(args=None) -> None:
     try:
         node = PenFakeHardwareServoNode()
         rclpy.spin(node)
+        node.get_logger().info(
+            "rclpy.spin returned. "
+            f"shutdown_reason={node._shutdown_reason!r} "
+            f"rclpy_ok={rclpy.ok()}"
+        )
     except KeyboardInterrupt:
         if node is not None:
             node.get_logger().info("Keyboard interrupt received.")
     except (RuntimeError, ValueError) as exc:
-        print(f"Pen fake-hardware Servo node refused to start: {exc}")
+        if node is not None:
+            node._shutdown_reason = f"exception: {type(exc).__name__}: {exc}"
+            node.get_logger().error(
+                "Pen fake-hardware Servo node stopped after exception:\n"
+                f"{traceback.format_exc()}"
+            )
+        else:
+            print(
+                "Pen fake-hardware Servo node refused to start after exception:\n"
+                f"{traceback.format_exc()}"
+            )
     finally:
         if node is not None:
+            if rclpy.ok():
+                node.get_logger().info("main() finalizer is calling rclpy.shutdown().")
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
