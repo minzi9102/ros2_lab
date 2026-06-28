@@ -5,10 +5,10 @@ import yaml
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "pen_tool_model.yaml"
 EXPECTED_LOW_SPEED_PARAMETERS = {
-    "max_planar_speed_mps": 0.025,
-    "tilt_rate_degps": 8.0,
-    "untilt_rate_degps": 10.0,
-    "max_pen_axis_angular_speed_degps": 10.0,
+    "max_planar_speed_mps": 0.03,
+    "tilt_rate_degps": 10.0,
+    "untilt_rate_degps": 12.0,
+    "max_pen_axis_angular_speed_degps": 12.0,
 }
 
 

@@ -14,8 +14,6 @@ from visualization_msgs.msg import Marker, MarkerArray
 from .joy_mapping import JoyControl, JoyMapper
 from .pen_math import (
     PaperBounds,
-    PlanarVelocity,
-    planar_turn_speed_scale,
     SmoothPlanarVelocity,
     VirtualPenState,
 )
@@ -47,19 +45,7 @@ class PenWritingVisualizerNode(Node):
             self.declare_parameter("joy_timeout_sec", 0.25).value
         )
         self.max_planar_speed_mps = float(
-            self.declare_parameter("max_planar_speed_mps", 0.025).value
-        )
-        self.turn_speed_scale_active_speed_mps = float(
-            self.declare_parameter("turn_speed_scale_active_speed_mps", 0.01).value
-        )
-        self.turn_speed_scale_soft_deg = float(
-            self.declare_parameter("turn_speed_scale_soft_deg", 45.0).value
-        )
-        self.turn_speed_scale_hard_deg = float(
-            self.declare_parameter("turn_speed_scale_hard_deg", 135.0).value
-        )
-        self.turn_speed_scale_min = float(
-            self.declare_parameter("turn_speed_scale_min", 0.35).value
+            self.declare_parameter("max_planar_speed_mps", 0.03).value
         )
         self.acceleration_mps2 = float(
             self.declare_parameter("acceleration_mps2", 0.08).value
@@ -74,15 +60,15 @@ class PenWritingVisualizerNode(Node):
             self.declare_parameter("tilt_activate_speed_mps", 0.01).value
         )
         self.tilt_rate_degps = float(
-            self.declare_parameter("tilt_rate_degps", 8.0).value
+            self.declare_parameter("tilt_rate_degps", 10.0).value
         )
         self.untilt_rate_degps = float(
-            self.declare_parameter("untilt_rate_degps", 10.0).value
+            self.declare_parameter("untilt_rate_degps", 12.0).value
         )
         self.max_pen_axis_angular_speed_degps = float(
             self.declare_parameter(
                 "max_pen_axis_angular_speed_degps",
-                10.0,
+                12.0,
             ).value
         )
         self.pen_length_m = float(self.declare_parameter("pen_length_m", 0.14).value)
@@ -197,15 +183,6 @@ class PenWritingVisualizerNode(Node):
             raise ValueError(
                 "max_pen_axis_angular_speed_degps must be greater than zero"
             )
-        planar_turn_speed_scale(
-            current_velocity=PlanarVelocity(),
-            target_x=0.0,
-            target_y=0.0,
-            active_speed_mps=self.turn_speed_scale_active_speed_mps,
-            soft_turn_deg=self.turn_speed_scale_soft_deg,
-            hard_turn_deg=self.turn_speed_scale_hard_deg,
-            min_scale=self.turn_speed_scale_min,
-        )
         if self.target_pen_tip_axis_length_m <= 0.0:
             raise ValueError(
                 "target_pen_tip_axis_length_m must be greater than zero"
@@ -224,20 +201,7 @@ class PenWritingVisualizerNode(Node):
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
         else:
-            turn_scale = planar_turn_speed_scale(
-                current_velocity=self._velocity.current(),
-                target_x=control.target_x,
-                target_y=control.target_y,
-                active_speed_mps=self.turn_speed_scale_active_speed_mps,
-                soft_turn_deg=self.turn_speed_scale_soft_deg,
-                hard_turn_deg=self.turn_speed_scale_hard_deg,
-                min_scale=self.turn_speed_scale_min,
-            )
-            velocity = self._velocity.update(
-                control.target_x * turn_scale,
-                control.target_y * turn_scale,
-                dt_sec,
-            )
+            velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
 
         pose = self._pen_state.update(velocity, dt_sec)
         self._pen_orientation.update(pose, dt_sec)
