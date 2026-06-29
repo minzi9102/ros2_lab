@@ -1,4 +1,5 @@
 import json
+import math
 import yaml
 
 from datetime import datetime
@@ -37,6 +38,7 @@ RAW_JOINT_STATES_TOPIC = "/joint_states"
 FRESH_JOINT_STATES_TOPIC = "/task7e/joint_states_fresh"
 MAX_SESSION_DURATION_SEC = 60.0
 RVIZ_LAUNCH_CONFIG = "real_benchmark_launch_rviz"
+STAGE3_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
 
 
 def load_yaml(package_name: str, relative_path: str):
@@ -218,7 +220,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
     )
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = FRESH_JOINT_STATES_TOPIC
-    servo_yaml["scale"]["rotational"] = 1.5708
+    servo_yaml["scale"]["rotational"] = STAGE3_SERVO_ROTATIONAL_SCALE_RADPS
 
     description_launchfile = PathJoinSubstitution(
         [

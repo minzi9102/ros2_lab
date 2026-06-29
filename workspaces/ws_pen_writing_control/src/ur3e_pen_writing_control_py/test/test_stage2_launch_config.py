@@ -1,4 +1,5 @@
 import importlib.util
+import math
 from pathlib import Path
 
 
@@ -68,14 +69,14 @@ def _load_stage3_real_benchmark_launch_module():
     return module
 
 
-def test_stage2_launch_sets_servo_rotational_scale_to_half_of_slowest_ur3_joint_limit():
+def test_stage2_launch_sets_servo_rotational_scale_to_ur3_wrist_limit():
     module = _load_stage2_launch_module()
 
-    assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == 1.5708
+    assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == math.tau
     servo_yaml = module.configured_stage2_servo_yaml()
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
-    assert servo_yaml["scale"]["rotational"] == 1.5708
+    assert servo_yaml["scale"]["rotational"] == math.tau
 
 
 def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():
@@ -83,11 +84,11 @@ def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():
 
     assert module.STAGE2_URSIM_DEFAULT_ROBOT_IP == "172.17.0.2"
     assert module.STAGE2_URSIM_DEFAULT_USE_MOCK_HARDWARE == "false"
-    assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == 1.5708
+    assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == math.tau
 
     servo_yaml = module.configured_stage2_servo_yaml()
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
-    assert servo_yaml["scale"]["rotational"] == 1.5708
+    assert servo_yaml["scale"]["rotational"] == math.tau
 
 
 def test_stage2_ursim_pen_node_parameters_match_fakehardware_height_strategy():
@@ -143,7 +144,7 @@ def test_stage3_real_air_launch_uses_current_servo_scale():
     servo_yaml = module.configured_stage3_servo_yaml()
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
-    assert servo_yaml["scale"]["rotational"] == 1.5708
+    assert servo_yaml["scale"]["rotational"] == math.tau
     assert module.STAGE3_JOINT_STATE_RELAY_PERIOD_SEC == 0.004
 
 
@@ -183,6 +184,7 @@ def test_stage3_real_benchmark_uses_reviewed_home_and_safe_defaults():
     assert module.INITIAL_CONTROLLER == "scaled_joint_trajectory_controller"
     assert module.SERVO_CONTROLLER == "forward_position_controller"
     assert module.JOINT_STATE_RELAY_PERIOD_SEC == 0.004
+    assert module.STAGE3_SERVO_ROTATIONAL_SCALE_RADPS == math.tau
     assert module.RAW_JOINT_STATES_TOPIC == "/joint_states"
     assert module.FRESH_JOINT_STATES_TOPIC == "/task7e/joint_states_fresh"
 

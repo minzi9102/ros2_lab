@@ -1,3 +1,4 @@
+import math
 import os
 import yaml
 
@@ -28,7 +29,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
-STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = 1.5708
+STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
 
 
 def load_yaml(package_name: str, file_path: str):

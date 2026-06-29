@@ -1,3 +1,4 @@
+import math
 import os
 import yaml
 
@@ -29,7 +30,7 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
-STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = 1.5708
+STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
 STAGE2_URSIM_DEFAULT_ROBOT_IP = "172.17.0.2"
 STAGE2_URSIM_DEFAULT_USE_MOCK_HARDWARE = "false"
 STAGE2_URSIM_DEFAULT_PAPER_ORIGIN_XYZ = [0.45, 0.0, 0.12]
