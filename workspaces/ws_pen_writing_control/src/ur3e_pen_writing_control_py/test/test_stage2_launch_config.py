@@ -145,6 +145,9 @@ def test_stage3_real_air_launch_uses_current_servo_scale():
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
     assert servo_yaml["scale"]["rotational"] == math.tau
+    assert servo_yaml["use_smoothing"] is True
+    disabled_servo_yaml = module.configured_stage3_servo_yaml(use_smoothing=False)
+    assert disabled_servo_yaml["use_smoothing"] is False
     assert module.STAGE3_JOINT_STATE_RELAY_PERIOD_SEC == 0.004
 
 
@@ -194,8 +197,7 @@ def test_stage3_real_benchmark_uses_fresh_joint_states_for_prehome_and_servo():
 
     relay_parameters = module.joint_state_relay_parameters()
     gate_parameters = module.trajectory_gate_parameters(timeout_sec=30.0)
-    servo_yaml = module.load_yaml("ur_moveit_config", "config/ur_servo.yaml")
-    servo_yaml["joint_topic"] = module.FRESH_JOINT_STATES_TOPIC
+    servo_yaml = module.configured_stage3_servo_yaml()
 
     assert relay_parameters["source_topic"] == module.RAW_JOINT_STATES_TOPIC
     assert relay_parameters["target_topic"] == module.FRESH_JOINT_STATES_TOPIC
@@ -207,6 +209,9 @@ def test_stage3_real_benchmark_uses_fresh_joint_states_for_prehome_and_servo():
         module.INITIAL_CONTROLLER,
     ]
     assert servo_yaml["joint_topic"] == module.FRESH_JOINT_STATES_TOPIC
+    assert servo_yaml["use_smoothing"] is True
+    disabled_servo_yaml = module.configured_stage3_servo_yaml(use_smoothing=False)
+    assert disabled_servo_yaml["use_smoothing"] is False
 
 
 def test_stage3_real_benchmark_move_group_uses_explicit_warehouse_config():

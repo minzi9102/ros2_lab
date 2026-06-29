@@ -119,6 +119,14 @@ def move_group_parameters(moveit_config) -> list:
     ]
 
 
+def configured_stage3_servo_yaml(*, use_smoothing: bool = True) -> dict:
+    servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    servo_yaml["joint_topic"] = FRESH_JOINT_STATES_TOPIC
+    servo_yaml["scale"]["rotational"] = STAGE3_SERVO_ROTATIONAL_SCALE_RADPS
+    servo_yaml["use_smoothing"] = use_smoothing
+    return servo_yaml
+
+
 def _bool_value(context: LaunchContext, name: str) -> bool:
     return context.perform_substitution(LaunchConfiguration(name)).lower() in {
         "1",
@@ -162,6 +170,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("joint_states_wait_timeout_sec", default_value="30.0"),
         DeclareLaunchArgument("servo_status_wait_timeout_sec", default_value="30.0"),
         DeclareLaunchArgument("dashboard_receive_timeout", default_value="20.0"),
+        DeclareLaunchArgument("servo_use_smoothing", default_value="true"),
         DeclareLaunchArgument("joy_device_id", default_value="0"),
         DeclareLaunchArgument("joy_device_name", default_value=""),
         DeclareLaunchArgument("joy_deadzone", default_value="0.08"),
@@ -218,9 +227,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         )
         .to_moveit_configs()
     )
-    servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
-    servo_yaml["joint_topic"] = FRESH_JOINT_STATES_TOPIC
-    servo_yaml["scale"]["rotational"] = STAGE3_SERVO_ROTATIONAL_SCALE_RADPS
+    servo_yaml = configured_stage3_servo_yaml(
+        use_smoothing=_bool_value(context, "servo_use_smoothing")
+    )
 
     description_launchfile = PathJoinSubstitution(
         [

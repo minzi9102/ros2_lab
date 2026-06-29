@@ -94,10 +94,11 @@ def validate_real_air_configuration(
     return None
 
 
-def configured_stage3_servo_yaml():
+def configured_stage3_servo_yaml(*, use_smoothing: bool = True):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
     servo_yaml["scale"]["rotational"] = STAGE3_SERVO_ROTATIONAL_SCALE_RADPS
+    servo_yaml["use_smoothing"] = use_smoothing
     return servo_yaml
 
 
@@ -156,6 +157,11 @@ def generate_launch_description() -> LaunchDescription:
                 "servo_log_level",
                 default_value="warn",
                 description="Log level for moveit_servo/servo_node.",
+            ),
+            DeclareLaunchArgument(
+                "servo_use_smoothing",
+                default_value="true",
+                description="Enable MoveIt Servo outgoing command smoothing.",
             ),
             DeclareLaunchArgument(
                 "joint_states_wait_timeout_sec",
@@ -259,7 +265,12 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         .to_moveit_configs()
     )
 
-    servo_yaml = configured_stage3_servo_yaml()
+    servo_yaml = configured_stage3_servo_yaml(
+        use_smoothing=context.perform_substitution(
+            LaunchConfiguration("servo_use_smoothing")
+        ).lower()
+        in ("1", "true", "yes", "on")
+    )
     servo_params = {"moveit_servo": servo_yaml}
 
     description_launchfile = PathJoinSubstitution(
