@@ -20,7 +20,7 @@ from launch.actions import (
     SetLaunchConfiguration,
     TimerAction,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -274,19 +274,6 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    moveit_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [FindPackageShare("ur_moveit_config"), "launch", "ur_moveit.launch.py"]
-            )
-        ),
-        launch_arguments={
-            "ur_type": LaunchConfiguration("ur_type"),
-            "launch_rviz": "false",
-            "launch_servo": "false",
-        }.items(),
-    )
-
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -411,8 +398,27 @@ def generate_launch_description() -> LaunchDescription:
                 "timeout_sec": LaunchConfiguration("joint_states_wait_timeout_sec"),
                 "required_active_controllers": [
                     "joint_state_broadcaster",
-                    "forward_position_controller",
                 ],
+            }
+        ],
+    )
+
+    activate_forward_position_controller = Node(
+        package="ur3e_pen_writing_control_py",
+        executable="controller_switch_once_node",
+        name="activate_ursim_forward_position_controller",
+        output="screen",
+        parameters=[
+            {
+                "activate_controllers": ["forward_position_controller"],
+                "deactivate_controllers": [""],
+                "timeout_sec": 20.0,
+                "result_path": PathJoinSubstitution(
+                    [
+                        LaunchConfiguration("run_log_dir"),
+                        "activate_forward_position_controller.json",
+                    ]
+                ),
             }
         ],
     )
@@ -495,14 +501,38 @@ def generate_launch_description() -> LaunchDescription:
             return [
                 LogInfo(
                     msg=(
-                        "Detected /joint_states and active controllers. "
-                        "Starting MoveIt Servo soon."
+                        "Detected /joint_states and base controllers. "
+                        "Re-activating forward_position_controller before Servo."
                     )
                 ),
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),
                     actions=[
-                        LogInfo(msg="Starting MoveIt Servo node."),
+                        activate_forward_position_controller,
+                    ],
+                ),
+            ]
+
+        return [
+            EmitEvent(
+                event=Shutdown(
+                    reason="Pen URSim launch timed out before Servo startup."
+                )
+            )
+        ]
+
+    def on_activate_forward_position_controller_exit(event, _context):
+        if event.returncode == 0:
+            return [
+                TimerAction(
+                    period=LaunchConfiguration("servo_startup_settle_sec"),
+                    actions=[
+                        LogInfo(
+                            msg=(
+                                "forward_position_controller is active. "
+                                "Starting MoveIt Servo node."
+                            )
+                        ),
                         servo_node,
                         LogInfo(
                             msg=(
@@ -525,7 +555,15 @@ def generate_launch_description() -> LaunchDescription:
 
     def on_external_control_autostart_exit(event, _context):
         if event.returncode == 0:
-            return []
+            return [
+                LogInfo(
+                    msg=(
+                        "URSim External Control is playing. Waiting for "
+                        "/joint_states and base controllers before Servo..."
+                    )
+                ),
+                joint_states_gate,
+            ]
         return [
             LogInfo(
                 msg=(
@@ -639,16 +677,21 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                     driver_launch,
                     external_control_autostart,
-                    moveit_launch,
                     rviz_node,
                     joint_state_relay,
                     LogInfo(
                         msg=(
-                            "Waiting for /joint_states and active controllers before "
-                            "starting MoveIt Servo..."
+                            "Waiting for URSim External Control before starting "
+                            "MoveIt Servo..."
                         )
                     ),
-                    joint_states_gate,
+                    TimerAction(
+                        period=0.0,
+                        condition=UnlessCondition(
+                            LaunchConfiguration("auto_start_external_control")
+                        ),
+                        actions=[joint_states_gate],
+                    ),
                     RegisterEventHandler(
                         OnProcessExit(
                             target_action=external_control_autostart,
@@ -659,6 +702,12 @@ def generate_launch_description() -> LaunchDescription:
                         OnProcessExit(
                             target_action=joint_states_gate,
                             on_exit=on_joint_states_gate_exit,
+                        )
+                    ),
+                    RegisterEventHandler(
+                        OnProcessExit(
+                            target_action=activate_forward_position_controller,
+                            on_exit=on_activate_forward_position_controller_exit,
                         )
                     ),
                     RegisterEventHandler(
