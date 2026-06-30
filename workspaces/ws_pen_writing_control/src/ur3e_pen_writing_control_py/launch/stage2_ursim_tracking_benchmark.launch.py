@@ -22,7 +22,7 @@ def generate_launch_description() -> LaunchDescription:
     run_log_dir = (
         Path.cwd()
         / "logs"
-        / "stage2_fakehardware_tracking_benchmark"
+        / "stage2_ursim_tracking_benchmark"
         / datetime.now().strftime("%Y%m%d-%H%M%S")
     )
     run_log_dir.mkdir(parents=True, exist_ok=True)
@@ -42,6 +42,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="eight_direction",
         description="Benchmark profile aligned with the real-robot benchmark.",
     )
+    robot_ip_arg = DeclareLaunchArgument(
+        "robot_ip",
+        default_value="172.17.0.2",
+        description="URSim robot IP address.",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -55,23 +60,26 @@ def generate_launch_description() -> LaunchDescription:
                 [
                     FindPackageShare("ur3e_pen_writing_control_py"),
                     "launch",
-                    "stage2_fakehardware_pen_servo.launch.py",
+                    "stage2_ursim_pen_servo.launch.py",
                 ]
             )
         ),
         launch_arguments={
+            "robot_ip": LaunchConfiguration("robot_ip"),
             "launch_rviz": LaunchConfiguration("launch_rviz"),
             "verbose_runtime_logs": LaunchConfiguration("verbose_runtime_logs"),
             "launch_joy_node": "false",
             "joy_topic": joy_topic,
             "run_log_dir": str(run_log_dir),
+            "joint_states_wait_timeout_sec": "60.0",
+            "servo_status_wait_timeout_sec": "30.0",
         }.items(),
     )
 
     benchmark_node = Node(
         package="ur3e_pen_writing_control_py",
         executable="pen_real_tracking_benchmark_node",
-        name="pen_fakehardware_tracking_benchmark",
+        name="pen_ursim_tracking_benchmark",
         output="screen",
         parameters=[
             {
@@ -84,7 +92,7 @@ def generate_launch_description() -> LaunchDescription:
                 "result_path": result_json,
                 "publish_rate_hz": 50.0,
                 "benchmark_profile": LaunchConfiguration("benchmark_profile"),
-                "ready_timeout_sec": 30.0,
+                "ready_timeout_sec": 120.0,
                 "arm_timeout_sec": 10.0,
                 "alignment_ready_timeout_sec": 30.0,
             }
@@ -95,14 +103,14 @@ def generate_launch_description() -> LaunchDescription:
         return [
             LogInfo(
                 msg=(
-                    "Pen tracking benchmark exited with return code "
+                    "URSim tracking benchmark exited with return code "
                     f"{event.returncode}. Results: {summary_md}"
                 )
             ),
             EmitEvent(
                 event=Shutdown(
                     reason=(
-                        "Pen tracking benchmark completed with return code "
+                        "URSim tracking benchmark completed with return code "
                         f"{event.returncode}."
                     )
                 )
@@ -114,8 +122,9 @@ def generate_launch_description() -> LaunchDescription:
             launch_rviz_arg,
             verbose_runtime_logs_arg,
             benchmark_profile_arg,
+            robot_ip_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
-            LogInfo(msg=f"Pen tracking benchmark logs will be written to: {run_log_dir}"),
+            LogInfo(msg=f"URSim tracking benchmark logs will be written to: {run_log_dir}"),
             stage2_launch,
             benchmark_node,
             RegisterEventHandler(
