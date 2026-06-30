@@ -10,6 +10,7 @@ from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
+    ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
     LogInfo,
@@ -33,6 +34,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
 STAGE2_URSIM_DEFAULT_ROBOT_IP = "172.17.0.2"
 STAGE2_URSIM_DEFAULT_USE_MOCK_HARDWARE = "false"
+STAGE2_URSIM_DEFAULT_EXTERNAL_CONTROL_PROGRAM = "/ursim/programs/123.urp"
 STAGE2_URSIM_DEFAULT_PAPER_ORIGIN_XYZ = [0.45, 0.0, 0.12]
 STAGE2_URSIM_DEFAULT_TOOL0_TO_PEN_TIP_XYZ = [0.0, 0.0, 0.14]
 
@@ -64,6 +66,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "joint_states_wait_timeout_sec",
         "servo_startup_settle_sec",
         "servo_status_wait_timeout_sec",
+        "dashboard_receive_timeout_sec",
     ):
         raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
         try:
@@ -183,6 +186,21 @@ def generate_launch_description() -> LaunchDescription:
         "servo_status_wait_timeout_sec",
         default_value="15.0",
         description="Maximum time to wait for /servo_node/status before starting pen input.",
+    )
+    auto_start_external_control_arg = DeclareLaunchArgument(
+        "auto_start_external_control",
+        default_value="true",
+        description="Automatically load and play the URSim External Control program.",
+    )
+    external_control_program_arg = DeclareLaunchArgument(
+        "external_control_program",
+        default_value=STAGE2_URSIM_DEFAULT_EXTERNAL_CONTROL_PROGRAM,
+        description="Dashboard path of the URSim External Control program to load.",
+    )
+    dashboard_receive_timeout_arg = DeclareLaunchArgument(
+        "dashboard_receive_timeout_sec",
+        default_value="20.0",
+        description="Timeout used while auto-starting the URSim External Control program.",
     )
     joy_topic_arg = DeclareLaunchArgument(
         "joy_topic",
@@ -316,6 +334,52 @@ def generate_launch_description() -> LaunchDescription:
         arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
     )
 
+    external_control_autostart = ExecuteProcess(
+        cmd=[
+            "python3",
+            "-c",
+            (
+                "import socket, sys, time\n"
+                "host = sys.argv[1]\n"
+                "program = sys.argv[2]\n"
+                "timeout = float(sys.argv[3])\n"
+                "deadline = time.monotonic() + timeout\n"
+                "def issue(command):\n"
+                "    sock = socket.create_connection((host, 29999), timeout=3.0)\n"
+                "    sock.settimeout(3.0)\n"
+                "    greeting = sock.recv(4096).decode('utf-8', errors='replace').strip()\n"
+                "    print(greeting, flush=True)\n"
+                "    sock.sendall((command + '\\n').encode('utf-8'))\n"
+                "    response = sock.recv(4096).decode('utf-8', errors='replace').strip()\n"
+                "    sock.close()\n"
+                "    print(response, flush=True)\n"
+                "    return response\n"
+                "state = issue('programState')\n"
+                "if state.startswith('PLAYING'):\n"
+                "    raise SystemExit(0)\n"
+                "loaded = issue('get loaded program')\n"
+                "if program not in loaded:\n"
+                "    reply = issue(f'load {program}')\n"
+                "    if 'Loading program:' not in reply and 'File loaded' not in reply:\n"
+                "        raise SystemExit(f'Failed to load program: {reply}')\n"
+                "reply = issue('play')\n"
+                "if 'Starting program' not in reply and 'Failed to execute: play' not in reply:\n"
+                "    raise SystemExit(f'Failed to start program: {reply}')\n"
+                "while time.monotonic() < deadline:\n"
+                "    state = issue('programState')\n"
+                "    if state.startswith('PLAYING'):\n"
+                "        raise SystemExit(0)\n"
+                "    time.sleep(0.5)\n"
+                "raise SystemExit('External Control did not reach PLAYING before timeout')\n"
+            ),
+            LaunchConfiguration("robot_ip"),
+            LaunchConfiguration("external_control_program"),
+            LaunchConfiguration("dashboard_receive_timeout_sec"),
+        ],
+        condition=IfCondition(LaunchConfiguration("auto_start_external_control")),
+        output=LaunchConfiguration("pen_runtime_output"),
+    )
+
     joint_states_gate = Node(
         package="ur3_moveit_servo_lab_cpp",
         executable="wait_for_joint_states.py",
@@ -439,6 +503,25 @@ def generate_launch_description() -> LaunchDescription:
             )
         ]
 
+    def on_external_control_autostart_exit(event, _context):
+        if event.returncode == 0:
+            return []
+        return [
+            LogInfo(
+                msg=(
+                    "URSim External Control auto-start failed with return code "
+                    f"{event.returncode}."
+                )
+            ),
+            EmitEvent(
+                event=Shutdown(
+                    reason=(
+                        "URSim External Control auto-start failed before Servo startup."
+                    )
+                )
+            ),
+        ]
+
     def on_servo_status_gate_exit(event, _context):
         if event.returncode == 0:
             return [
@@ -493,6 +576,9 @@ def generate_launch_description() -> LaunchDescription:
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
+            auto_start_external_control_arg,
+            external_control_program_arg,
+            dashboard_receive_timeout_arg,
             joy_topic_arg,
             launch_joy_node_arg,
             joy_device_id_arg,
@@ -531,6 +617,7 @@ def generate_launch_description() -> LaunchDescription:
                         ]
                     ),
                     driver_launch,
+                    external_control_autostart,
                     moveit_launch,
                     rviz_node,
                     joint_state_relay,
@@ -541,6 +628,12 @@ def generate_launch_description() -> LaunchDescription:
                         )
                     ),
                     joint_states_gate,
+                    RegisterEventHandler(
+                        OnProcessExit(
+                            target_action=external_control_autostart,
+                            on_exit=on_external_control_autostart_exit,
+                        )
+                    ),
                     RegisterEventHandler(
                         OnProcessExit(
                             target_action=joint_states_gate,

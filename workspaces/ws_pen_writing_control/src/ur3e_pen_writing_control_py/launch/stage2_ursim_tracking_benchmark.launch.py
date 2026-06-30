@@ -47,6 +47,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="172.17.0.2",
         description="URSim robot IP address.",
     )
+    external_control_program_arg = DeclareLaunchArgument(
+        "external_control_program",
+        default_value="/ursim/programs/123.urp",
+        description="Dashboard path of the URSim External Control program to load automatically.",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -68,6 +73,8 @@ def generate_launch_description() -> LaunchDescription:
             "robot_ip": LaunchConfiguration("robot_ip"),
             "launch_rviz": LaunchConfiguration("launch_rviz"),
             "verbose_runtime_logs": LaunchConfiguration("verbose_runtime_logs"),
+            "auto_start_external_control": "true",
+            "external_control_program": LaunchConfiguration("external_control_program"),
             "launch_joy_node": "false",
             "joy_topic": joy_topic,
             "run_log_dir": str(run_log_dir),
@@ -123,6 +130,7 @@ def generate_launch_description() -> LaunchDescription:
             verbose_runtime_logs_arg,
             benchmark_profile_arg,
             robot_ip_arg,
+            external_control_program_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"URSim tracking benchmark logs will be written to: {run_log_dir}"),
             stage2_launch,
