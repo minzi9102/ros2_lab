@@ -67,6 +67,7 @@ def validate_benchmark_configuration(
     *,
     human_confirmation: str,
     max_session_duration_sec: float,
+    motion_scale: float = 1.0,
 ) -> str | None:
     if human_confirmation != REQUIRED_CONFIRMATION:
         return f"human_confirmation must be {REQUIRED_CONFIRMATION}"
@@ -74,6 +75,8 @@ def validate_benchmark_configuration(
         return "max_session_duration_sec must be greater than zero"
     if max_session_duration_sec > MAX_SESSION_DURATION_SEC:
         return f"max_session_duration_sec must be <= {MAX_SESSION_DURATION_SEC}"
+    if motion_scale <= 0.0 or motion_scale > 1.0:
+        return "motion_scale must be greater than zero and <= 1.0"
     home = reviewed_home_parameters()
     if len(home["home_joint_names"]) != 6 or len(home["home_positions_rad"]) != 6:
         return "reviewed Task8D home must contain exactly six joints"
@@ -171,6 +174,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("servo_status_wait_timeout_sec", default_value="30.0"),
         DeclareLaunchArgument("dashboard_receive_timeout", default_value="20.0"),
         DeclareLaunchArgument("servo_use_smoothing", default_value="true"),
+        DeclareLaunchArgument("motion_scale", default_value="1.0"),
         DeclareLaunchArgument("joy_device_id", default_value="0"),
         DeclareLaunchArgument("joy_device_name", default_value=""),
         DeclareLaunchArgument("joy_deadzone", default_value="0.08"),
@@ -189,11 +193,18 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         )
     except ValueError:
         max_session_duration_sec = -1.0
+    try:
+        motion_scale = float(
+            context.perform_substitution(LaunchConfiguration("motion_scale"))
+        )
+    except ValueError:
+        motion_scale = -1.0
     error = validate_benchmark_configuration(
         human_confirmation=context.perform_substitution(
             LaunchConfiguration("human_confirmation")
         ),
         max_session_duration_sec=max_session_duration_sec,
+        motion_scale=motion_scale,
     )
     if error is not None:
         return [
@@ -478,10 +489,10 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "servo_status_topic": "/servo_node/status",
                 "servo_status_timeout_sec": 1.0,
                 "max_session_duration_sec": max_session_duration_sec,
-                "max_planar_speed_mps": 0.03,
-                "tilt_rate_degps": 10.0,
-                "untilt_rate_degps": 12.0,
-                "max_pen_axis_angular_speed_degps": 12.0,
+                "max_planar_speed_mps": 0.03 * motion_scale,
+                "tilt_rate_degps": 10.0 * motion_scale,
+                "untilt_rate_degps": 12.0 * motion_scale,
+                "max_pen_axis_angular_speed_degps": 12.0 * motion_scale,
                 "joy_topic": COMMAND_JOY_TOPIC,
                 "alignment_error_log_path": str(
                     run_log_dir / "tool_alignment_error.csv"

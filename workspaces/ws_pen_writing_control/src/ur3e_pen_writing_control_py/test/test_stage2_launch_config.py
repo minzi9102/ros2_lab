@@ -260,10 +260,16 @@ def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
         human_confirmation=module.REQUIRED_CONFIRMATION,
         max_session_duration_sec=60.1,
     )
+    assert module.validate_benchmark_configuration(
+        human_confirmation=module.REQUIRED_CONFIRMATION,
+        max_session_duration_sec=60.0,
+        motion_scale=1.1,
+    )
     assert (
         module.validate_benchmark_configuration(
             human_confirmation=module.REQUIRED_CONFIRMATION,
             max_session_duration_sec=60.0,
+            motion_scale=0.25,
         )
         is None
     )
