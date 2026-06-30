@@ -469,6 +469,9 @@ class PenFakeHardwareServoNode(Node):
             self.declare_parameter("tool0_axis_length_m", 0.08).value
         )
         self.fixed_tilt_deg = float(self.declare_parameter("fixed_tilt_deg", 20.0).value)
+        self.diagnostic_freeze_tip_xy = bool(
+            self.declare_parameter("diagnostic_freeze_tip_xy", False).value
+        )
         self.paper_width_m = float(self.declare_parameter("paper_width_m", 0.24).value)
         self.paper_height_m = float(self.declare_parameter("paper_height_m", 0.16).value)
         self.paper_origin_xyz = self._declare_float_list(
@@ -557,6 +560,7 @@ class PenFakeHardwareServoNode(Node):
             tilt_activate_speed_mps=self.tilt_activate_speed_mps,
             tilt_rate_radps=math.radians(self.tilt_rate_degps),
             untilt_rate_radps=math.radians(self.untilt_rate_degps),
+            freeze_tip_xy=self.diagnostic_freeze_tip_xy,
         )
         self._pen_orientation = ContinuousPenOrientation(
             initial_pen_pose=self._pen_state.pose,
@@ -582,6 +586,8 @@ class PenFakeHardwareServoNode(Node):
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
             f"max_pen_axis_rate="
             f"{self.max_pen_axis_angular_speed_degps:.1f}deg/s "
+            f"fixed_tilt={self.fixed_tilt_deg:.1f}deg "
+            f"diagnostic_freeze_tip_xy={self.diagnostic_freeze_tip_xy} "
             f"max_session_duration={self.max_session_duration_sec:.1f}s "
             f"alignment_error_log_rate={self.alignment_error_log_rate_hz:.1f}Hz "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "

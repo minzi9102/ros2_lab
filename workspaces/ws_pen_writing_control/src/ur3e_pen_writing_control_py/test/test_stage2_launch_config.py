@@ -249,6 +249,18 @@ def test_stage3_real_benchmark_uses_runtime_rviz_launch_config():
     assert "condition=IfCondition(LaunchConfiguration(RVIZ_LAUNCH_CONFIG))" in source
 
 
+def test_stage3_real_benchmark_exposes_orientation_diagnostic_knobs():
+    source = REAL_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert 'DeclareLaunchArgument("fixed_tilt_deg", default_value="20.0")' in source
+    assert (
+        'DeclareLaunchArgument("diagnostic_freeze_tip_xy", default_value="false")'
+        in source
+    )
+    assert '"fixed_tilt_deg": fixed_tilt_deg' in source
+    assert '"diagnostic_freeze_tip_xy": diagnostic_freeze_tip_xy' in source
+
+
 def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
     module = _load_stage3_real_benchmark_launch_module()
 
@@ -265,11 +277,17 @@ def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
         max_session_duration_sec=60.0,
         motion_scale=1.1,
     )
+    assert module.validate_benchmark_configuration(
+        human_confirmation=module.REQUIRED_CONFIRMATION,
+        max_session_duration_sec=60.0,
+        fixed_tilt_deg=90.0,
+    )
     assert (
         module.validate_benchmark_configuration(
             human_confirmation=module.REQUIRED_CONFIRMATION,
             max_session_duration_sec=60.0,
             motion_scale=0.25,
+            fixed_tilt_deg=0.0,
         )
         is None
     )

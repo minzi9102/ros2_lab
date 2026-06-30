@@ -161,6 +161,28 @@ def test_virtual_pen_clamps_to_paper_bounds():
     assert pose.tip_y == pytest.approx(0.05)
 
 
+def test_virtual_pen_can_freeze_tip_xy_while_updating_orientation_state():
+    state = VirtualPenState(
+        initial_tip_x=0.01,
+        initial_tip_y=-0.02,
+        initial_yaw=0.0,
+        paper_bounds=PaperBounds(width=0.2, height=0.2),
+        yaw_hold_speed_mps=0.01,
+        target_tilt_rad=math.radians(20.0),
+        tilt_activate_speed_mps=0.01,
+        tilt_rate_radps=math.radians(45.0),
+        untilt_rate_radps=math.radians(60.0),
+        freeze_tip_xy=True,
+    )
+
+    pose = state.update(PlanarVelocity(x=0.0, y=0.02), 1.0)
+
+    assert pose.tip_x == pytest.approx(0.01)
+    assert pose.tip_y == pytest.approx(-0.02)
+    assert pose.yaw == pytest.approx(math.pi / 2.0)
+    assert pose.tilt_rad == pytest.approx(math.radians(20.0))
+
+
 def test_smooth_velocity_caps_diagonal_speed():
     velocity = SmoothPlanarVelocity(
         max_speed_mps=0.08,

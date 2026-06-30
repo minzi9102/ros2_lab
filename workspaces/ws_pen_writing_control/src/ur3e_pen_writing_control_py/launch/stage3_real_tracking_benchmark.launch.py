@@ -68,6 +68,7 @@ def validate_benchmark_configuration(
     human_confirmation: str,
     max_session_duration_sec: float,
     motion_scale: float = 1.0,
+    fixed_tilt_deg: float = 20.0,
 ) -> str | None:
     if human_confirmation != REQUIRED_CONFIRMATION:
         return f"human_confirmation must be {REQUIRED_CONFIRMATION}"
@@ -77,6 +78,8 @@ def validate_benchmark_configuration(
         return f"max_session_duration_sec must be <= {MAX_SESSION_DURATION_SEC}"
     if motion_scale <= 0.0 or motion_scale > 1.0:
         return "motion_scale must be greater than zero and <= 1.0"
+    if fixed_tilt_deg < 0.0 or fixed_tilt_deg >= 90.0:
+        return "fixed_tilt_deg must be in [0, 90)"
     home = reviewed_home_parameters()
     if len(home["home_joint_names"]) != 6 or len(home["home_positions_rad"]) != 6:
         return "reviewed Task8D home must contain exactly six joints"
@@ -175,6 +178,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("dashboard_receive_timeout", default_value="20.0"),
         DeclareLaunchArgument("servo_use_smoothing", default_value="true"),
         DeclareLaunchArgument("motion_scale", default_value="1.0"),
+        DeclareLaunchArgument("fixed_tilt_deg", default_value="20.0"),
+        DeclareLaunchArgument("diagnostic_freeze_tip_xy", default_value="false"),
         DeclareLaunchArgument("joy_device_id", default_value="0"),
         DeclareLaunchArgument("joy_device_name", default_value=""),
         DeclareLaunchArgument("joy_deadzone", default_value="0.08"),
@@ -199,12 +204,19 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         )
     except ValueError:
         motion_scale = -1.0
+    try:
+        fixed_tilt_deg = float(
+            context.perform_substitution(LaunchConfiguration("fixed_tilt_deg"))
+        )
+    except ValueError:
+        fixed_tilt_deg = -1.0
     error = validate_benchmark_configuration(
         human_confirmation=context.perform_substitution(
             LaunchConfiguration("human_confirmation")
         ),
         max_session_duration_sec=max_session_duration_sec,
         motion_scale=motion_scale,
+        fixed_tilt_deg=fixed_tilt_deg,
     )
     if error is not None:
         return [
@@ -214,6 +226,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
 
     dry_run = _bool_value(context, "dry_run")
     prehome_only = _bool_value(context, "prehome_only")
+    diagnostic_freeze_tip_xy = _bool_value(context, "diagnostic_freeze_tip_xy")
     run_log_dir = Path.cwd().joinpath(
         "logs",
         "stage3_real_tracking_benchmark",
@@ -493,6 +506,8 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "tilt_rate_degps": 10.0 * motion_scale,
                 "untilt_rate_degps": 12.0 * motion_scale,
                 "max_pen_axis_angular_speed_degps": 12.0 * motion_scale,
+                "fixed_tilt_deg": fixed_tilt_deg,
+                "diagnostic_freeze_tip_xy": diagnostic_freeze_tip_xy,
                 "joy_topic": COMMAND_JOY_TOPIC,
                 "alignment_error_log_path": str(
                     run_log_dir / "tool_alignment_error.csv"

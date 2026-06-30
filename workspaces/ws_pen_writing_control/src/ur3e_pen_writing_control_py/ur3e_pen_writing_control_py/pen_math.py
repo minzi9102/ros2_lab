@@ -105,6 +105,7 @@ class VirtualPenState:
         tilt_activate_speed_mps: float = 0.0,
         tilt_rate_radps: float = 1.0,
         untilt_rate_radps: float = 1.0,
+        freeze_tip_xy: bool = False,
     ) -> None:
         if yaw_hold_speed_mps < 0.0:
             raise ValueError("yaw_hold_speed_mps must be non-negative")
@@ -122,6 +123,7 @@ class VirtualPenState:
         self._tilt_activate_speed_mps = float(tilt_activate_speed_mps)
         self._tilt_rate_radps = float(tilt_rate_radps)
         self._untilt_rate_radps = float(untilt_rate_radps)
+        self._freeze_tip_xy = bool(freeze_tip_xy)
         tip_x, tip_y = self._bounds.clamp_xy(initial_tip_x, initial_tip_y)
         self._pose = PenPose2D(tip_x=tip_x, tip_y=tip_y, yaw=initial_yaw)
 
@@ -133,9 +135,13 @@ class VirtualPenState:
         if dt_sec < 0.0:
             raise ValueError("dt_sec must be non-negative")
 
-        tip_x = self._pose.tip_x + velocity.x * dt_sec
-        tip_y = self._pose.tip_y + velocity.y * dt_sec
-        tip_x, tip_y = self._bounds.clamp_xy(tip_x, tip_y)
+        if self._freeze_tip_xy:
+            tip_x = self._pose.tip_x
+            tip_y = self._pose.tip_y
+        else:
+            tip_x = self._pose.tip_x + velocity.x * dt_sec
+            tip_y = self._pose.tip_y + velocity.y * dt_sec
+            tip_x, tip_y = self._bounds.clamp_xy(tip_x, tip_y)
 
         speed = math.hypot(velocity.x, velocity.y)
         yaw = self._pose.yaw
