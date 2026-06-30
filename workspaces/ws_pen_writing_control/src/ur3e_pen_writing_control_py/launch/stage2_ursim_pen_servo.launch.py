@@ -67,6 +67,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_startup_settle_sec",
         "servo_status_wait_timeout_sec",
         "dashboard_receive_timeout_sec",
+        "script_sender_port",
     ):
         raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
         try:
@@ -202,6 +203,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="20.0",
         description="Timeout used while auto-starting the URSim External Control program.",
     )
+    script_sender_port_arg = DeclareLaunchArgument(
+        "script_sender_port",
+        default_value="50002",
+        description="Driver port that must be listening before URSim External Control starts.",
+    )
     joy_topic_arg = DeclareLaunchArgument(
         "joy_topic",
         default_value="/joy",
@@ -256,6 +262,7 @@ def generate_launch_description() -> LaunchDescription:
             "robot_ip": LaunchConfiguration("robot_ip"),
             "use_mock_hardware": LaunchConfiguration("use_mock_hardware"),
             "initial_joint_controller": "forward_position_controller",
+            "script_sender_port": LaunchConfiguration("script_sender_port"),
             "launch_rviz": "false",
             "description_launchfile": PathJoinSubstitution(
                 [
@@ -343,6 +350,7 @@ def generate_launch_description() -> LaunchDescription:
                 "host = sys.argv[1]\n"
                 "program = sys.argv[2]\n"
                 "timeout = float(sys.argv[3])\n"
+                "script_sender_port = int(sys.argv[4])\n"
                 "deadline = time.monotonic() + timeout\n"
                 "def issue(command):\n"
                 "    sock = socket.create_connection((host, 29999), timeout=3.0)\n"
@@ -354,6 +362,17 @@ def generate_launch_description() -> LaunchDescription:
                 "    sock.close()\n"
                 "    print(response, flush=True)\n"
                 "    return response\n"
+                "def wait_for_script_sender():\n"
+                "    while time.monotonic() < deadline:\n"
+                "        try:\n"
+                "            sock = socket.create_connection(('127.0.0.1', script_sender_port), timeout=1.0)\n"
+                "            sock.close()\n"
+                "            print(f'script_sender_port_ready={script_sender_port}', flush=True)\n"
+                "            return\n"
+                "        except OSError:\n"
+                "            time.sleep(0.2)\n"
+                "    raise SystemExit(f'script sender port {script_sender_port} did not open before timeout')\n"
+                "wait_for_script_sender()\n"
                 "state = issue('programState')\n"
                 "if state.startswith('PLAYING'):\n"
                 "    raise SystemExit(0)\n"
@@ -375,6 +394,7 @@ def generate_launch_description() -> LaunchDescription:
             LaunchConfiguration("robot_ip"),
             LaunchConfiguration("external_control_program"),
             LaunchConfiguration("dashboard_receive_timeout_sec"),
+            LaunchConfiguration("script_sender_port"),
         ],
         condition=IfCondition(LaunchConfiguration("auto_start_external_control")),
         output=LaunchConfiguration("pen_runtime_output"),
@@ -579,6 +599,7 @@ def generate_launch_description() -> LaunchDescription:
             auto_start_external_control_arg,
             external_control_program_arg,
             dashboard_receive_timeout_arg,
+            script_sender_port_arg,
             joy_topic_arg,
             launch_joy_node_arg,
             joy_device_id_arg,
