@@ -5,6 +5,7 @@ import pytest
 
 from ur3e_pen_writing_control_py.pen_tracking_benchmark_node import (
     BenchmarkInfrastructureError,
+    LONG_MINUS_Y_PLUS_XY_PROFILE,
     MetricThresholds,
     analyze_alignment_csv,
     benchmark_phases,
@@ -49,6 +50,16 @@ def test_benchmark_sequence_has_scored_direction_windows():
     assert windows["minus_xy"] == pytest.approx((9.5, 11.0))
     assert windows["plus_x_minus_y"] == pytest.approx((11.0, 12.5))
     assert windows["minus_x_plus_y"] == pytest.approx((12.5, 14.0))
+
+
+def test_long_profile_runs_minus_y_and_plus_xy_as_five_second_segments():
+    phases = benchmark_phases(LONG_MINUS_Y_PLUS_XY_PROFILE)
+    windows = scored_phase_windows(phases)
+
+    assert total_phase_duration(phases) == pytest.approx(19.0)
+    assert list(windows) == ["minus_y", "plus_xy"]
+    assert windows["minus_y"] == pytest.approx((2.0, 7.0))
+    assert windows["plus_xy"] == pytest.approx((9.0, 14.0))
 
 
 def test_alignment_csv_analysis_passes_good_tracking(tmp_path):
@@ -101,6 +112,37 @@ def test_alignment_csv_analysis_offsets_score_windows_after_real_alignment(tmp_p
     assert result["initial_exclusion_sec"] == pytest.approx(7.0)
     assert result["phases"]["plus_x"]["finite_sample_count"] == 2
     assert result["overall"]["position_m"]["max"] == pytest.approx(0.004)
+
+
+def test_alignment_csv_analysis_reports_long_phase_convergence(tmp_path):
+    csv_path = tmp_path / "tool_alignment_error.csv"
+    _write_alignment_csv(
+        csv_path,
+        [
+            (0.0, 0.020, 15.0, 15.0),
+            (2.1, 0.008, 2.0, 2.0),
+            (2.8, 0.006, 2.0, 2.0),
+            (6.2, 0.002, 1.0, 1.0),
+            (6.8, 0.001, 1.0, 1.0),
+            (9.1, 0.010, 2.0, 2.0),
+            (9.8, 0.008, 2.0, 2.0),
+            (13.2, 0.003, 1.0, 1.0),
+            (13.8, 0.002, 1.0, 1.0),
+            (18.5, 0.001, 1.0, 1.0),
+        ],
+    )
+
+    result = analyze_alignment_csv(
+        csv_path,
+        phases=benchmark_phases(LONG_MINUS_Y_PLUS_XY_PROFILE),
+    )
+
+    minus_y = result["phases"]["minus_y"]["convergence_1s"]
+    plus_xy = result["phases"]["plus_xy"]["convergence_1s"]
+    assert minus_y["first"]["position_m"]["avg"] == pytest.approx(0.007)
+    assert minus_y["last"]["position_m"]["avg"] == pytest.approx(0.0015)
+    assert minus_y["position_avg_delta_m"] < 0.0
+    assert plus_xy["position_avg_delta_m"] < 0.0
 
 
 def test_alignment_csv_analysis_marks_metric_fail_without_infrastructure_error(tmp_path):

@@ -37,6 +37,10 @@ class BenchmarkInfrastructureError(RuntimeError):
     pass
 
 
+EIGHT_DIRECTION_PROFILE = "eight_direction"
+LONG_MINUS_Y_PLUS_XY_PROFILE = "long_minus_y_plus_xy"
+
+
 def joy_message_for_target(
     target_x: float,
     target_y: float,
@@ -53,19 +57,29 @@ def joy_message_for_target(
     return msg
 
 
-def benchmark_phases() -> list[BenchmarkPhase]:
-    return [
-        BenchmarkPhase("initial_settle", 0.0, 0.0, 2.0),
-        BenchmarkPhase("plus_x", 1.0, 0.0, 1.5, scored=True),
-        BenchmarkPhase("minus_x", -1.0, 0.0, 1.5, scored=True),
-        BenchmarkPhase("plus_y", 0.0, 1.0, 1.5, scored=True),
-        BenchmarkPhase("minus_y", 0.0, -1.0, 1.5, scored=True),
-        BenchmarkPhase("plus_xy", 1.0, 1.0, 1.5, scored=True),
-        BenchmarkPhase("minus_xy", -1.0, -1.0, 1.5, scored=True),
-        BenchmarkPhase("plus_x_minus_y", 1.0, -1.0, 1.5, scored=True),
-        BenchmarkPhase("minus_x_plus_y", -1.0, 1.0, 1.5, scored=True),
-        BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
-    ]
+def benchmark_phases(profile: str = EIGHT_DIRECTION_PROFILE) -> list[BenchmarkPhase]:
+    if profile == EIGHT_DIRECTION_PROFILE:
+        return [
+            BenchmarkPhase("initial_settle", 0.0, 0.0, 2.0),
+            BenchmarkPhase("plus_x", 1.0, 0.0, 1.5, scored=True),
+            BenchmarkPhase("minus_x", -1.0, 0.0, 1.5, scored=True),
+            BenchmarkPhase("plus_y", 0.0, 1.0, 1.5, scored=True),
+            BenchmarkPhase("minus_y", 0.0, -1.0, 1.5, scored=True),
+            BenchmarkPhase("plus_xy", 1.0, 1.0, 1.5, scored=True),
+            BenchmarkPhase("minus_xy", -1.0, -1.0, 1.5, scored=True),
+            BenchmarkPhase("plus_x_minus_y", 1.0, -1.0, 1.5, scored=True),
+            BenchmarkPhase("minus_x_plus_y", -1.0, 1.0, 1.5, scored=True),
+            BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
+        ]
+    if profile == LONG_MINUS_Y_PLUS_XY_PROFILE:
+        return [
+            BenchmarkPhase("initial_settle", 0.0, 0.0, 2.0),
+            BenchmarkPhase("minus_y", 0.0, -1.0, 5.0, scored=True),
+            BenchmarkPhase("inter_settle", 0.0, 0.0, 2.0),
+            BenchmarkPhase("plus_xy", 1.0, 1.0, 5.0, scored=True),
+            BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
+        ]
+    raise ValueError(f"unknown benchmark profile: {profile}")
 
 
 def scored_phase_windows(
@@ -115,14 +129,11 @@ def analyze_alignment_csv(
 
     windows = scored_phase_windows(phases)
     phase_summaries = {
-        label: _summarize_rows(
-            [
-                row
-                for row in rows
-                if score_start_sec + start_sec
-                <= row["elapsed_sec"]
-                < score_start_sec + end_sec
-            ]
+        label: _summarize_phase_rows(
+            rows,
+            score_start_sec=score_start_sec,
+            start_sec=start_sec,
+            end_sec=end_sec,
         )
         for label, (start_sec, end_sec) in windows.items()
     }
@@ -244,6 +255,51 @@ def _summarize_rows(rows: list[dict[str, float]]) -> dict:
         ),
         "quaternion_z_axis_gap_deg": _stats(gaps),
     }
+
+
+def _summarize_phase_rows(
+    rows: list[dict[str, float]],
+    *,
+    score_start_sec: float,
+    start_sec: float,
+    end_sec: float,
+) -> dict:
+    absolute_start = score_start_sec + start_sec
+    absolute_end = score_start_sec + end_sec
+    phase_rows = [
+        row
+        for row in rows
+        if absolute_start <= row["elapsed_sec"] < absolute_end
+    ]
+    summary = _summarize_rows(phase_rows)
+    if end_sec - start_sec < 2.0:
+        return summary
+
+    first = _summarize_rows(
+        [
+            row
+            for row in rows
+            if absolute_start <= row["elapsed_sec"] < absolute_start + 1.0
+        ]
+    )
+    last = _summarize_rows(
+        [
+            row
+            for row in rows
+            if absolute_end - 1.0 <= row["elapsed_sec"] < absolute_end
+        ]
+    )
+    summary["convergence_1s"] = {
+        "first": first,
+        "last": last,
+        "position_avg_delta_m": (
+            last["position_m"]["avg"] - first["position_m"]["avg"]
+        ),
+        "position_max_delta_m": (
+            last["position_m"]["max"] - first["position_m"]["max"]
+        ),
+    }
+    return summary
 
 
 def _empty_stats() -> dict[str, float]:
@@ -402,6 +458,29 @@ def _format_markdown_summary(result: dict) -> str:
             f"{_fmt(summary['full_quaternion_deg']['avg'])} / "
             f"{_fmt(summary['full_quaternion_deg']['max'])} |"
         )
+    convergence = {
+        label: summary["convergence_1s"]
+        for label, summary in result["phases"].items()
+        if "convergence_1s" in summary
+    }
+    if convergence:
+        lines.extend(
+            [
+                "",
+                "## Phase Convergence",
+                "",
+                "| Phase | First 1s pos avg/max m | Last 1s pos avg/max m | Avg delta m |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for label, item in convergence.items():
+            first = item["first"]["position_m"]
+            last = item["last"]["position_m"]
+            lines.append(
+                f"| {label} | {_fmt(first['avg'])} / {_fmt(first['max'])} | "
+                f"{_fmt(last['avg'])} / {_fmt(last['max'])} | "
+                f"{_fmt(item['position_avg_delta_m'])} |"
+            )
     lines.extend(["", "## Checks", "", "| Check | Result | Value | Threshold |"])
     lines.append("| --- | --- | ---: | ---: |")
     for check in result["checks"]:

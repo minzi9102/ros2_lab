@@ -259,6 +259,8 @@ def test_stage3_real_benchmark_exposes_orientation_diagnostic_knobs():
     )
     assert '"fixed_tilt_deg": fixed_tilt_deg' in source
     assert '"diagnostic_freeze_tip_xy": diagnostic_freeze_tip_xy' in source
+    assert 'DeclareLaunchArgument("benchmark_profile", default_value="eight_direction")' in source
+    assert '"benchmark_profile": benchmark_profile' in source
 
 
 def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
@@ -282,12 +284,18 @@ def test_stage3_real_benchmark_requires_confirmation_and_bounded_session():
         max_session_duration_sec=60.0,
         fixed_tilt_deg=90.0,
     )
+    assert module.validate_benchmark_configuration(
+        human_confirmation=module.REQUIRED_CONFIRMATION,
+        max_session_duration_sec=60.0,
+        benchmark_profile="unknown_profile",
+    )
     assert (
         module.validate_benchmark_configuration(
             human_confirmation=module.REQUIRED_CONFIRMATION,
             max_session_duration_sec=60.0,
             motion_scale=0.25,
             fixed_tilt_deg=0.0,
+            benchmark_profile="long_minus_y_plus_xy",
         )
         is None
     )

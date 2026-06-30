@@ -7,6 +7,7 @@ from ur3e_pen_writing_control_py.pen_real_tracking_benchmark_node import (
     should_return_home,
 )
 from ur3e_pen_writing_control_py.pen_tracking_benchmark_node import (
+    LONG_MINUS_Y_PLUS_XY_PROFILE,
     benchmark_phases,
     joy_message_for_target,
 )
@@ -25,6 +26,16 @@ def test_real_benchmark_reuses_complete_eight_direction_sequence():
         "plus_x_minus_y",
         "minus_x_plus_y",
     ]
+
+
+def test_real_benchmark_can_select_long_direction_profile():
+    scored = [
+        phase.label
+        for phase in benchmark_phases(LONG_MINUS_Y_PLUS_XY_PROFILE)
+        if phase.scored
+    ]
+
+    assert scored == ["minus_y", "plus_xy"]
 
 
 def test_real_benchmark_return_home_policy():

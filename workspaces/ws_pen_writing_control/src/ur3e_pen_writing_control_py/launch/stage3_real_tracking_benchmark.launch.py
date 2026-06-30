@@ -39,6 +39,7 @@ FRESH_JOINT_STATES_TOPIC = "/task7e/joint_states_fresh"
 MAX_SESSION_DURATION_SEC = 60.0
 RVIZ_LAUNCH_CONFIG = "real_benchmark_launch_rviz"
 STAGE3_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
+BENCHMARK_PROFILES = {"eight_direction", "long_minus_y_plus_xy"}
 
 
 def load_yaml(package_name: str, relative_path: str):
@@ -69,6 +70,7 @@ def validate_benchmark_configuration(
     max_session_duration_sec: float,
     motion_scale: float = 1.0,
     fixed_tilt_deg: float = 20.0,
+    benchmark_profile: str = "eight_direction",
 ) -> str | None:
     if human_confirmation != REQUIRED_CONFIRMATION:
         return f"human_confirmation must be {REQUIRED_CONFIRMATION}"
@@ -80,6 +82,10 @@ def validate_benchmark_configuration(
         return "motion_scale must be greater than zero and <= 1.0"
     if fixed_tilt_deg < 0.0 or fixed_tilt_deg >= 90.0:
         return "fixed_tilt_deg must be in [0, 90)"
+    if benchmark_profile not in BENCHMARK_PROFILES:
+        return "benchmark_profile must be one of: " + ", ".join(
+            sorted(BENCHMARK_PROFILES)
+        )
     home = reviewed_home_parameters()
     if len(home["home_joint_names"]) != 6 or len(home["home_positions_rad"]) != 6:
         return "reviewed Task8D home must contain exactly six joints"
@@ -180,6 +186,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("motion_scale", default_value="1.0"),
         DeclareLaunchArgument("fixed_tilt_deg", default_value="20.0"),
         DeclareLaunchArgument("diagnostic_freeze_tip_xy", default_value="false"),
+        DeclareLaunchArgument("benchmark_profile", default_value="eight_direction"),
         DeclareLaunchArgument("joy_device_id", default_value="0"),
         DeclareLaunchArgument("joy_device_name", default_value=""),
         DeclareLaunchArgument("joy_deadzone", default_value="0.08"),
@@ -217,6 +224,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         max_session_duration_sec=max_session_duration_sec,
         motion_scale=motion_scale,
         fixed_tilt_deg=fixed_tilt_deg,
+        benchmark_profile=context.perform_substitution(
+            LaunchConfiguration("benchmark_profile")
+        ),
     )
     if error is not None:
         return [
@@ -227,6 +237,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
     dry_run = _bool_value(context, "dry_run")
     prehome_only = _bool_value(context, "prehome_only")
     diagnostic_freeze_tip_xy = _bool_value(context, "diagnostic_freeze_tip_xy")
+    benchmark_profile = context.perform_substitution(
+        LaunchConfiguration("benchmark_profile")
+    )
     run_log_dir = Path.cwd().joinpath(
         "logs",
         "stage3_real_tracking_benchmark",
@@ -532,6 +545,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "summary_markdown_path": str(run_log_dir / "tracking_summary.md"),
                 "result_path": str(run_log_dir / "benchmark_result.json"),
                 "publish_rate_hz": 50.0,
+                "benchmark_profile": benchmark_profile,
             }
         ],
     )

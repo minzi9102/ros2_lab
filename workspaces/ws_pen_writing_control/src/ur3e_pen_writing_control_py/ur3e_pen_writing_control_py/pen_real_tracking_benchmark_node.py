@@ -84,6 +84,9 @@ class PenRealTrackingBenchmarkNode(Node):
         self.publish_rate_hz = float(
             self.declare_parameter("publish_rate_hz", 50.0).value
         )
+        self.benchmark_profile = str(
+            self.declare_parameter("benchmark_profile", "eight_direction").value
+        )
         self.ready_timeout_sec = float(
             self.declare_parameter("ready_timeout_sec", 30.0).value
         )
@@ -133,12 +136,17 @@ class PenRealTrackingBenchmarkNode(Node):
         outcome = "infrastructure_error"
         reason = ""
         try:
+            try:
+                phases = benchmark_phases(self.benchmark_profile)
+            except ValueError as exc:
+                raise BenchmarkInfrastructureError(str(exc)) from exc
             self._wait_until_ready()
             self._publish_until_csv_starts()
             score_start_sec = self._wait_until_alignment_ready()
-            self._run_phases()
+            self._run_phases(phases)
             result = analyze_alignment_csv(
                 self.alignment_error_log_path,
+                phases=phases,
                 score_start_sec=score_start_sec,
             )
             write_summary_files(
@@ -281,8 +289,8 @@ class PenRealTrackingBenchmarkNode(Node):
             time.sleep(period_sec)
         raise BenchmarkInfrastructureError("timed out waiting for alignment ready")
 
-    def _run_phases(self) -> None:
-        for phase in benchmark_phases():
+    def _run_phases(self, phases) -> None:
+        for phase in phases:
             message = joy_message_for_target(phase.target_x, phase.target_y)
             deadline = time.monotonic() + phase.duration_sec
             while rclpy.ok() and time.monotonic() < deadline:

@@ -36,6 +36,8 @@ setup(
             "ur3e_pen_writing_control_py.pen_tracking_benchmark_node:main",
             "pen_real_tracking_benchmark_node = "
             "ur3e_pen_writing_control_py.pen_real_tracking_benchmark_node:main",
+            "command_latency_report = "
+            "ur3e_pen_writing_control_py.command_latency_report:main",
             "controller_switch_once_node = "
             "ur3e_pen_writing_control_py.controller_switch_once_node:main",
         ],
