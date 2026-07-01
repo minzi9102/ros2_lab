@@ -2,6 +2,9 @@ import importlib.util
 import math
 from pathlib import Path
 
+from launch import LaunchContext
+from launch.utilities import perform_substitutions
+
 
 LAUNCH_PATH = (
     Path(__file__).resolve().parents[1]
@@ -12,6 +15,11 @@ URSIM_LAUNCH_PATH = (
     Path(__file__).resolve().parents[1]
     / "launch"
     / "stage2_ursim_pen_servo.launch.py"
+)
+URSIM_BENCHMARK_LAUNCH_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "launch"
+    / "stage2_ursim_tracking_benchmark.launch.py"
 )
 REAL_AIR_LAUNCH_PATH = (
     Path(__file__).resolve().parents[1]
@@ -130,6 +138,44 @@ def test_stage2_ursim_launch_stops_owned_external_control_on_shutdown():
     assert "sock.sendall(b'stop\\\\n')" in source
     assert "auto_start_external_control" in source
     assert "OnShutdown" in source
+
+
+def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
+    module = _load_stage2_ursim_launch_module()
+    source = URSIM_LAUNCH_PATH.read_text(encoding="utf-8")
+    benchmark_source = URSIM_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert '"pose_target_publish_rate_hz"' in source
+    assert 'default_value="60.0"' in source
+    assert 'LaunchConfiguration("pose_target_publish_rate_hz")' in source
+    assert '"pose_target_publish_rate_hz"' in benchmark_source
+    assert '"auto_start_external_control": "true"' in benchmark_source
+    assert '"stop_external_control_on_shutdown": "true"' in benchmark_source
+
+    for publish_rate_hz in ("100.0", "125.0"):
+        context = LaunchContext()
+        context.launch_configurations.update(
+            {
+                "use_mock_hardware": "false",
+                "robot_ip": "172.17.0.2",
+                "joy_deadzone": "0.08",
+                "joy_autorepeat_rate": "100.0",
+                "joint_states_wait_timeout_sec": "15.0",
+                "servo_startup_settle_sec": "5.0",
+                "servo_status_wait_timeout_sec": "15.0",
+                "servo_linear_scale": "0.6",
+                "servo_low_pass_filter_coeff": "10.0",
+                "pose_target_publish_rate_hz": publish_rate_hz,
+                "dashboard_receive_timeout_sec": "20.0",
+                "script_sender_port": "50002",
+            }
+        )
+        actions = module.validate_ursim_arguments(context)
+        assert perform_substitutions(context, actions[0].value) == "true"
+
+    context.launch_configurations["pose_target_publish_rate_hz"] = "0.0"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
 
 
 def test_stage3_real_air_launch_requires_human_confirmation():

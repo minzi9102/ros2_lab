@@ -70,6 +70,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_status_wait_timeout_sec",
         "servo_linear_scale",
         "servo_low_pass_filter_coeff",
+        "pose_target_publish_rate_hz",
         "dashboard_receive_timeout_sec",
         "script_sender_port",
     ):
@@ -203,6 +204,11 @@ def generate_launch_description() -> LaunchDescription:
         "servo_low_pass_filter_coeff",
         default_value="10.0",
         description="MoveIt Servo joint-state low-pass filter coefficient.",
+    )
+    pose_target_publish_rate_arg = DeclareLaunchArgument(
+        "pose_target_publish_rate_hz",
+        default_value="60.0",
+        description="Publish rate of the virtual pen pose target.",
     )
     auto_start_external_control_arg = DeclareLaunchArgument(
         "auto_start_external_control",
@@ -509,6 +515,10 @@ def generate_launch_description() -> LaunchDescription:
                 LaunchConfiguration("joy_deadzone"),
                 value_type=float,
             ),
+            "publish_rate_hz": ParameterValue(
+                LaunchConfiguration("pose_target_publish_rate_hz"),
+                value_type=float,
+            ),
             "alignment_error_log_path": PathJoinSubstitution(
                 [
                     LaunchConfiguration("run_log_dir"),
@@ -701,6 +711,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_status_wait_timeout_arg,
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
+            pose_target_publish_rate_arg,
             auto_start_external_control_arg,
             external_control_program_arg,
             stop_external_control_on_shutdown_arg,

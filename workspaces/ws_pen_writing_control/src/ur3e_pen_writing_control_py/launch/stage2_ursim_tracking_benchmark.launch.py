@@ -62,6 +62,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="0.6",
         description="MoveIt Servo linear scale for Cartesian and pose tracking commands.",
     )
+    pose_target_publish_rate_arg = DeclareLaunchArgument(
+        "pose_target_publish_rate_hz",
+        default_value="60.0",
+        description="Publish rate of the virtual pen pose target.",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -84,6 +89,7 @@ def generate_launch_description() -> LaunchDescription:
             "launch_rviz": LaunchConfiguration("launch_rviz"),
             "verbose_runtime_logs": LaunchConfiguration("verbose_runtime_logs"),
             "auto_start_external_control": "true",
+            "stop_external_control_on_shutdown": "true",
             "external_control_program": LaunchConfiguration("external_control_program"),
             "launch_joy_node": "false",
             "joy_topic": joy_topic,
@@ -93,6 +99,9 @@ def generate_launch_description() -> LaunchDescription:
             "servo_linear_scale": LaunchConfiguration("servo_linear_scale"),
             "servo_low_pass_filter_coeff": LaunchConfiguration(
                 "servo_low_pass_filter_coeff"
+            ),
+            "pose_target_publish_rate_hz": LaunchConfiguration(
+                "pose_target_publish_rate_hz"
             ),
         }.items(),
     )
@@ -147,6 +156,7 @@ def generate_launch_description() -> LaunchDescription:
             external_control_program_arg,
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
+            pose_target_publish_rate_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"URSim tracking benchmark logs will be written to: {run_log_dir}"),
             stage2_launch,
