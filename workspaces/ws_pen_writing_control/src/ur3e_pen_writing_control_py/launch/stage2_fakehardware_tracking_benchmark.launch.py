@@ -50,6 +50,10 @@ def generate_launch_description() -> LaunchDescription:
         "servo_command_mode",
         default_value="pose",
     )
+    servo_use_smoothing_arg = DeclareLaunchArgument(
+        "servo_use_smoothing",
+        default_value="true",
+    )
     twist_position_gain_arg = DeclareLaunchArgument(
         "twist_position_gain",
         default_value="2.0",
@@ -93,6 +97,7 @@ def generate_launch_description() -> LaunchDescription:
                 "joint_state_relay_period_sec"
             ),
             "servo_command_mode": LaunchConfiguration("servo_command_mode"),
+            "servo_use_smoothing": LaunchConfiguration("servo_use_smoothing"),
             "twist_position_gain": LaunchConfiguration("twist_position_gain"),
             "twist_orientation_gain": LaunchConfiguration(
                 "twist_orientation_gain"
@@ -154,6 +159,7 @@ def generate_launch_description() -> LaunchDescription:
             benchmark_profile_arg,
             joint_state_relay_period_arg,
             servo_command_mode_arg,
+            servo_use_smoothing_arg,
             twist_position_gain_arg,
             twist_orientation_gain_arg,
             twist_linear_correction_limit_arg,

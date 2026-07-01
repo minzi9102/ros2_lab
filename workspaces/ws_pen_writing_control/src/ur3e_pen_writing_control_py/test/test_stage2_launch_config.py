@@ -90,6 +90,10 @@ def test_stage2_launch_sets_servo_rotational_scale_to_ur3_wrist_limit():
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
     assert servo_yaml["scale"]["rotational"] == math.tau
+    assert servo_yaml["use_smoothing"] is True
+    assert module.configured_stage2_servo_yaml(use_smoothing=False)[
+        "use_smoothing"
+    ] is False
 
 
 def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
@@ -121,6 +125,7 @@ def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
     assert '"joint_state_relay_period_sec"' in source
     assert 'default_value="0.020"' in source
     assert '"servo_command_mode"' in benchmark_source
+    assert '"servo_use_smoothing"' in benchmark_source
     assert 'prefix="prlimit --rtprio=0:0 --"' in source
 
     context.launch_configurations["servo_command_mode"] = "twist_linear_only"

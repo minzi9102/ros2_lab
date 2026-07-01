@@ -121,10 +121,11 @@ def _as_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes", "on")
 
 
-def configured_stage2_servo_yaml():
+def configured_stage2_servo_yaml(*, use_smoothing: bool = True):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
     servo_yaml["scale"]["rotational"] = STAGE2_SERVO_ROTATIONAL_SCALE_RADPS
+    servo_yaml["use_smoothing"] = use_smoothing
     return servo_yaml
 
 
@@ -193,6 +194,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="pose",
         description="Servo command mode: pose, twist_feedforward, or twist_linear_only.",
     )
+    servo_use_smoothing_arg = DeclareLaunchArgument(
+        "servo_use_smoothing",
+        default_value="true",
+        description="Enable MoveIt Servo output smoothing.",
+    )
     twist_position_gain_arg = DeclareLaunchArgument(
         "twist_position_gain",
         default_value="2.0",
@@ -250,6 +256,10 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     servo_yaml = configured_stage2_servo_yaml()
+    servo_yaml["use_smoothing"] = ParameterValue(
+        LaunchConfiguration("servo_use_smoothing"),
+        value_type=bool,
+    )
     servo_params = {"moveit_servo": servo_yaml}
 
     driver_launch = IncludeLaunchDescription(
@@ -546,6 +556,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_status_wait_timeout_arg,
             joint_state_relay_period_arg,
             servo_command_mode_arg,
+            servo_use_smoothing_arg,
             twist_position_gain_arg,
             twist_orientation_gain_arg,
             twist_linear_correction_limit_arg,
