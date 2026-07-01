@@ -1,0 +1,36 @@
+virtual_pen_node:
+  ros__parameters:
+    world_frame: base_link
+    paper_frame: paper_frame
+    joy_topic: /joy
+    update_rate_hz: 125.0
+    joy_deadzone: 0.08
+    joy_timeout_sec: 0.25
+
+    max_speed_mps: 0.03
+    max_accel_mps2: 0.08
+    max_decel_mps2: 0.16
+    max_jerk_mps3: 0.80
+
+    confidence_speed_low_mps: 0.003
+    confidence_speed_high_mps: 0.015
+    max_yaw_rate_degps: 30.0
+    max_yaw_accel_degps2: 120.0
+
+    max_tilt_deg: 20.0
+    tilt_speed_low_mps: 0.003
+    tilt_speed_high_mps: 0.020
+    max_tilt_rate_degps: 12.0
+    max_untilt_rate_degps: 12.0
+    max_tilt_accel_degps2: 80.0
+
+    max_axis_angular_speed_degps: 12.0
+    max_axis_angular_accel_degps2: 80.0
+    hold_time_sec: 0.30
+
+    paper_width_m: 0.24
+    paper_height_m: 0.16
+    paper_origin_xyz: [0.45, 0.0, 0.12]
+    tool0_to_pen_tip_xyz: [0.0, 0.0, 0.14]
+    initial_tip_xy: [0.0, 0.0]
+    initial_yaw_deg: 180.0
