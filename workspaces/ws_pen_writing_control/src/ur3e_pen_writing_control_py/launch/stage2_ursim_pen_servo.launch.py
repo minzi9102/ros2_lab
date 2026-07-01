@@ -65,9 +65,14 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
     servo_command_mode = context.perform_substitution(
         LaunchConfiguration("servo_command_mode")
     )
-    if servo_command_mode not in ("pose", "twist_feedforward"):
+    if servo_command_mode not in (
+        "pose",
+        "twist_feedforward",
+        "twist_linear_only",
+    ):
         return _refuse_launch(
-            "servo_command_mode must be 'pose' or 'twist_feedforward'"
+            "servo_command_mode must be 'pose', 'twist_feedforward', "
+            "or 'twist_linear_only'"
         )
 
     for argument_name in (
@@ -235,7 +240,7 @@ def generate_launch_description() -> LaunchDescription:
     servo_command_mode_arg = DeclareLaunchArgument(
         "servo_command_mode",
         default_value="pose",
-        description="Servo command mode: pose or twist_feedforward.",
+        description="Servo command mode: pose, twist_feedforward, or twist_linear_only.",
     )
     twist_position_gain_arg = DeclareLaunchArgument(
         "twist_position_gain",

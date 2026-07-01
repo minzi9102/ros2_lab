@@ -123,6 +123,10 @@ def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
     assert '"servo_command_mode"' in benchmark_source
     assert 'prefix="prlimit --rtprio=0:0 --"' in source
 
+    context.launch_configurations["servo_command_mode"] = "twist_linear_only"
+    actions = module.validate_fakehardware_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+
     context.launch_configurations["joint_state_relay_period_sec"] = "0.0"
     actions = module.validate_fakehardware_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
@@ -260,6 +264,10 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     assert 'default_value="pose"' in source
     assert '"joint_state_relay_period_sec"' in benchmark_source
     assert 'default_value="0.020"' in source
+
+    context.launch_configurations["servo_command_mode"] = "twist_linear_only"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
 
     context.launch_configurations["servo_command_mode"] = "invalid"
     actions = module.validate_ursim_arguments(context)

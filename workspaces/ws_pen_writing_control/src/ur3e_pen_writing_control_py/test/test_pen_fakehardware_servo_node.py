@@ -9,6 +9,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     AlignmentErrorCsvLogger,
     ToolAlignmentError,
     has_planar_motion_intent,
+    initial_active_servo_command_mode,
     is_session_timed_out,
     is_servo_status_fresh,
     is_tool_pose_aligned,
@@ -17,6 +18,8 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     pose_mode_became_ready,
     pose_axis_points,
     should_publish_pose_command,
+    should_switch_linear_only_to_twist,
+    target_orientation_for_command,
     tool_alignment_error,
     tool_tail_to_tip_points,
     tool_tip_point_from_tool_pose,
@@ -94,6 +97,81 @@ def test_twist_feedforward_treats_opposite_quaternion_sign_as_same_orientation()
 
     assert command.linear == (0.0, 0.0, 0.0)
     assert command.angular == (0.0, 0.0, 0.0)
+
+
+def test_linear_only_twist_keeps_linear_command_and_zeros_angular_command():
+    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    target = PoseTarget(
+        position=Point3(x=0.01, y=0.02, z=0.0),
+        orientation=Quaternion(
+            x=0.0,
+            y=0.0,
+            z=math.sin(math.pi / 8.0),
+            w=math.cos(math.pi / 8.0),
+        ),
+    )
+    current = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=identity,
+    )
+    kwargs = {
+        "previous_target": current,
+        "target": target,
+        "current": current,
+        "dt_sec": 0.1,
+        "position_gain": 2.0,
+        "orientation_gain": 2.0,
+        "linear_correction_limit_mps": 0.03,
+        "angular_correction_limit_radps": 0.3,
+    }
+
+    full_command = twist_feedforward_command(**kwargs)
+    linear_only_command = twist_feedforward_command(
+        **kwargs,
+        angular_enabled=False,
+    )
+
+    assert linear_only_command.linear == pytest.approx(full_command.linear)
+    assert linear_only_command.angular == (0.0, 0.0, 0.0)
+
+
+def test_linear_only_starts_in_pose_and_switches_only_after_alignment():
+    assert initial_active_servo_command_mode("twist_linear_only") == "pose"
+    assert initial_active_servo_command_mode("twist_feedforward") == (
+        "twist_feedforward"
+    )
+    ready = {
+        "configured_mode": "twist_linear_only",
+        "active_mode": "pose",
+        "command_armed": True,
+        "has_motion_intent": False,
+        "virtual_pen_settling": False,
+        "tool_pose_aligned": True,
+    }
+
+    assert should_switch_linear_only_to_twist(**ready)
+    assert not should_switch_linear_only_to_twist(
+        **{**ready, "has_motion_intent": True}
+    )
+    assert not should_switch_linear_only_to_twist(
+        **{**ready, "virtual_pen_settling": True}
+    )
+
+
+def test_linear_only_uses_frozen_target_orientation():
+    dynamic = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    frozen = Quaternion(x=0.0, y=0.0, z=1.0, w=0.0)
+
+    assert target_orientation_for_command(
+        configured_mode="twist_linear_only",
+        frozen_orientation=frozen,
+        dynamic_orientation=dynamic,
+    ) == frozen
+    assert target_orientation_for_command(
+        configured_mode="twist_feedforward",
+        frozen_orientation=frozen,
+        dynamic_orientation=dynamic,
+    ) == dynamic
 
 
 def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():
