@@ -255,14 +255,6 @@ def generate_launch_description() -> LaunchDescription:
         .to_moveit_configs()
     )
 
-    servo_yaml = configured_stage2_servo_yaml(
-        low_pass_filter_coeff=ParameterValue(
-            LaunchConfiguration("servo_low_pass_filter_coeff"),
-            value_type=float,
-        )
-    )
-    servo_params = {"moveit_servo": servo_yaml}
-
     driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -326,18 +318,6 @@ def generate_launch_description() -> LaunchDescription:
                 "publish_period_sec": 0.02,
             }
         ],
-    )
-
-    servo_node = Node(
-        package="moveit_servo",
-        executable="servo_node",
-        name="servo_node",
-        output=LaunchConfiguration("pen_runtime_output"),
-        parameters=[
-            moveit_config.to_dict(),
-            servo_params,
-        ],
-        arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
     )
 
     external_control_autostart = ExecuteProcess(
@@ -533,27 +513,58 @@ def generate_launch_description() -> LaunchDescription:
             )
         ]
 
+    def start_servo_node(context, *_args, **_kwargs):
+        servo_yaml = configured_stage2_servo_yaml(
+            low_pass_filter_coeff=float(
+                context.perform_substitution(
+                    LaunchConfiguration("servo_low_pass_filter_coeff")
+                )
+            )
+        )
+        servo_node = Node(
+            package="moveit_servo",
+            executable="servo_node",
+            name="servo_node",
+            output=LaunchConfiguration("pen_runtime_output"),
+            parameters=[
+                moveit_config.to_dict(),
+                {"moveit_servo": servo_yaml},
+            ],
+            arguments=[
+                "--ros-args",
+                "--log-level",
+                LaunchConfiguration("servo_log_level"),
+            ],
+        )
+        return [
+            LogInfo(
+                msg=(
+                    "forward_position_controller is active. "
+                    "Starting MoveIt Servo node."
+                )
+            ),
+            servo_node,
+            LogInfo(
+                msg=(
+                    "Waiting for /servo_node/status before starting "
+                    "pen URSim input."
+                )
+            ),
+            servo_status_gate,
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=servo_node,
+                    on_exit=on_servo_node_exit,
+                )
+            ),
+        ]
+
     def on_activate_forward_position_controller_exit(event, _context):
         if event.returncode == 0:
             return [
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),
-                    actions=[
-                        LogInfo(
-                            msg=(
-                                "forward_position_controller is active. "
-                                "Starting MoveIt Servo node."
-                            )
-                        ),
-                        servo_node,
-                        LogInfo(
-                            msg=(
-                                "Waiting for /servo_node/status before starting "
-                                "pen URSim input."
-                            )
-                        ),
-                        servo_status_gate,
-                    ],
+                    actions=[OpaqueFunction(function=start_servo_node)],
                 ),
             ]
 
@@ -727,12 +738,6 @@ def generate_launch_description() -> LaunchDescription:
                         OnProcessExit(
                             target_action=servo_status_gate,
                             on_exit=on_servo_status_gate_exit,
-                        )
-                    ),
-                    RegisterEventHandler(
-                        OnProcessExit(
-                            target_action=servo_node,
-                            on_exit=on_servo_node_exit,
                         )
                     ),
                     RegisterEventHandler(
