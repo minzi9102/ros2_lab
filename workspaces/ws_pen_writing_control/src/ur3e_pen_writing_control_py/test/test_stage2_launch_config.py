@@ -166,6 +166,11 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "servo_linear_scale": "0.6",
                 "servo_low_pass_filter_coeff": "10.0",
                 "pose_target_publish_rate_hz": publish_rate_hz,
+                "servo_command_mode": "pose",
+                "twist_position_gain": "2.0",
+                "twist_orientation_gain": "2.0",
+                "twist_linear_correction_limit_mps": "0.03",
+                "twist_angular_correction_limit_radps": "0.3",
                 "dashboard_receive_timeout_sec": "20.0",
                 "script_sender_port": "50002",
             }
@@ -174,6 +179,44 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
         assert perform_substitutions(context, actions[0].value) == "true"
 
     context.launch_configurations["pose_target_publish_rate_hz"] = "0.0"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+
+def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
+    module = _load_stage2_ursim_launch_module()
+    source = URSIM_LAUNCH_PATH.read_text(encoding="utf-8")
+    benchmark_source = URSIM_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+    context = LaunchContext()
+    context.launch_configurations.update(
+        {
+            "use_mock_hardware": "false",
+            "robot_ip": "172.17.0.2",
+            "joy_deadzone": "0.08",
+            "joy_autorepeat_rate": "100.0",
+            "joint_states_wait_timeout_sec": "15.0",
+            "servo_startup_settle_sec": "5.0",
+            "servo_status_wait_timeout_sec": "15.0",
+            "servo_linear_scale": "0.6",
+            "servo_low_pass_filter_coeff": "10.0",
+            "pose_target_publish_rate_hz": "60.0",
+            "servo_command_mode": "twist_feedforward",
+            "twist_position_gain": "2.0",
+            "twist_orientation_gain": "2.0",
+            "twist_linear_correction_limit_mps": "0.03",
+            "twist_angular_correction_limit_radps": "0.3",
+            "dashboard_receive_timeout_sec": "20.0",
+            "script_sender_port": "50002",
+        }
+    )
+
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+    assert '"servo_command_mode"' in source
+    assert '"servo_command_mode"' in benchmark_source
+    assert 'default_value="pose"' in source
+
+    context.launch_configurations["servo_command_mode"] = "invalid"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
 

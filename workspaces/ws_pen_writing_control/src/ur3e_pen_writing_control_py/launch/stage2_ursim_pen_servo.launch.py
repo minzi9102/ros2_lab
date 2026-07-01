@@ -62,6 +62,14 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
     if not robot_ip:
         return _refuse_launch("robot_ip must not be empty for URSim")
 
+    servo_command_mode = context.perform_substitution(
+        LaunchConfiguration("servo_command_mode")
+    )
+    if servo_command_mode not in ("pose", "twist_feedforward"):
+        return _refuse_launch(
+            "servo_command_mode must be 'pose' or 'twist_feedforward'"
+        )
+
     for argument_name in (
         "joy_deadzone",
         "joy_autorepeat_rate",
@@ -71,6 +79,10 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_linear_scale",
         "servo_low_pass_filter_coeff",
         "pose_target_publish_rate_hz",
+        "twist_position_gain",
+        "twist_orientation_gain",
+        "twist_linear_correction_limit_mps",
+        "twist_angular_correction_limit_radps",
         "dashboard_receive_timeout_sec",
         "script_sender_port",
     ):
@@ -82,6 +94,10 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         if argument_name == "joy_deadzone":
             if value < 0.0 or value >= 1.0:
                 return _refuse_launch(f"{argument_name} must be in [0.0, 1.0)")
+            continue
+        if argument_name in ("twist_position_gain", "twist_orientation_gain"):
+            if value < 0.0:
+                return _refuse_launch(f"{argument_name} must be non-negative")
             continue
         if value <= 0.0:
             return _refuse_launch(f"{argument_name} must be greater than 0.0")
@@ -209,6 +225,31 @@ def generate_launch_description() -> LaunchDescription:
         "pose_target_publish_rate_hz",
         default_value="60.0",
         description="Publish rate of the virtual pen pose target.",
+    )
+    servo_command_mode_arg = DeclareLaunchArgument(
+        "servo_command_mode",
+        default_value="pose",
+        description="Servo command mode: pose or twist_feedforward.",
+    )
+    twist_position_gain_arg = DeclareLaunchArgument(
+        "twist_position_gain",
+        default_value="2.0",
+        description="Position-error gain added to Twist feed-forward.",
+    )
+    twist_orientation_gain_arg = DeclareLaunchArgument(
+        "twist_orientation_gain",
+        default_value="2.0",
+        description="Orientation-error gain added to Twist feed-forward.",
+    )
+    twist_linear_correction_limit_arg = DeclareLaunchArgument(
+        "twist_linear_correction_limit_mps",
+        default_value="0.03",
+        description="Norm limit for the linear correction component.",
+    )
+    twist_angular_correction_limit_arg = DeclareLaunchArgument(
+        "twist_angular_correction_limit_radps",
+        default_value="0.3",
+        description="Norm limit for the angular correction component.",
     )
     auto_start_external_control_arg = DeclareLaunchArgument(
         "auto_start_external_control",
@@ -519,6 +560,23 @@ def generate_launch_description() -> LaunchDescription:
                 LaunchConfiguration("pose_target_publish_rate_hz"),
                 value_type=float,
             ),
+            "servo_command_mode": LaunchConfiguration("servo_command_mode"),
+            "twist_position_gain": ParameterValue(
+                LaunchConfiguration("twist_position_gain"),
+                value_type=float,
+            ),
+            "twist_orientation_gain": ParameterValue(
+                LaunchConfiguration("twist_orientation_gain"),
+                value_type=float,
+            ),
+            "twist_linear_correction_limit_mps": ParameterValue(
+                LaunchConfiguration("twist_linear_correction_limit_mps"),
+                value_type=float,
+            ),
+            "twist_angular_correction_limit_radps": ParameterValue(
+                LaunchConfiguration("twist_angular_correction_limit_radps"),
+                value_type=float,
+            ),
             "alignment_error_log_path": PathJoinSubstitution(
                 [
                     LaunchConfiguration("run_log_dir"),
@@ -712,6 +770,11 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
+            servo_command_mode_arg,
+            twist_position_gain_arg,
+            twist_orientation_gain_arg,
+            twist_linear_correction_limit_arg,
+            twist_angular_correction_limit_arg,
             auto_start_external_control_arg,
             external_control_program_arg,
             stop_external_control_on_shutdown_arg,

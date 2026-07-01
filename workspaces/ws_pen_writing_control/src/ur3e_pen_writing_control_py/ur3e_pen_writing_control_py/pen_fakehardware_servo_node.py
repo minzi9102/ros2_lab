@@ -6,7 +6,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Iterable, TextIO
 
-from geometry_msgs.msg import Point, PoseStamped, TransformStamped
+from geometry_msgs.msg import Point, PoseStamped, TransformStamped, TwistStamped
 from moveit_msgs.msg import ServoStatus
 from moveit_msgs.srv import ServoCommandType
 import rclpy
@@ -126,6 +126,146 @@ class ToolAlignmentError:
     position_m: float
     z_axis_rad: float
     full_quaternion_rad: float
+
+
+@dataclass(frozen=True)
+class CartesianTwist:
+    linear: tuple[float, float, float]
+    angular: tuple[float, float, float]
+
+
+def _quaternion_multiply(a: Quaternion, b: Quaternion) -> Quaternion:
+    return Quaternion(
+        x=a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        y=a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        z=a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        w=a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+    )
+
+
+def quaternion_rotation_vector(
+    current: Quaternion,
+    target: Quaternion,
+) -> tuple[float, float, float]:
+    current_norm = math.sqrt(
+        current.x**2 + current.y**2 + current.z**2 + current.w**2
+    )
+    target_norm = math.sqrt(target.x**2 + target.y**2 + target.z**2 + target.w**2)
+    if current_norm < 1e-12 or target_norm < 1e-12:
+        raise ValueError("orientation quaternion norm must be non-zero")
+    current_unit = Quaternion(
+        x=current.x / current_norm,
+        y=current.y / current_norm,
+        z=current.z / current_norm,
+        w=current.w / current_norm,
+    )
+    target_unit = Quaternion(
+        x=target.x / target_norm,
+        y=target.y / target_norm,
+        z=target.z / target_norm,
+        w=target.w / target_norm,
+    )
+    relative = _quaternion_multiply(
+        target_unit,
+        Quaternion(
+            x=-current_unit.x,
+            y=-current_unit.y,
+            z=-current_unit.z,
+            w=current_unit.w,
+        ),
+    )
+    if relative.w < 0.0:
+        relative = Quaternion(
+            x=-relative.x,
+            y=-relative.y,
+            z=-relative.z,
+            w=-relative.w,
+        )
+    vector_norm = math.sqrt(relative.x**2 + relative.y**2 + relative.z**2)
+    if vector_norm < 1e-12:
+        return (0.0, 0.0, 0.0)
+    angle = 2.0 * math.atan2(vector_norm, clamp(relative.w, 0.0, 1.0))
+    scale = angle / vector_norm
+    return (relative.x * scale, relative.y * scale, relative.z * scale)
+
+
+def _limit_vector(
+    vector: tuple[float, float, float],
+    limit: float,
+) -> tuple[float, float, float]:
+    magnitude = math.sqrt(sum(component * component for component in vector))
+    if magnitude <= limit or magnitude < 1e-12:
+        return vector
+    scale = limit / magnitude
+    return tuple(component * scale for component in vector)
+
+
+def twist_feedforward_command(
+    *,
+    previous_target: PoseTarget | None,
+    target: PoseTarget,
+    current: PoseTarget | None,
+    dt_sec: float,
+    position_gain: float,
+    orientation_gain: float,
+    linear_correction_limit_mps: float,
+    angular_correction_limit_radps: float,
+) -> CartesianTwist:
+    if previous_target is None or dt_sec <= 0.0:
+        linear_feedforward = (0.0, 0.0, 0.0)
+        angular_feedforward = (0.0, 0.0, 0.0)
+    else:
+        linear_feedforward = (
+            (target.position.x - previous_target.position.x) / dt_sec,
+            (target.position.y - previous_target.position.y) / dt_sec,
+            (target.position.z - previous_target.position.z) / dt_sec,
+        )
+        angular_feedforward = tuple(
+            component / dt_sec
+            for component in quaternion_rotation_vector(
+                previous_target.orientation,
+                target.orientation,
+            )
+        )
+
+    linear_correction = (0.0, 0.0, 0.0)
+    angular_correction = (0.0, 0.0, 0.0)
+    if current is not None:
+        linear_correction = _limit_vector(
+            (
+                position_gain * (target.position.x - current.position.x),
+                position_gain * (target.position.y - current.position.y),
+                position_gain * (target.position.z - current.position.z),
+            ),
+            linear_correction_limit_mps,
+        )
+        angular_correction = _limit_vector(
+            tuple(
+                orientation_gain * component
+                for component in quaternion_rotation_vector(
+                    current.orientation,
+                    target.orientation,
+                )
+            ),
+            angular_correction_limit_radps,
+        )
+
+    return CartesianTwist(
+        linear=tuple(
+            feedforward + correction
+            for feedforward, correction in zip(
+                linear_feedforward,
+                linear_correction,
+            )
+        ),
+        angular=tuple(
+            feedforward + correction
+            for feedforward, correction in zip(
+                angular_feedforward,
+                angular_correction,
+            )
+        ),
+    )
 
 
 def quaternion_angular_distance(
@@ -355,7 +495,7 @@ class AlignmentErrorCsvLogger:
 
 
 class PenFakeHardwareServoNode(Node):
-    """Bridge the stage-1 virtual pen model to fake-hardware MoveIt Servo POSE mode."""
+    """Bridge the stage-1 virtual pen model to MoveIt Servo."""
 
     def __init__(self) -> None:
         super().__init__("pen_fakehardware_servo")
@@ -372,6 +512,39 @@ class PenFakeHardwareServoNode(Node):
             self.declare_parameter(
                 "pose_command_topic",
                 "/servo_node/pose_target_cmds",
+            ).value
+        )
+        self.twist_command_topic = str(
+            self.declare_parameter(
+                "twist_command_topic",
+                "/servo_node/delta_twist_cmds",
+            ).value
+        )
+        self.target_pose_topic = str(
+            self.declare_parameter(
+                "target_pose_topic",
+                "/pen_writing/target_pose",
+            ).value
+        )
+        self.servo_command_mode = str(
+            self.declare_parameter("servo_command_mode", "pose").value
+        )
+        self.twist_position_gain = float(
+            self.declare_parameter("twist_position_gain", 2.0).value
+        )
+        self.twist_orientation_gain = float(
+            self.declare_parameter("twist_orientation_gain", 2.0).value
+        )
+        self.twist_linear_correction_limit_mps = float(
+            self.declare_parameter(
+                "twist_linear_correction_limit_mps",
+                0.03,
+            ).value
+        )
+        self.twist_angular_correction_limit_radps = float(
+            self.declare_parameter(
+                "twist_angular_correction_limit_radps",
+                0.3,
             ).value
         )
         self.command_type_service = str(
@@ -502,6 +675,16 @@ class PenFakeHardwareServoNode(Node):
             self.pose_command_topic,
             10,
         )
+        self._twist_publisher = self.create_publisher(
+            TwistStamped,
+            self.twist_command_topic,
+            10,
+        )
+        self._target_pose_publisher = self.create_publisher(
+            PoseStamped,
+            self.target_pose_topic,
+            10,
+        )
         self._marker_publisher = self.create_publisher(MarkerArray, self.marker_topic, 10)
         self._tf_broadcaster = TransformBroadcaster(self)
         self._tf_buffer = Buffer()
@@ -511,7 +694,7 @@ class PenFakeHardwareServoNode(Node):
             self.command_type_service,
         )
         self._command_type_future = None
-        self._pose_mode_ready = False
+        self._command_mode_ready = False
         self._pose_command_armed = not self.require_motion_before_pose_command
         self._paper_origin = (
             None if self.start_from_current_tool0 else self._configured_paper_origin()
@@ -571,16 +754,18 @@ class PenFakeHardwareServoNode(Node):
         )
         self._session_started_at_sec = time.monotonic()
         self._last_timer_time = time.monotonic()
+        self._previous_target_pose: PoseTarget | None = None
 
         self._timer = self.create_timer(1.0 / self.publish_rate_hz, self._on_timer)
 
         self.get_logger().info(
             "Pen fake-hardware Servo node started. "
             f"base_frame={self.frames.base_frame} tool_frame={self.frames.tool_frame} "
-            f"pose_topic={self.pose_command_topic} marker_topic={self.marker_topic} "
+            f"pose_topic={self.pose_command_topic} twist_topic={self.twist_command_topic} "
+            f"target_pose_topic={self.target_pose_topic} marker_topic={self.marker_topic} "
             f"servo_status_topic={self.servo_status_topic} joy_topic={self.joy_topic} "
             f"rate={self.publish_rate_hz:.1f}Hz "
-            f"servo_command_type=POSE "
+            f"servo_command_mode={self.servo_command_mode} "
             f"require_motion_before_pose_command={self.require_motion_before_pose_command} "
             f"tool_position_tolerance={self.tool_position_tolerance_m:.3f}m "
             f"tool_orientation_tolerance={self.tool_orientation_tolerance_deg:.1f}deg "
@@ -608,6 +793,22 @@ class PenFakeHardwareServoNode(Node):
         return result
 
     def _validate_parameters(self) -> None:
+        if self.servo_command_mode not in ("pose", "twist_feedforward"):
+            raise ValueError(
+                "servo_command_mode must be 'pose' or 'twist_feedforward'"
+            )
+        if self.twist_position_gain < 0.0:
+            raise ValueError("twist_position_gain must be non-negative")
+        if self.twist_orientation_gain < 0.0:
+            raise ValueError("twist_orientation_gain must be non-negative")
+        if self.twist_linear_correction_limit_mps <= 0.0:
+            raise ValueError(
+                "twist_linear_correction_limit_mps must be greater than zero"
+            )
+        if self.twist_angular_correction_limit_radps <= 0.0:
+            raise ValueError(
+                "twist_angular_correction_limit_radps must be greater than zero"
+            )
         if self.publish_rate_hz <= 0.0:
             raise ValueError("publish_rate_hz must be greater than zero")
         if self.joy_timeout_sec <= 0.0:
@@ -684,6 +885,7 @@ class PenFakeHardwareServoNode(Node):
         ):
             self._velocity.stop_immediately()
             self._pose_command_armed = False
+            self._publish_zero_twist()
             self._request_shutdown(
                 "maximum session duration reached: "
                 f"elapsed={now_sec - self._session_started_at_sec:.3f}s "
@@ -695,12 +897,12 @@ class PenFakeHardwareServoNode(Node):
         if self._paper_origin is None:
             self._initialize_paper_origin()
             return
-        was_pose_mode_ready = self._pose_mode_ready
-        if not self._ensure_pose_mode_ready():
+        was_command_mode_ready = self._command_mode_ready
+        if not self._ensure_command_mode_ready():
             return
         if pose_mode_became_ready(
-            was_ready=was_pose_mode_ready,
-            is_ready=self._pose_mode_ready,
+            was_ready=was_command_mode_ready,
+            is_ready=self._command_mode_ready,
         ):
             return
 
@@ -711,13 +913,14 @@ class PenFakeHardwareServoNode(Node):
         has_motion_intent = has_planar_motion_intent(control)
         if has_motion_intent and not self._pose_command_armed:
             self._pose_command_armed = True
-            self.get_logger().info("Motion input received. Arming POSE commands.")
+            self.get_logger().info("Motion input received. Arming Servo commands.")
 
         if self._pose_command_armed and not self._is_servo_status_healthy(now_sec):
             self._servo_health_fault = True
             self._pose_command_armed = False
+            self._publish_zero_twist()
             self._request_shutdown(
-                "MoveIt Servo status timed out after pose commands were armed: "
+                "MoveIt Servo status timed out after commands were armed: "
                 f"last_status_age={now_sec - self._last_servo_status_time:.3f}s "
                 f"timeout={self.servo_status_timeout_sec:.3f}s",
                 level="error",
@@ -727,6 +930,7 @@ class PenFakeHardwareServoNode(Node):
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
             self._pose_command_armed = False
+            self._publish_zero_twist()
             target_tool_pose = self._make_tool_pose_target()
             current_tool_pose = self._lookup_current_tool_pose()
             self._publish_tf_markers_and_pose(
@@ -734,6 +938,7 @@ class PenFakeHardwareServoNode(Node):
                 target_tool_pose=target_tool_pose,
                 current_tool_pose=current_tool_pose,
                 publish_pose=False,
+                dt_sec=dt_sec,
             )
             self._record_alignment_error(
                 now_sec=now_sec,
@@ -785,6 +990,7 @@ class PenFakeHardwareServoNode(Node):
             target_tool_pose=target_tool_pose,
             current_tool_pose=current_tool_pose,
             publish_pose=publish_pose,
+            dt_sec=dt_sec,
         )
         self._record_alignment_error(
             now_sec=now_sec,
@@ -799,6 +1005,7 @@ class PenFakeHardwareServoNode(Node):
             self._request_shutdown("Joy B quit requested after normal update branch")
 
     def _request_shutdown(self, reason: str, *, level: str = "info") -> None:
+        self._publish_zero_twist()
         now_sec = time.monotonic()
         if self._shutdown_requested_at_sec is None:
             self._shutdown_reason = reason
@@ -818,7 +1025,7 @@ class PenFakeHardwareServoNode(Node):
             "Pen Servo node requesting shutdown. "
             f"reason={self._shutdown_reason!r} "
             f"pose_command_armed={self._pose_command_armed} "
-            f"pose_mode_ready={self._pose_mode_ready} "
+            f"command_mode_ready={self._command_mode_ready} "
             f"servo_status_seen={self._servo_status_seen} "
             f"servo_status_age_sec={status_age:.3f} "
             f"joy_msg_age_sec={joy_age:.3f} "
@@ -876,17 +1083,23 @@ class PenFakeHardwareServoNode(Node):
             f"{estimated_tip_z:.3f}"
         )
 
-    def _ensure_pose_mode_ready(self) -> bool:
-        if self._pose_mode_ready:
+    def _ensure_command_mode_ready(self) -> bool:
+        if self._command_mode_ready:
             return True
         if not self._command_type_client.service_is_ready():
             self._command_type_client.wait_for_service(timeout_sec=0.0)
             return False
         if self._command_type_future is None:
             request = ServoCommandType.Request()
-            request.command_type = ServoCommandType.Request.POSE
+            request.command_type = (
+                ServoCommandType.Request.POSE
+                if self.servo_command_mode == "pose"
+                else ServoCommandType.Request.TWIST
+            )
             self._command_type_future = self._command_type_client.call_async(request)
-            self.get_logger().info("Requested MoveIt Servo POSE command mode.")
+            self.get_logger().info(
+                f"Requested MoveIt Servo {self.servo_command_mode} command mode."
+            )
             return False
         if not self._command_type_future.done():
             return False
@@ -894,12 +1107,16 @@ class PenFakeHardwareServoNode(Node):
         response = self._command_type_future.result()
         self._command_type_future = None
         if response is not None and response.success:
-            self._pose_mode_ready = True
+            self._command_mode_ready = True
             self._last_timer_time = time.monotonic()
-            self.get_logger().info("MoveIt Servo accepted POSE command mode.")
+            self.get_logger().info(
+                f"MoveIt Servo accepted {self.servo_command_mode} command mode."
+            )
             return True
 
-        self.get_logger().warn("MoveIt Servo rejected POSE command mode; retrying.")
+        self.get_logger().warn(
+            f"MoveIt Servo rejected {self.servo_command_mode} command mode; retrying."
+        )
         return False
 
     def _is_servo_status_healthy(self, now_sec: float) -> bool:
@@ -979,6 +1196,7 @@ class PenFakeHardwareServoNode(Node):
         target_tool_pose: PoseTarget,
         current_tool_pose: PoseTarget | None,
         publish_pose: bool,
+        dt_sec: float,
     ) -> None:
         stamp = self.get_clock().now().to_msg()
         self._tf_broadcaster.sendTransform(
@@ -994,8 +1212,51 @@ class PenFakeHardwareServoNode(Node):
                 current_tool_pose=current_tool_pose,
             )
         )
+        target_msg = self._make_pose_stamped(stamp, target_tool_pose)
+        self._target_pose_publisher.publish(target_msg)
         if publish_pose:
-            self._pose_publisher.publish(self._make_pose_stamped(stamp, target_tool_pose))
+            if self.servo_command_mode == "pose":
+                self._pose_publisher.publish(target_msg)
+            else:
+                command = twist_feedforward_command(
+                    previous_target=self._previous_target_pose,
+                    target=target_tool_pose,
+                    current=current_tool_pose,
+                    dt_sec=dt_sec,
+                    position_gain=self.twist_position_gain,
+                    orientation_gain=self.twist_orientation_gain,
+                    linear_correction_limit_mps=(
+                        self.twist_linear_correction_limit_mps
+                    ),
+                    angular_correction_limit_radps=(
+                        self.twist_angular_correction_limit_radps
+                    ),
+                )
+                self._twist_publisher.publish(
+                    self._make_twist_stamped(stamp, command)
+                )
+        self._previous_target_pose = target_tool_pose
+
+    def _make_twist_stamped(self, stamp, command: CartesianTwist) -> TwistStamped:
+        msg = TwistStamped()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self.frames.base_frame
+        msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z = command.linear
+        msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z = command.angular
+        return msg
+
+    def _publish_zero_twist(self) -> None:
+        if self.servo_command_mode != "twist_feedforward":
+            return
+        self._twist_publisher.publish(
+            self._make_twist_stamped(
+                self.get_clock().now().to_msg(),
+                CartesianTwist(
+                    linear=(0.0, 0.0, 0.0),
+                    angular=(0.0, 0.0, 0.0),
+                ),
+            )
+        )
 
     def _paper_transform(self, stamp) -> TransformStamped:
         transform = TransformStamped()
@@ -1335,7 +1596,7 @@ class PenFakeHardwareServoNode(Node):
             f"shutdown_reason={self._shutdown_reason!r} "
             f"shutdown_requested={self._shutdown_requested_at_sec is not None} "
             f"pose_command_armed={self._pose_command_armed} "
-            f"pose_mode_ready={self._pose_mode_ready} "
+            f"command_mode_ready={self._command_mode_ready} "
             f"servo_status_seen={self._servo_status_seen} "
             f"alignment_log_started={self._alignment_error_logger.started}"
         )

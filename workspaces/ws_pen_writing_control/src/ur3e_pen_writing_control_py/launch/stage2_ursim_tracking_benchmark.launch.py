@@ -67,6 +67,27 @@ def generate_launch_description() -> LaunchDescription:
         default_value="60.0",
         description="Publish rate of the virtual pen pose target.",
     )
+    servo_command_mode_arg = DeclareLaunchArgument(
+        "servo_command_mode",
+        default_value="pose",
+        description="Servo command mode: pose or twist_feedforward.",
+    )
+    twist_position_gain_arg = DeclareLaunchArgument(
+        "twist_position_gain",
+        default_value="2.0",
+    )
+    twist_orientation_gain_arg = DeclareLaunchArgument(
+        "twist_orientation_gain",
+        default_value="2.0",
+    )
+    twist_linear_correction_limit_arg = DeclareLaunchArgument(
+        "twist_linear_correction_limit_mps",
+        default_value="0.03",
+    )
+    twist_angular_correction_limit_arg = DeclareLaunchArgument(
+        "twist_angular_correction_limit_radps",
+        default_value="0.3",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -102,6 +123,17 @@ def generate_launch_description() -> LaunchDescription:
             ),
             "pose_target_publish_rate_hz": LaunchConfiguration(
                 "pose_target_publish_rate_hz"
+            ),
+            "servo_command_mode": LaunchConfiguration("servo_command_mode"),
+            "twist_position_gain": LaunchConfiguration("twist_position_gain"),
+            "twist_orientation_gain": LaunchConfiguration(
+                "twist_orientation_gain"
+            ),
+            "twist_linear_correction_limit_mps": LaunchConfiguration(
+                "twist_linear_correction_limit_mps"
+            ),
+            "twist_angular_correction_limit_radps": LaunchConfiguration(
+                "twist_angular_correction_limit_radps"
             ),
         }.items(),
     )
@@ -157,6 +189,11 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
+            servo_command_mode_arg,
+            twist_position_gain_arg,
+            twist_orientation_gain_arg,
+            twist_linear_correction_limit_arg,
+            twist_angular_correction_limit_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"URSim tracking benchmark logs will be written to: {run_log_dir}"),
             stage2_launch,

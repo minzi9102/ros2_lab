@@ -20,6 +20,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     tool_alignment_error,
     tool_tail_to_tip_points,
     tool_tip_point_from_tool_pose,
+    twist_feedforward_command,
 )
 from ur3e_pen_writing_control_py.pose_math import Point3, PoseTarget, Quaternion
 
@@ -31,6 +32,68 @@ def test_neutral_joy_control_has_no_planar_motion_intent():
 def test_nonzero_joy_control_has_planar_motion_intent():
     assert has_planar_motion_intent(JoyControl(target_x=1.0))
     assert has_planar_motion_intent(JoyControl(target_y=-1.0))
+
+
+def test_twist_feedforward_combines_target_derivative_and_pose_correction():
+    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    quarter_turn = Quaternion(
+        x=0.0,
+        y=0.0,
+        z=math.sin(math.pi / 4.0),
+        w=math.cos(math.pi / 4.0),
+    )
+    previous = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=identity,
+    )
+    target = PoseTarget(
+        position=Point3(x=0.01, y=0.0, z=0.0),
+        orientation=quarter_turn,
+    )
+    current = PoseTarget(
+        position=Point3(x=0.0, y=-0.01, z=0.0),
+        orientation=identity,
+    )
+
+    command = twist_feedforward_command(
+        previous_target=previous,
+        target=target,
+        current=current,
+        dt_sec=0.1,
+        position_gain=2.0,
+        orientation_gain=2.0,
+        linear_correction_limit_mps=0.01,
+        angular_correction_limit_radps=0.2,
+    )
+
+    correction = math.sqrt(0.5) * 0.01
+    assert command.linear == pytest.approx((0.1 + correction, correction, 0.0))
+    assert command.angular == pytest.approx((0.0, 0.0, math.pi / 0.2 + 0.2))
+
+
+def test_twist_feedforward_treats_opposite_quaternion_sign_as_same_orientation():
+    target = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=-1.0),
+    )
+    current = PoseTarget(
+        position=Point3(x=0.0, y=0.0, z=0.0),
+        orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+    )
+
+    command = twist_feedforward_command(
+        previous_target=None,
+        target=target,
+        current=current,
+        dt_sec=0.0,
+        position_gain=2.0,
+        orientation_gain=2.0,
+        linear_correction_limit_mps=0.03,
+        angular_correction_limit_radps=0.3,
+    )
+
+    assert command.linear == (0.0, 0.0, 0.0)
+    assert command.angular == (0.0, 0.0, 0.0)
 
 
 def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():
