@@ -10,6 +10,7 @@ from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
+    ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
     LogInfo,
@@ -30,6 +31,17 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
+SERVO_RUNTIME_PARAMETERS = (
+    "moveit_servo.command_in_type",
+    "moveit_servo.publish_period",
+    "moveit_servo.low_pass_filter_coeff",
+    "moveit_servo.use_smoothing",
+    "moveit_servo.scale.linear",
+    "moveit_servo.scale.rotational",
+    "moveit_servo.planning_frame",
+    "moveit_servo.robot_link_command_frame",
+    "moveit_servo.apply_twist_commands_about_ee_frame",
+)
 
 
 def load_yaml(package_name: str, file_path: str):
@@ -385,6 +397,26 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    servo_parameter_snapshot = ExecuteProcess(
+        cmd=[
+            "bash",
+            "-c",
+            (
+                'set -uo pipefail; output="$1"; shift; : > "$output"; '
+                'for parameter in "$@"; do '
+                'printf "$ ros2 param get /servo_node %s\\n" "$parameter" >> "$output"; '
+                'ros2 param get /servo_node "$parameter" >> "$output" 2>&1; '
+                "done"
+            ),
+            "_",
+            PathJoinSubstitution(
+                [LaunchConfiguration("run_log_dir"), "servo_runtime_parameters.txt"]
+            ),
+            *SERVO_RUNTIME_PARAMETERS,
+        ],
+        output=LaunchConfiguration("pen_runtime_output_both"),
+    )
+
     joy_node = Node(
         package="joy",
         executable="joy_node",
@@ -506,6 +538,7 @@ def generate_launch_description() -> LaunchDescription:
                 LogInfo(
                     msg="Detected Servo status traffic. Starting joy and pen POSE node."
                 ),
+                servo_parameter_snapshot,
                 joy_node,
                 pen_servo_node,
             ]

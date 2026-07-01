@@ -86,6 +86,17 @@ def test_stage2_launch_sets_servo_rotational_scale_to_ur3_wrist_limit():
     module = _load_stage2_launch_module()
 
     assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == math.tau
+    assert module.SERVO_RUNTIME_PARAMETERS == (
+        "moveit_servo.command_in_type",
+        "moveit_servo.publish_period",
+        "moveit_servo.low_pass_filter_coeff",
+        "moveit_servo.use_smoothing",
+        "moveit_servo.scale.linear",
+        "moveit_servo.scale.rotational",
+        "moveit_servo.planning_frame",
+        "moveit_servo.robot_link_command_frame",
+        "moveit_servo.apply_twist_commands_about_ee_frame",
+    )
     servo_yaml = module.configured_stage2_servo_yaml()
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
