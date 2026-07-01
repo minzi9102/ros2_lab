@@ -28,6 +28,35 @@ def test_blend_angle_takes_short_path_across_pi():
     assert abs(abs(result) - math.pi) < math.radians(0.01)
 
 
+def test_first_motion_initializes_yaw_without_rotating_upright_pen():
+    pen = VirtualPenKinematics()
+    initial_orientation = pen.state.orientation_world
+
+    state = pen.update(0.008, 1.0, 0.0)
+
+    assert state.motion_phase == "MOVING"
+    assert state.yaw_rad == pytest.approx(0.0)
+    assert state.tilt_rad == pytest.approx(0.0)
+    assert quaternion_dot(initial_orientation, state.orientation_world) == pytest.approx(
+        1.0
+    )
+    assert vector_norm(state.angular_velocity_world) == pytest.approx(0.0)
+
+
+def test_direction_change_while_moving_keeps_yaw_rate_limit():
+    config = VirtualPenConfig(paper_width_m=10.0, paper_height_m=10.0)
+    pen = VirtualPenKinematics(config)
+    dt = 0.008
+    for _ in range(400):
+        pen.update(dt, 1.0, 0.0)
+    previous_yaw = pen.state.yaw_rad
+
+    state = pen.update(dt, 0.0, 1.0)
+
+    assert state.yaw_rad != pytest.approx(math.pi / 2.0)
+    assert abs(state.yaw_rad - previous_yaw) <= config.max_yaw_rate_radps * dt
+
+
 def test_planar_motion_respects_speed_acceleration_and_jerk_limits():
     config = VirtualPenConfig()
     pen = VirtualPenKinematics(config)

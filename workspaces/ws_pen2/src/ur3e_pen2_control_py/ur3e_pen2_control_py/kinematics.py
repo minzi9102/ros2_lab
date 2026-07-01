@@ -175,6 +175,7 @@ class VirtualPenKinematics:
 
         speed = math.hypot(*self._velocity)
         acceleration = math.hypot(*self._acceleration)
+        previous_phase = self._phase
         self._update_phase(has_intent, speed, acceleration, dt_sec)
 
         confidence = smoothstep(
@@ -182,7 +183,16 @@ class VirtualPenKinematics:
             self.config.confidence_speed_high_mps,
             speed,
         )
-        self._update_yaw(confidence, speed, dt_sec)
+        self._update_yaw(
+            confidence,
+            speed,
+            dt_sec,
+            initialize_from_direction=(
+                previous_phase == "IDLE"
+                and self._phase == "MOVING"
+                and self._tilt == 0.0
+            ),
+        )
         self._update_tilt(speed, dt_sec)
 
         previous_orientation = self._orientation
@@ -302,10 +312,16 @@ class VirtualPenKinematics:
         confidence: float,
         speed: float,
         dt_sec: float,
+        *,
+        initialize_from_direction: bool,
     ) -> None:
         target = self._yaw
         if speed > 1e-12 and self._phase == "MOVING":
             raw_yaw = math.atan2(self._velocity[1], self._velocity[0])
+            if initialize_from_direction:
+                self._yaw = raw_yaw
+                self._yaw_rate = 0.0
+                return
             target = blend_angle(self._yaw, raw_yaw, confidence)
         self._yaw, self._yaw_rate = update_limited_angle(
             self._yaw,
