@@ -57,6 +57,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="10.0",
         description="MoveIt Servo joint-state low-pass filter coefficient.",
     )
+    servo_linear_scale_arg = DeclareLaunchArgument(
+        "servo_linear_scale",
+        default_value="0.6",
+        description="MoveIt Servo linear scale for Cartesian and pose tracking commands.",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -85,6 +90,7 @@ def generate_launch_description() -> LaunchDescription:
             "run_log_dir": str(run_log_dir),
             "joint_states_wait_timeout_sec": "60.0",
             "servo_status_wait_timeout_sec": "30.0",
+            "servo_linear_scale": LaunchConfiguration("servo_linear_scale"),
             "servo_low_pass_filter_coeff": LaunchConfiguration(
                 "servo_low_pass_filter_coeff"
             ),
@@ -139,6 +145,7 @@ def generate_launch_description() -> LaunchDescription:
             benchmark_profile_arg,
             robot_ip_arg,
             external_control_program_arg,
+            servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"URSim tracking benchmark logs will be written to: {run_log_dir}"),

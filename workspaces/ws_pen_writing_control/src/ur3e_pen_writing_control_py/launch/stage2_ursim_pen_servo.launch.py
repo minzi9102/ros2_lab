@@ -66,6 +66,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "joint_states_wait_timeout_sec",
         "servo_startup_settle_sec",
         "servo_status_wait_timeout_sec",
+        "servo_linear_scale",
         "servo_low_pass_filter_coeff",
         "dashboard_receive_timeout_sec",
         "script_sender_port",
@@ -113,9 +114,10 @@ def _as_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes", "on")
 
 
-def configured_stage2_servo_yaml(*, low_pass_filter_coeff=10.0):
+def configured_stage2_servo_yaml(*, linear_scale=0.6, low_pass_filter_coeff=10.0):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
+    servo_yaml["scale"]["linear"] = linear_scale
     servo_yaml["scale"]["rotational"] = STAGE2_SERVO_ROTATIONAL_SCALE_RADPS
     servo_yaml["low_pass_filter_coeff"] = low_pass_filter_coeff
     return servo_yaml
@@ -189,6 +191,11 @@ def generate_launch_description() -> LaunchDescription:
         "servo_status_wait_timeout_sec",
         default_value="15.0",
         description="Maximum time to wait for /servo_node/status before starting pen input.",
+    )
+    servo_linear_scale_arg = DeclareLaunchArgument(
+        "servo_linear_scale",
+        default_value="0.6",
+        description="MoveIt Servo linear scale for Cartesian and pose tracking commands.",
     )
     servo_low_pass_filter_coeff_arg = DeclareLaunchArgument(
         "servo_low_pass_filter_coeff",
@@ -514,6 +521,10 @@ def generate_launch_description() -> LaunchDescription:
         ]
 
     servo_yaml = configured_stage2_servo_yaml()
+    servo_yaml["scale"]["linear"] = ParameterValue(
+        LaunchConfiguration("servo_linear_scale"),
+        value_type=float,
+    )
     servo_yaml["low_pass_filter_coeff"] = ParameterValue(
         LaunchConfiguration("servo_low_pass_filter_coeff"),
         value_type=float,
@@ -649,6 +660,7 @@ def generate_launch_description() -> LaunchDescription:
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
+            servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             auto_start_external_control_arg,
             external_control_program_arg,
