@@ -19,6 +19,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from .joy_mapping import JoyControl, JoyMapper
 from .pen_math import (
     PaperBounds,
+    PenPose2D,
     PlanarVelocity,
     SmoothPlanarVelocity,
     VirtualPenState,
@@ -28,6 +29,8 @@ from .pose_math import (
     Point3,
     PoseTarget,
     Quaternion,
+    orientation_frame_from_pen_pose,
+    quaternion_from_orientation_frame,
     rotate_vector,
     tool_pose_from_pen_tip_pose,
     transform_point,
@@ -77,12 +80,30 @@ def should_switch_linear_only_to_twist(
 def target_orientation_for_command(
     *,
     configured_mode: str,
+    diagnostic_orientation_mode: str,
+    fixed_vertical_orientation: Quaternion,
     frozen_orientation: Quaternion | None,
     dynamic_orientation: Quaternion,
 ) -> Quaternion:
+    if diagnostic_orientation_mode == "fixed_vertical":
+        return fixed_vertical_orientation
     if configured_mode == "twist_linear_only" and frozen_orientation is not None:
         return frozen_orientation
     return dynamic_orientation
+
+
+def fixed_vertical_pen_orientation(*, pen_length: float) -> Quaternion:
+    return quaternion_from_orientation_frame(
+        orientation_frame_from_pen_pose(
+            pen_pose=PenPose2D(
+                tip_x=0.0,
+                tip_y=0.0,
+                yaw=math.pi,
+                tilt_rad=0.0,
+            ),
+            pen_length=pen_length,
+        )
+    )
 
 
 def pose_mode_became_ready(*, was_ready: bool, is_ready: bool) -> bool:
@@ -681,6 +702,9 @@ class PenFakeHardwareServoNode(Node):
         self.tool0_axis_length_m = float(
             self.declare_parameter("tool0_axis_length_m", 0.08).value
         )
+        self.diagnostic_orientation_mode = str(
+            self.declare_parameter("diagnostic_orientation_mode", "dynamic").value
+        )
         self.fixed_tilt_deg = float(self.declare_parameter("fixed_tilt_deg", 20.0).value)
         self.diagnostic_freeze_tip_xy = bool(
             self.declare_parameter("diagnostic_freeze_tip_xy", False).value
@@ -713,6 +737,9 @@ class PenFakeHardwareServoNode(Node):
             self.servo_command_mode
         )
         self._linear_only_frozen_orientation: Quaternion | None = None
+        self._fixed_vertical_orientation = fixed_vertical_pen_orientation(
+            pen_length=self.pen_length_m
+        )
 
         self._pose_publisher = self.create_publisher(
             PoseStamped,
@@ -817,6 +844,7 @@ class PenFakeHardwareServoNode(Node):
             f"max_pen_axis_rate="
             f"{self.max_pen_axis_angular_speed_degps:.1f}deg/s "
             f"fixed_tilt={self.fixed_tilt_deg:.1f}deg "
+            f"diagnostic_orientation_mode={self.diagnostic_orientation_mode} "
             f"diagnostic_freeze_tip_xy={self.diagnostic_freeze_tip_xy} "
             f"max_session_duration={self.max_session_duration_sec:.1f}s "
             f"alignment_error_log_rate={self.alignment_error_log_rate_hz:.1f}Hz "
@@ -846,6 +874,11 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError(
                 "servo_command_mode must be 'pose', 'twist_feedforward', "
                 "or 'twist_linear_only'"
+            )
+        if self.diagnostic_orientation_mode not in ("dynamic", "fixed_vertical"):
+            raise ValueError(
+                "diagnostic_orientation_mode must be 'dynamic' or "
+                "'fixed_vertical'"
             )
         if self.twist_position_gain < 0.0:
             raise ValueError("twist_position_gain must be non-negative")
@@ -1228,6 +1261,8 @@ class PenFakeHardwareServoNode(Node):
             tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
             orientation_override=target_orientation_for_command(
                 configured_mode=self.servo_command_mode,
+                diagnostic_orientation_mode=self.diagnostic_orientation_mode,
+                fixed_vertical_orientation=self._fixed_vertical_orientation,
                 frozen_orientation=self._linear_only_frozen_orientation,
                 dynamic_orientation=self._pen_orientation.orientation,
             ),

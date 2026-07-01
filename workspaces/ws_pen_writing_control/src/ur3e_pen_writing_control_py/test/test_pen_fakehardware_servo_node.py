@@ -4,10 +4,11 @@ import math
 import pytest
 
 from ur3e_pen_writing_control_py.joy_mapping import JoyControl
-from ur3e_pen_writing_control_py.pen_math import PlanarVelocity
+from ur3e_pen_writing_control_py.pen_math import PenPose2D, PlanarVelocity
 from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     AlignmentErrorCsvLogger,
     ToolAlignmentError,
+    fixed_vertical_pen_orientation,
     has_planar_motion_intent,
     initial_active_servo_command_mode,
     is_session_timed_out,
@@ -25,7 +26,12 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     tool_tip_point_from_tool_pose,
     twist_feedforward_command,
 )
-from ur3e_pen_writing_control_py.pose_math import Point3, PoseTarget, Quaternion
+from ur3e_pen_writing_control_py.pose_math import (
+    Point3,
+    PoseTarget,
+    Quaternion,
+    tool_pose_from_pen_tip_pose,
+)
 
 
 def test_neutral_joy_control_has_no_planar_motion_intent():
@@ -164,14 +170,76 @@ def test_linear_only_uses_frozen_target_orientation():
 
     assert target_orientation_for_command(
         configured_mode="twist_linear_only",
+        diagnostic_orientation_mode="dynamic",
+        fixed_vertical_orientation=dynamic,
         frozen_orientation=frozen,
         dynamic_orientation=dynamic,
     ) == frozen
     assert target_orientation_for_command(
         configured_mode="twist_feedforward",
+        diagnostic_orientation_mode="dynamic",
+        fixed_vertical_orientation=dynamic,
         frozen_orientation=frozen,
         dynamic_orientation=dynamic,
     ) == dynamic
+
+
+def test_fixed_vertical_orientation_mode_overrides_dynamic_orientation():
+    dynamic = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    fixed = fixed_vertical_pen_orientation(pen_length=0.14)
+
+    assert target_orientation_for_command(
+        configured_mode="pose",
+        diagnostic_orientation_mode="fixed_vertical",
+        fixed_vertical_orientation=fixed,
+        frozen_orientation=None,
+        dynamic_orientation=dynamic,
+    ) == fixed
+
+
+def test_fixed_vertical_orientation_is_constant_and_upright():
+    orientation_a = fixed_vertical_pen_orientation(pen_length=0.14)
+    orientation_b = fixed_vertical_pen_orientation(pen_length=0.20)
+
+    assert orientation_a == orientation_b
+    assert orientation_a.x == pytest.approx(1.0)
+    assert orientation_a.y == pytest.approx(0.0)
+    assert orientation_a.z == pytest.approx(0.0)
+    assert orientation_a.w == pytest.approx(0.0)
+
+
+def test_fixed_vertical_orientation_still_allows_tip_xy_motion():
+    orientation = fixed_vertical_pen_orientation(pen_length=0.14)
+    paper_origin = Point3(x=0.4, y=0.1, z=0.2)
+    tool0_to_pen_tip = Point3(x=0.0, y=0.0, z=0.14)
+    target_a = tool_pose_from_pen_tip_pose(
+        pen_pose=PenPose2D(
+            tip_x=0.00,
+            tip_y=0.00,
+            yaw=0.0,
+            tilt_rad=math.radians(20.0),
+        ),
+        paper_origin=paper_origin,
+        pen_length=0.14,
+        tool0_to_pen_tip_xyz=tool0_to_pen_tip,
+        orientation_override=orientation,
+    )
+    target_b = tool_pose_from_pen_tip_pose(
+        pen_pose=PenPose2D(
+            tip_x=0.03,
+            tip_y=-0.02,
+            yaw=math.pi / 3.0,
+            tilt_rad=math.radians(35.0),
+        ),
+        paper_origin=paper_origin,
+        pen_length=0.14,
+        tool0_to_pen_tip_xyz=tool0_to_pen_tip,
+        orientation_override=orientation,
+    )
+
+    assert target_a.orientation == orientation
+    assert target_b.orientation == orientation
+    assert target_a.position != target_b.position
 
 
 def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():

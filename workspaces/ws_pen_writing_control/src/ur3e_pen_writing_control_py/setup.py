@@ -38,6 +38,8 @@ setup(
             "ur3e_pen_writing_control_py.pen_real_tracking_benchmark_node:main",
             "command_latency_report = "
             "ur3e_pen_writing_control_py.command_latency_report:main",
+            "chain_split_fk_report = "
+            "ur3e_pen_writing_control_py.chain_split_fk_report:main",
             "controller_switch_once_node = "
             "ur3e_pen_writing_control_py.controller_switch_once_node:main",
             "constant_twist_diagnostic_node = "

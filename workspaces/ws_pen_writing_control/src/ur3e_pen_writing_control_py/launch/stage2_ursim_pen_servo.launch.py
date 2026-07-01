@@ -65,6 +65,9 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
     servo_command_mode = context.perform_substitution(
         LaunchConfiguration("servo_command_mode")
     )
+    diagnostic_orientation_mode = context.perform_substitution(
+        LaunchConfiguration("diagnostic_orientation_mode")
+    )
     if servo_command_mode not in (
         "pose",
         "twist_feedforward",
@@ -73,6 +76,11 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         return _refuse_launch(
             "servo_command_mode must be 'pose', 'twist_feedforward', "
             "or 'twist_linear_only'"
+        )
+    if diagnostic_orientation_mode not in ("dynamic", "fixed_vertical"):
+        return _refuse_launch(
+            "diagnostic_orientation_mode must be 'dynamic' or "
+            "'fixed_vertical'"
         )
 
     for argument_name in (
@@ -91,6 +99,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "twist_angular_correction_limit_radps",
         "dashboard_receive_timeout_sec",
         "script_sender_port",
+        "fixed_tilt_deg",
     ):
         raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
         try:
@@ -104,6 +113,10 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         if argument_name in ("twist_position_gain", "twist_orientation_gain"):
             if value < 0.0:
                 return _refuse_launch(f"{argument_name} must be non-negative")
+            continue
+        if argument_name == "fixed_tilt_deg":
+            if value < 0.0 or value >= 90.0:
+                return _refuse_launch("fixed_tilt_deg must be in [0.0, 90.0)")
             continue
         if value <= 0.0:
             return _refuse_launch(f"{argument_name} must be greater than 0.0")
@@ -231,6 +244,21 @@ def generate_launch_description() -> LaunchDescription:
         "pose_target_publish_rate_hz",
         default_value="60.0",
         description="Publish rate of the virtual pen pose target.",
+    )
+    fixed_tilt_deg_arg = DeclareLaunchArgument(
+        "fixed_tilt_deg",
+        default_value="20.0",
+        description="Virtual pen tilt angle used outside fixed-vertical diagnostics.",
+    )
+    diagnostic_freeze_tip_xy_arg = DeclareLaunchArgument(
+        "diagnostic_freeze_tip_xy",
+        default_value="false",
+        description="Freeze pen tip XY while still updating orientation diagnostics.",
+    )
+    diagnostic_orientation_mode_arg = DeclareLaunchArgument(
+        "diagnostic_orientation_mode",
+        default_value="dynamic",
+        description="Pen orientation mode: dynamic or fixed_vertical.",
     )
     joint_state_relay_period_arg = DeclareLaunchArgument(
         "joint_state_relay_period_sec",
@@ -453,38 +481,47 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("auto_start_external_control")),
         output=LaunchConfiguration("pen_runtime_output"),
     )
-    external_control_stop = ExecuteProcess(
-        cmd=[
-            "python3",
-            "-c",
-            (
-                "import socket, sys\n"
-                "host = sys.argv[1]\n"
-                "try:\n"
-                "    sock = socket.create_connection((host, 29999), timeout=2.0)\n"
-                "    sock.settimeout(2.0)\n"
-                "    print(sock.recv(4096).decode('utf-8', errors='replace').strip(), flush=True)\n"
-                "    sock.sendall(b'stop\\n')\n"
-                "    print(sock.recv(4096).decode('utf-8', errors='replace').strip(), flush=True)\n"
-                "    sock.close()\n"
-                "except OSError as exc:\n"
-                "    print(f'External Control stop skipped: {exc}', flush=True)\n"
+    external_control_stop_requested = {"value": False}
+
+    def make_external_control_stop():
+        return ExecuteProcess(
+            cmd=[
+                "python3",
+                "-c",
+                (
+                    "import socket, sys\n"
+                    "host = sys.argv[1]\n"
+                    "try:\n"
+                    "    sock = socket.create_connection((host, 29999), timeout=2.0)\n"
+                    "    sock.settimeout(2.0)\n"
+                    "    print(sock.recv(4096).decode('utf-8', errors='replace').strip(), flush=True)\n"
+                    "    sock.sendall(b'stop\\n')\n"
+                    "    print(sock.recv(4096).decode('utf-8', errors='replace').strip(), flush=True)\n"
+                    "    sock.close()\n"
+                    "except OSError as exc:\n"
+                    "    print(f'External Control stop skipped: {exc}', flush=True)\n"
+                ),
+                LaunchConfiguration("robot_ip"),
+            ],
+            condition=IfCondition(
+                PythonExpression(
+                    [
+                        "'",
+                        LaunchConfiguration("auto_start_external_control"),
+                        "'.lower() in ('1', 'true', 'yes', 'on') and '",
+                        LaunchConfiguration("stop_external_control_on_shutdown"),
+                        "'.lower() in ('1', 'true', 'yes', 'on')",
+                    ]
+                )
             ),
-            LaunchConfiguration("robot_ip"),
-        ],
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    LaunchConfiguration("auto_start_external_control"),
-                    "'.lower() in ('1', 'true', 'yes', 'on') and '",
-                    LaunchConfiguration("stop_external_control_on_shutdown"),
-                    "'.lower() in ('1', 'true', 'yes', 'on')",
-                ]
-            )
-        ),
-        output=LaunchConfiguration("pen_runtime_output"),
-    )
+            output=LaunchConfiguration("pen_runtime_output"),
+        )
+
+    def on_shutdown_external_control(_context, *_args, **_kwargs):
+        if external_control_stop_requested["value"]:
+            return []
+        external_control_stop_requested["value"] = True
+        return [make_external_control_stop()]
 
     joint_states_gate = Node(
         package="ur3_moveit_servo_lab_cpp",
@@ -590,6 +627,17 @@ def generate_launch_description() -> LaunchDescription:
             "twist_angular_correction_limit_radps": ParameterValue(
                 LaunchConfiguration("twist_angular_correction_limit_radps"),
                 value_type=float,
+            ),
+            "fixed_tilt_deg": ParameterValue(
+                LaunchConfiguration("fixed_tilt_deg"),
+                value_type=float,
+            ),
+            "diagnostic_freeze_tip_xy": ParameterValue(
+                LaunchConfiguration("diagnostic_freeze_tip_xy"),
+                value_type=bool,
+            ),
+            "diagnostic_orientation_mode": LaunchConfiguration(
+                "diagnostic_orientation_mode"
             ),
             "alignment_error_log_path": PathJoinSubstitution(
                 [
@@ -784,6 +832,9 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
+            fixed_tilt_deg_arg,
+            diagnostic_freeze_tip_xy_arg,
+            diagnostic_orientation_mode_arg,
             joint_state_relay_period_arg,
             servo_command_mode_arg,
             twist_position_gain_arg,
@@ -888,7 +939,9 @@ def generate_launch_description() -> LaunchDescription:
                     RegisterEventHandler(
                         OnShutdown(
                             on_shutdown=[
-                                external_control_stop,
+                                OpaqueFunction(
+                                    function=on_shutdown_external_control
+                                ),
                             ]
                         )
                     ),

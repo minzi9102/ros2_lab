@@ -239,6 +239,18 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
     assert '"pose_target_publish_rate_hz"' in benchmark_source
     assert '"auto_start_external_control": "true"' in benchmark_source
     assert '"stop_external_control_on_shutdown": "true"' in benchmark_source
+    assert '"launch_rviz": LaunchConfiguration("launch_rviz")' in benchmark_source
+    assert '"fixed_tilt_deg": LaunchConfiguration("fixed_tilt_deg")' in benchmark_source
+    assert (
+        '"diagnostic_freeze_tip_xy": LaunchConfiguration(' in benchmark_source
+    )
+    assert (
+        '"diagnostic_orientation_mode": LaunchConfiguration('
+        in benchmark_source
+    )
+    assert '"fixed_tilt_deg",' in benchmark_source
+    assert '"diagnostic_freeze_tip_xy",' in benchmark_source
+    assert '"diagnostic_orientation_mode",' in benchmark_source
 
     for publish_rate_hz in ("100.0", "125.0"):
         context = LaunchContext()
@@ -262,6 +274,8 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "twist_angular_correction_limit_radps": "0.3",
                 "dashboard_receive_timeout_sec": "20.0",
                 "script_sender_port": "50002",
+                "fixed_tilt_deg": "20.0",
+                "diagnostic_orientation_mode": "dynamic",
             }
         )
         actions = module.validate_ursim_arguments(context)
@@ -297,6 +311,8 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
             "twist_angular_correction_limit_radps": "0.3",
             "dashboard_receive_timeout_sec": "20.0",
             "script_sender_port": "50002",
+            "fixed_tilt_deg": "20.0",
+            "diagnostic_orientation_mode": "dynamic",
         }
     )
 
@@ -307,19 +323,54 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     assert 'default_value="pose"' in source
     assert '"joint_state_relay_period_sec"' in benchmark_source
     assert 'default_value="0.020"' in source
+    assert '"diagnostic_freeze_tip_xy"' in source
+    assert '"diagnostic_orientation_mode"' in source
+    assert '"fixed_tilt_deg"' in source
+    assert 'default_value="dynamic"' in source
+    assert 'default_value="20.0"' in source
+    assert 'prefix="prlimit --rtprio=0:0 --"' in source
 
     context.launch_configurations["servo_command_mode"] = "twist_linear_only"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"
 
+    context.launch_configurations["diagnostic_orientation_mode"] = "fixed_vertical"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+
+    context.launch_configurations["diagnostic_orientation_mode"] = "invalid"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["diagnostic_orientation_mode"] = "dynamic"
     context.launch_configurations["servo_command_mode"] = "invalid"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
 
     context.launch_configurations["servo_command_mode"] = "twist_feedforward"
+    context.launch_configurations["fixed_tilt_deg"] = "90.0"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["fixed_tilt_deg"] = "20.0"
     context.launch_configurations["joint_state_relay_period_sec"] = "0.0"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
+
+
+def test_stage2_ursim_benchmark_records_chain_split_inputs_and_outputs():
+    source = URSIM_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert "chain_split_fk_report.json" in source
+    assert "chain_split_fk_report.md" in source
+    assert "chain_split_fk_report" in source
+    assert "ros2" in source
+    assert '"bag"' in source
+    assert '"/pen_writing/target_pose"' in source
+    assert '"/servo_node/pose_target_cmds"' in source
+    assert '"/servo_node/delta_twist_cmds"' in source
+    assert '"/forward_position_controller/commands"' in source
+    assert '"/joint_states"' in source
 
 
 def test_stage3_real_air_launch_requires_human_confirmation():
