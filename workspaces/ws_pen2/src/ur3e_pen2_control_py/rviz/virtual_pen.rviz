@@ -15,6 +15,7 @@ Visualization Manager:
         Value: /pen_writing/virtual_pen/markers
       Value: true
     - Class: rviz_default_plugins/TF
+      Marker Scale: 0.04
       Name: TF
       Value: true
   Enabled: true
