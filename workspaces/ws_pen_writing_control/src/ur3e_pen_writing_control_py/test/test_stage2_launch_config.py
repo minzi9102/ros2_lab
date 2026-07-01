@@ -123,6 +123,15 @@ def test_stage2_ursim_pen_node_parameters_match_fakehardware_height_strategy():
     assert parameters["servo_status_topic"] == "/servo_node/status"
 
 
+def test_stage2_ursim_launch_stops_owned_external_control_on_shutdown():
+    source = URSIM_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert '"stop_external_control_on_shutdown"' in source
+    assert "sock.sendall(b'stop\\\\n')" in source
+    assert "auto_start_external_control" in source
+    assert "OnShutdown" in source
+
+
 def test_stage3_real_air_launch_requires_human_confirmation():
     module = _load_stage3_real_air_launch_module()
 

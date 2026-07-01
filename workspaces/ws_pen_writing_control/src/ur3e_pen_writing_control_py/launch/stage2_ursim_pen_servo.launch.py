@@ -22,8 +22,10 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnShutdown
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import PythonExpression
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -212,6 +214,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value=STAGE2_URSIM_DEFAULT_EXTERNAL_CONTROL_PROGRAM,
         description="Dashboard path of the URSim External Control program to load.",
     )
+    stop_external_control_on_shutdown_arg = DeclareLaunchArgument(
+        "stop_external_control_on_shutdown",
+        default_value="true",
+        description="Stop URSim External Control on shutdown when this launch started it.",
+    )
     dashboard_receive_timeout_arg = DeclareLaunchArgument(
         "dashboard_receive_timeout_sec",
         default_value="20.0",
@@ -383,6 +390,38 @@ def generate_launch_description() -> LaunchDescription:
             LaunchConfiguration("script_sender_port"),
         ],
         condition=IfCondition(LaunchConfiguration("auto_start_external_control")),
+        output=LaunchConfiguration("pen_runtime_output"),
+    )
+    external_control_stop = ExecuteProcess(
+        cmd=[
+            "python3",
+            "-c",
+            (
+                "import socket, sys\n"
+                "host = sys.argv[1]\n"
+                "try:\n"
+                "    sock = socket.create_connection((host, 29999), timeout=2.0)\n"
+                "    sock.settimeout(2.0)\n"
+                "    print(sock.recv(4096).decode('utf-8', errors='replace').strip(), flush=True)\n"
+                "    sock.sendall(b'stop\\n')\n"
+                "    print(sock.recv(4096).decode('utf-8', errors='replace').strip(), flush=True)\n"
+                "    sock.close()\n"
+                "except OSError as exc:\n"
+                "    print(f'External Control stop skipped: {exc}', flush=True)\n"
+            ),
+            LaunchConfiguration("robot_ip"),
+        ],
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    LaunchConfiguration("auto_start_external_control"),
+                    "'.lower() in ('1', 'true', 'yes', 'on') and '",
+                    LaunchConfiguration("stop_external_control_on_shutdown"),
+                    "'.lower() in ('1', 'true', 'yes', 'on')",
+                ]
+            )
+        ),
         output=LaunchConfiguration("pen_runtime_output"),
     )
 
@@ -664,6 +703,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_low_pass_filter_coeff_arg,
             auto_start_external_control_arg,
             external_control_program_arg,
+            stop_external_control_on_shutdown_arg,
             dashboard_receive_timeout_arg,
             script_sender_port_arg,
             joy_topic_arg,
@@ -754,6 +794,13 @@ def generate_launch_description() -> LaunchDescription:
                         OnProcessExit(
                             target_action=pen_servo_node,
                             on_exit=on_pen_servo_node_exit,
+                        )
+                    ),
+                    RegisterEventHandler(
+                        OnShutdown(
+                            on_shutdown=[
+                                external_control_stop,
+                            ]
                         )
                     ),
                 ],
