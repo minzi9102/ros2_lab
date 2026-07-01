@@ -86,16 +86,11 @@ def test_stage2_launch_sets_servo_rotational_scale_to_ur3_wrist_limit():
     module = _load_stage2_launch_module()
 
     assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == math.tau
-    assert module.SERVO_RUNTIME_PARAMETERS == (
-        "moveit_servo.command_in_type",
-        "moveit_servo.publish_period",
-        "moveit_servo.low_pass_filter_coeff",
-        "moveit_servo.use_smoothing",
-        "moveit_servo.scale.linear",
-        "moveit_servo.scale.rotational",
-        "moveit_servo.planning_frame",
-        "moveit_servo.robot_link_command_frame",
-        "moveit_servo.apply_twist_commands_about_ee_frame",
+    runtime_parameters = dict(module.SERVO_RUNTIME_PARAMETERS)
+    assert runtime_parameters["butterworth_filter_coeff"] == "Double value"
+    assert (
+        runtime_parameters["moveit_servo.low_pass_filter_coeff"]
+        == "Parameter not set"
     )
     servo_yaml = module.configured_stage2_servo_yaml()
 
@@ -124,6 +119,7 @@ def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
                 "servo_status_wait_timeout_sec": "15.0",
                 "joint_state_relay_period_sec": relay_period_sec,
                 "servo_command_mode": "twist_feedforward",
+                "servo_butterworth_filter_coeff": "1.5",
                 "twist_position_gain": "2.0",
                 "twist_orientation_gain": "2.0",
                 "twist_linear_correction_limit_mps": "0.03",
@@ -137,8 +133,19 @@ def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
     assert 'default_value="0.020"' in source
     assert '"servo_command_mode"' in benchmark_source
     assert '"servo_use_smoothing"' in benchmark_source
+    assert '"servo_butterworth_filter_coeff"' in benchmark_source
+    assert 'default_value="1.5"' in source
     assert 'prefix="prlimit --rtprio=0:0 --"' in source
 
+    context.launch_configurations["servo_butterworth_filter_coeff"] = "1.01"
+    actions = module.validate_fakehardware_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+
+    context.launch_configurations["servo_butterworth_filter_coeff"] = "1.0"
+    actions = module.validate_fakehardware_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["servo_butterworth_filter_coeff"] = "1.5"
     context.launch_configurations["servo_command_mode"] = "twist_linear_only"
     actions = module.validate_fakehardware_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"

@@ -32,15 +32,16 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 STAGE2_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
 SERVO_RUNTIME_PARAMETERS = (
-    "moveit_servo.command_in_type",
-    "moveit_servo.publish_period",
-    "moveit_servo.low_pass_filter_coeff",
-    "moveit_servo.use_smoothing",
-    "moveit_servo.scale.linear",
-    "moveit_servo.scale.rotational",
-    "moveit_servo.planning_frame",
-    "moveit_servo.robot_link_command_frame",
-    "moveit_servo.apply_twist_commands_about_ee_frame",
+    ("butterworth_filter_coeff", "Double value"),
+    ("moveit_servo.command_in_type", "String value"),
+    ("moveit_servo.publish_period", "Double value"),
+    ("moveit_servo.low_pass_filter_coeff", "Parameter not set"),
+    ("moveit_servo.use_smoothing", "Boolean value"),
+    ("moveit_servo.scale.linear", "Double value"),
+    ("moveit_servo.scale.rotational", "Double value"),
+    ("moveit_servo.planning_frame", "Parameter not set"),
+    ("moveit_servo.robot_link_command_frame", "Parameter not set"),
+    ("moveit_servo.apply_twist_commands_about_ee_frame", "Boolean value"),
 )
 
 
@@ -81,6 +82,7 @@ def validate_fakehardware_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_startup_settle_sec",
         "servo_status_wait_timeout_sec",
         "joint_state_relay_period_sec",
+        "servo_butterworth_filter_coeff",
         "twist_position_gain",
         "twist_orientation_gain",
         "twist_linear_correction_limit_mps",
@@ -98,6 +100,10 @@ def validate_fakehardware_arguments(context: LaunchContext, *_args, **_kwargs):
         if argument_name in ("twist_position_gain", "twist_orientation_gain"):
             if value < 0.0:
                 return _refuse_launch(f"{argument_name} must be non-negative")
+            continue
+        if argument_name == "servo_butterworth_filter_coeff":
+            if value <= 1.0:
+                return _refuse_launch(f"{argument_name} must be greater than 1.0")
             continue
         if value <= 0.0:
             return _refuse_launch(f"{argument_name} must be greater than 0.0")
@@ -210,6 +216,11 @@ def generate_launch_description() -> LaunchDescription:
         "servo_use_smoothing",
         default_value="true",
         description="Enable MoveIt Servo output smoothing.",
+    )
+    servo_butterworth_filter_coeff_arg = DeclareLaunchArgument(
+        "servo_butterworth_filter_coeff",
+        default_value="1.5",
+        description="Butterworth output smoothing coefficient; must be greater than 1.0.",
     )
     twist_position_gain_arg = DeclareLaunchArgument(
         "twist_position_gain",
@@ -363,6 +374,12 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             moveit_config.to_dict(),
             servo_params,
+            {
+                "butterworth_filter_coeff": ParameterValue(
+                    LaunchConfiguration("servo_butterworth_filter_coeff"),
+                    value_type=float,
+                )
+            },
         ],
         arguments=["--ros-args", "--log-level", LaunchConfiguration("servo_log_level")],
     )
@@ -402,17 +419,30 @@ def generate_launch_description() -> LaunchDescription:
             "bash",
             "-c",
             (
-                'set -uo pipefail; output="$1"; shift; : > "$output"; '
-                'for parameter in "$@"; do '
-                'printf "$ ros2 param get /servo_node %s\\n" "$parameter" >> "$output"; '
-                'ros2 param get /servo_node "$parameter" >> "$output" 2>&1; '
-                "done"
+                'set -uo pipefail; output="$1"; shift; temporary=$(mktemp -d); '
+                'trap \'rm -rf "$temporary"\' EXIT; '
+                "snapshot() { index=$1; name=$2; expected=$3; result=''; "
+                "for attempt in 1 2 3 4 5; do "
+                'result=$(timeout 4 ros2 param get /servo_node "$name" 2>&1 || true); '
+                'if [[ "$result" == *"$expected"* ]]; then '
+                'printf "$ ros2 param get /servo_node %s\\n%s\\n" '
+                '"$name" "$result" > "$temporary/$index"; return 0; fi; done; '
+                'printf "$ ros2 param get /servo_node %s\\n%s\\n" '
+                '"$name" "$result" > "$temporary/$index"; return 1; }; '
+                "pids=(); while (( $# )); do snapshot \"$1\" \"$2\" \"$3\" & "
+                "pids+=($!); shift 3; done; status=0; "
+                'for pid in "${pids[@]}"; do wait "$pid" || status=1; done; '
+                'cat "$temporary"/* > "$output"; exit "$status"'
             ),
             "_",
             PathJoinSubstitution(
                 [LaunchConfiguration("run_log_dir"), "servo_runtime_parameters.txt"]
             ),
-            *SERVO_RUNTIME_PARAMETERS,
+            *[
+                item
+                for index, (name, expected) in enumerate(SERVO_RUNTIME_PARAMETERS)
+                for item in (f"{index:02d}", name, expected)
+            ],
         ],
         output=LaunchConfiguration("pen_runtime_output_both"),
     )
@@ -590,6 +620,7 @@ def generate_launch_description() -> LaunchDescription:
             joint_state_relay_period_arg,
             servo_command_mode_arg,
             servo_use_smoothing_arg,
+            servo_butterworth_filter_coeff_arg,
             twist_position_gain_arg,
             twist_orientation_gain_arg,
             twist_linear_correction_limit_arg,

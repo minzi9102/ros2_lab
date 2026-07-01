@@ -54,6 +54,10 @@ def generate_launch_description() -> LaunchDescription:
         "servo_use_smoothing",
         default_value="true",
     )
+    servo_butterworth_filter_coeff_arg = DeclareLaunchArgument(
+        "servo_butterworth_filter_coeff",
+        default_value="1.5",
+    )
     twist_position_gain_arg = DeclareLaunchArgument(
         "twist_position_gain",
         default_value="2.0",
@@ -98,6 +102,9 @@ def generate_launch_description() -> LaunchDescription:
             ),
             "servo_command_mode": LaunchConfiguration("servo_command_mode"),
             "servo_use_smoothing": LaunchConfiguration("servo_use_smoothing"),
+            "servo_butterworth_filter_coeff": LaunchConfiguration(
+                "servo_butterworth_filter_coeff"
+            ),
             "twist_position_gain": LaunchConfiguration("twist_position_gain"),
             "twist_orientation_gain": LaunchConfiguration(
                 "twist_orientation_gain"
@@ -160,6 +167,7 @@ def generate_launch_description() -> LaunchDescription:
             joint_state_relay_period_arg,
             servo_command_mode_arg,
             servo_use_smoothing_arg,
+            servo_butterworth_filter_coeff_arg,
             twist_position_gain_arg,
             twist_orientation_gain_arg,
             twist_linear_correction_limit_arg,
