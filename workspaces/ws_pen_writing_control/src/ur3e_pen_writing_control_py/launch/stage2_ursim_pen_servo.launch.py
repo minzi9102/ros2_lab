@@ -523,6 +523,7 @@ def generate_launch_description() -> LaunchDescription:
         package="moveit_servo",
         executable="servo_node",
         name="servo_node",
+        prefix="prlimit --rtprio=0:0 --",
         output=LaunchConfiguration("pen_runtime_output"),
         parameters=[
             moveit_config.to_dict(),
