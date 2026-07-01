@@ -67,6 +67,10 @@ def generate_launch_description() -> LaunchDescription:
         default_value="60.0",
         description="Publish rate of the virtual pen pose target.",
     )
+    joint_state_relay_period_arg = DeclareLaunchArgument(
+        "joint_state_relay_period_sec",
+        default_value="0.020",
+    )
     servo_command_mode_arg = DeclareLaunchArgument(
         "servo_command_mode",
         default_value="pose",
@@ -123,6 +127,9 @@ def generate_launch_description() -> LaunchDescription:
             ),
             "pose_target_publish_rate_hz": LaunchConfiguration(
                 "pose_target_publish_rate_hz"
+            ),
+            "joint_state_relay_period_sec": LaunchConfiguration(
+                "joint_state_relay_period_sec"
             ),
             "servo_command_mode": LaunchConfiguration("servo_command_mode"),
             "twist_position_gain": LaunchConfiguration("twist_position_gain"),
@@ -189,6 +196,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
+            joint_state_relay_period_arg,
             servo_command_mode_arg,
             twist_position_gain_arg,
             twist_orientation_gain_arg,

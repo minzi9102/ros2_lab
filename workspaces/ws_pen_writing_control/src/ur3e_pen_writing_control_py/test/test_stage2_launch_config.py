@@ -11,6 +11,11 @@ LAUNCH_PATH = (
     / "launch"
     / "stage2_fakehardware_pen_servo.launch.py"
 )
+FAKE_BENCHMARK_LAUNCH_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "launch"
+    / "stage2_fakehardware_tracking_benchmark.launch.py"
+)
 URSIM_LAUNCH_PATH = (
     Path(__file__).resolve().parents[1]
     / "launch"
@@ -85,6 +90,42 @@ def test_stage2_launch_sets_servo_rotational_scale_to_ur3_wrist_limit():
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
     assert servo_yaml["scale"]["rotational"] == math.tau
+
+
+def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
+    module = _load_stage2_launch_module()
+    source = LAUNCH_PATH.read_text(encoding="utf-8")
+    benchmark_source = FAKE_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    for relay_period_sec in ("0.020", "0.008", "0.004"):
+        context = LaunchContext()
+        context.launch_configurations.update(
+            {
+                "use_mock_hardware": "true",
+                "joy_deadzone": "0.08",
+                "joy_autorepeat_rate": "100.0",
+                "joint_states_wait_timeout_sec": "15.0",
+                "servo_startup_settle_sec": "5.0",
+                "servo_status_wait_timeout_sec": "15.0",
+                "joint_state_relay_period_sec": relay_period_sec,
+                "servo_command_mode": "twist_feedforward",
+                "twist_position_gain": "2.0",
+                "twist_orientation_gain": "2.0",
+                "twist_linear_correction_limit_mps": "0.03",
+                "twist_angular_correction_limit_radps": "0.3",
+            }
+        )
+        actions = module.validate_fakehardware_arguments(context)
+        assert perform_substitutions(context, actions[0].value) == "true"
+
+    assert '"joint_state_relay_period_sec"' in source
+    assert 'default_value="0.020"' in source
+    assert '"servo_command_mode"' in benchmark_source
+    assert 'prefix="prlimit --rtprio=0:0 --"' in source
+
+    context.launch_configurations["joint_state_relay_period_sec"] = "0.0"
+    actions = module.validate_fakehardware_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
 
 
 def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():
@@ -166,6 +207,7 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "servo_linear_scale": "0.6",
                 "servo_low_pass_filter_coeff": "10.0",
                 "pose_target_publish_rate_hz": publish_rate_hz,
+                "joint_state_relay_period_sec": "0.004",
                 "servo_command_mode": "pose",
                 "twist_position_gain": "2.0",
                 "twist_orientation_gain": "2.0",
@@ -200,6 +242,7 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
             "servo_linear_scale": "0.6",
             "servo_low_pass_filter_coeff": "10.0",
             "pose_target_publish_rate_hz": "60.0",
+            "joint_state_relay_period_sec": "0.004",
             "servo_command_mode": "twist_feedforward",
             "twist_position_gain": "2.0",
             "twist_orientation_gain": "2.0",
@@ -215,8 +258,15 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     assert '"servo_command_mode"' in source
     assert '"servo_command_mode"' in benchmark_source
     assert 'default_value="pose"' in source
+    assert '"joint_state_relay_period_sec"' in benchmark_source
+    assert 'default_value="0.020"' in source
 
     context.launch_configurations["servo_command_mode"] = "invalid"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["servo_command_mode"] = "twist_feedforward"
+    context.launch_configurations["joint_state_relay_period_sec"] = "0.0"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
 

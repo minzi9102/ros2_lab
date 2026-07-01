@@ -49,12 +49,25 @@ def validate_fakehardware_arguments(context: LaunchContext, *_args, **_kwargs):
             "stage2_fakehardware_pen_servo only supports use_mock_hardware:=true"
         )
 
+    servo_command_mode = context.perform_substitution(
+        LaunchConfiguration("servo_command_mode")
+    )
+    if servo_command_mode not in ("pose", "twist_feedforward"):
+        return _refuse_launch(
+            "servo_command_mode must be 'pose' or 'twist_feedforward'"
+        )
+
     for argument_name in (
         "joy_deadzone",
         "joy_autorepeat_rate",
         "joint_states_wait_timeout_sec",
         "servo_startup_settle_sec",
         "servo_status_wait_timeout_sec",
+        "joint_state_relay_period_sec",
+        "twist_position_gain",
+        "twist_orientation_gain",
+        "twist_linear_correction_limit_mps",
+        "twist_angular_correction_limit_radps",
     ):
         raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
         try:
@@ -64,6 +77,10 @@ def validate_fakehardware_arguments(context: LaunchContext, *_args, **_kwargs):
         if argument_name == "joy_deadzone":
             if value < 0.0 or value >= 1.0:
                 return _refuse_launch(f"{argument_name} must be in [0.0, 1.0)")
+            continue
+        if argument_name in ("twist_position_gain", "twist_orientation_gain"):
+            if value < 0.0:
+                return _refuse_launch(f"{argument_name} must be non-negative")
             continue
         if value <= 0.0:
             return _refuse_launch(f"{argument_name} must be greater than 0.0")
@@ -160,6 +177,32 @@ def generate_launch_description() -> LaunchDescription:
         "servo_status_wait_timeout_sec",
         default_value="15.0",
         description="Maximum time to wait for /servo_node/status before starting pen input.",
+    )
+    joint_state_relay_period_arg = DeclareLaunchArgument(
+        "joint_state_relay_period_sec",
+        default_value="0.020",
+        description="Fresh joint-state relay period used for Servo experiments.",
+    )
+    servo_command_mode_arg = DeclareLaunchArgument(
+        "servo_command_mode",
+        default_value="pose",
+        description="Servo command mode: pose or twist_feedforward.",
+    )
+    twist_position_gain_arg = DeclareLaunchArgument(
+        "twist_position_gain",
+        default_value="2.0",
+    )
+    twist_orientation_gain_arg = DeclareLaunchArgument(
+        "twist_orientation_gain",
+        default_value="2.0",
+    )
+    twist_linear_correction_limit_arg = DeclareLaunchArgument(
+        "twist_linear_correction_limit_mps",
+        default_value="0.03",
+    )
+    twist_angular_correction_limit_arg = DeclareLaunchArgument(
+        "twist_angular_correction_limit_radps",
+        default_value="0.3",
     )
     joy_topic_arg = DeclareLaunchArgument(
         "joy_topic",
@@ -276,7 +319,10 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "source_topic": "/joint_states",
                 "target_topic": "/task7e/joint_states_fresh",
-                "publish_period_sec": 0.02,
+                "publish_period_sec": ParameterValue(
+                    LaunchConfiguration("joint_state_relay_period_sec"),
+                    value_type=float,
+                ),
             }
         ],
     )
@@ -285,6 +331,7 @@ def generate_launch_description() -> LaunchDescription:
         package="moveit_servo",
         executable="servo_node",
         name="servo_node",
+        prefix="prlimit --rtprio=0:0 --",
         output=LaunchConfiguration("pen_runtime_output"),
         parameters=[
             moveit_config.to_dict(),
@@ -378,6 +425,23 @@ def generate_launch_description() -> LaunchDescription:
                 "tool0_to_pen_tip_xyz": [0.0, 0.0, 0.14],
                 "servo_status_topic": "/servo_node/status",
                 "servo_status_timeout_sec": 1.0,
+                "servo_command_mode": LaunchConfiguration("servo_command_mode"),
+                "twist_position_gain": ParameterValue(
+                    LaunchConfiguration("twist_position_gain"),
+                    value_type=float,
+                ),
+                "twist_orientation_gain": ParameterValue(
+                    LaunchConfiguration("twist_orientation_gain"),
+                    value_type=float,
+                ),
+                "twist_linear_correction_limit_mps": ParameterValue(
+                    LaunchConfiguration("twist_linear_correction_limit_mps"),
+                    value_type=float,
+                ),
+                "twist_angular_correction_limit_radps": ParameterValue(
+                    LaunchConfiguration("twist_angular_correction_limit_radps"),
+                    value_type=float,
+                ),
                 "alignment_error_log_path": PathJoinSubstitution(
                     [
                         LaunchConfiguration("run_log_dir"),
@@ -475,6 +539,12 @@ def generate_launch_description() -> LaunchDescription:
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
+            joint_state_relay_period_arg,
+            servo_command_mode_arg,
+            twist_position_gain_arg,
+            twist_orientation_gain_arg,
+            twist_linear_correction_limit_arg,
+            twist_angular_correction_limit_arg,
             joy_topic_arg,
             launch_joy_node_arg,
             joy_device_id_arg,

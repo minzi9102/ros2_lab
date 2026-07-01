@@ -42,6 +42,30 @@ def generate_launch_description() -> LaunchDescription:
         default_value="eight_direction",
         description="Benchmark profile aligned with the real-robot benchmark.",
     )
+    joint_state_relay_period_arg = DeclareLaunchArgument(
+        "joint_state_relay_period_sec",
+        default_value="0.020",
+    )
+    servo_command_mode_arg = DeclareLaunchArgument(
+        "servo_command_mode",
+        default_value="pose",
+    )
+    twist_position_gain_arg = DeclareLaunchArgument(
+        "twist_position_gain",
+        default_value="2.0",
+    )
+    twist_orientation_gain_arg = DeclareLaunchArgument(
+        "twist_orientation_gain",
+        default_value="2.0",
+    )
+    twist_linear_correction_limit_arg = DeclareLaunchArgument(
+        "twist_linear_correction_limit_mps",
+        default_value="0.03",
+    )
+    twist_angular_correction_limit_arg = DeclareLaunchArgument(
+        "twist_angular_correction_limit_radps",
+        default_value="0.3",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -65,6 +89,20 @@ def generate_launch_description() -> LaunchDescription:
             "launch_joy_node": "false",
             "joy_topic": joy_topic,
             "run_log_dir": str(run_log_dir),
+            "joint_state_relay_period_sec": LaunchConfiguration(
+                "joint_state_relay_period_sec"
+            ),
+            "servo_command_mode": LaunchConfiguration("servo_command_mode"),
+            "twist_position_gain": LaunchConfiguration("twist_position_gain"),
+            "twist_orientation_gain": LaunchConfiguration(
+                "twist_orientation_gain"
+            ),
+            "twist_linear_correction_limit_mps": LaunchConfiguration(
+                "twist_linear_correction_limit_mps"
+            ),
+            "twist_angular_correction_limit_radps": LaunchConfiguration(
+                "twist_angular_correction_limit_radps"
+            ),
         }.items(),
     )
 
@@ -114,6 +152,12 @@ def generate_launch_description() -> LaunchDescription:
             launch_rviz_arg,
             verbose_runtime_logs_arg,
             benchmark_profile_arg,
+            joint_state_relay_period_arg,
+            servo_command_mode_arg,
+            twist_position_gain_arg,
+            twist_orientation_gain_arg,
+            twist_linear_correction_limit_arg,
+            twist_angular_correction_limit_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"Pen tracking benchmark logs will be written to: {run_log_dir}"),
             stage2_launch,

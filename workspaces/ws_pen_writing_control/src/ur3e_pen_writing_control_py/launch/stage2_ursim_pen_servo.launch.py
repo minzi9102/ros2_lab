@@ -79,6 +79,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_linear_scale",
         "servo_low_pass_filter_coeff",
         "pose_target_publish_rate_hz",
+        "joint_state_relay_period_sec",
         "twist_position_gain",
         "twist_orientation_gain",
         "twist_linear_correction_limit_mps",
@@ -225,6 +226,11 @@ def generate_launch_description() -> LaunchDescription:
         "pose_target_publish_rate_hz",
         default_value="60.0",
         description="Publish rate of the virtual pen pose target.",
+    )
+    joint_state_relay_period_arg = DeclareLaunchArgument(
+        "joint_state_relay_period_sec",
+        default_value="0.020",
+        description="Fresh joint-state relay period used for Servo experiments.",
     )
     servo_command_mode_arg = DeclareLaunchArgument(
         "servo_command_mode",
@@ -376,7 +382,10 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "source_topic": "/joint_states",
                 "target_topic": "/task7e/joint_states_fresh",
-                "publish_period_sec": 0.02,
+                "publish_period_sec": ParameterValue(
+                    LaunchConfiguration("joint_state_relay_period_sec"),
+                    value_type=float,
+                ),
             }
         ],
     )
@@ -770,6 +779,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
+            joint_state_relay_period_arg,
             servo_command_mode_arg,
             twist_position_gain_arg,
             twist_orientation_gain_arg,
