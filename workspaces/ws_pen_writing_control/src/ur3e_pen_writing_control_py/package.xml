@@ -26,6 +26,7 @@
   <exec_depend>moveit_servo</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>urdf_parser_py</exec_depend>
   <exec_depend>ur3_real_bringup_lab</exec_depend>
   <exec_depend>ur3_real_guarded_motion_lab_cpp</exec_depend>
   <exec_depend>ur3_moveit_servo_lab_cpp</exec_depend>

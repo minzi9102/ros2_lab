@@ -248,6 +248,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="true",
         description="Launch the physical joy_node when true.",
     )
+    launch_pen_node_arg = DeclareLaunchArgument(
+        "launch_pen_node",
+        default_value="true",
+        description="Launch the pen-writing Servo input node when true.",
+    )
     joy_device_id_arg = DeclareLaunchArgument(
         "joy_device_id",
         default_value="0",
@@ -478,6 +483,7 @@ def generate_launch_description() -> LaunchDescription:
         package="ur3e_pen_writing_control_py",
         executable="pen_fakehardware_servo_node",
         name="pen_fakehardware_servo",
+        condition=IfCondition(LaunchConfiguration("launch_pen_node")),
         output="screen",
         parameters=[
             PathJoinSubstitution(
@@ -563,7 +569,20 @@ def generate_launch_description() -> LaunchDescription:
         ]
 
     def on_servo_status_gate_exit(event, _context):
+        launch_pen_node = _as_bool(
+            _context.perform_substitution(LaunchConfiguration("launch_pen_node"))
+        )
         if event.returncode == 0:
+            if not launch_pen_node:
+                return [
+                    LogInfo(
+                        msg=(
+                            "Detected Servo status traffic. Pen input node disabled; "
+                            "keeping Servo ready for external commands."
+                        )
+                    ),
+                    servo_parameter_snapshot,
+                ]
             return [
                 LogInfo(
                     msg="Detected Servo status traffic. Starting joy and pen POSE node."
@@ -627,6 +646,7 @@ def generate_launch_description() -> LaunchDescription:
             twist_angular_correction_limit_arg,
             joy_topic_arg,
             launch_joy_node_arg,
+            launch_pen_node_arg,
             joy_device_id_arg,
             joy_device_name_arg,
             joy_deadzone_arg,

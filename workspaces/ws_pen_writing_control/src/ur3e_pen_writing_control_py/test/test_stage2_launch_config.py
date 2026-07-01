@@ -16,6 +16,11 @@ FAKE_BENCHMARK_LAUNCH_PATH = (
     / "launch"
     / "stage2_fakehardware_tracking_benchmark.launch.py"
 )
+FAKE_CONSTANT_TWIST_LAUNCH_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "launch"
+    / "stage2_fakehardware_constant_twist_diagnostic.launch.py"
+)
 URSIM_LAUNCH_PATH = (
     Path(__file__).resolve().parents[1]
     / "launch"
@@ -134,6 +139,8 @@ def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
     assert '"servo_command_mode"' in benchmark_source
     assert '"servo_use_smoothing"' in benchmark_source
     assert '"servo_butterworth_filter_coeff"' in benchmark_source
+    assert '"launch_pen_node"' in source
+    assert 'default_value="true"' in source
     assert 'default_value="1.5"' in source
     assert 'prefix="prlimit --rtprio=0:0 --"' in source
 
@@ -153,6 +160,19 @@ def test_stage2_fakehardware_twist_and_relay_parameters_are_configurable():
     context.launch_configurations["joint_state_relay_period_sec"] = "0.0"
     actions = module.validate_fakehardware_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
+
+
+def test_stage2_fakehardware_constant_twist_launch_disables_pen_node():
+    source = FAKE_CONSTANT_TWIST_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert '"twist_profile"' in source
+    assert 'default_value="pure_x"' in source
+    assert '"launch_pen_node": "false"' in source
+    assert '"launch_joy_node": "false"' in source
+    assert '"joint_state_relay_period_sec"' in source
+    assert 'default_value="0.004"' in source
+    assert "constant_twist_diagnostic_node" in source
+    assert "constant_twist_report.md" in source
 
 
 def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():

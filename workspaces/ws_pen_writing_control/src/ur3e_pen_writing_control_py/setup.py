@@ -40,6 +40,8 @@ setup(
             "ur3e_pen_writing_control_py.command_latency_report:main",
             "controller_switch_once_node = "
             "ur3e_pen_writing_control_py.controller_switch_once_node:main",
+            "constant_twist_diagnostic_node = "
+            "ur3e_pen_writing_control_py.constant_twist_diagnostic_node:main",
         ],
     },
 )
