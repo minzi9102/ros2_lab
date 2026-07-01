@@ -52,6 +52,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="/ursim/programs/123.urp",
         description="Dashboard path of the URSim External Control program to load automatically.",
     )
+    servo_low_pass_filter_coeff_arg = DeclareLaunchArgument(
+        "servo_low_pass_filter_coeff",
+        default_value="10.0",
+        description="MoveIt Servo joint-state low-pass filter coefficient.",
+    )
 
     joy_topic = "/pen_writing/benchmark/joy"
     alignment_csv = str(run_log_dir / "tool_alignment_error.csv")
@@ -80,6 +85,9 @@ def generate_launch_description() -> LaunchDescription:
             "run_log_dir": str(run_log_dir),
             "joint_states_wait_timeout_sec": "60.0",
             "servo_status_wait_timeout_sec": "30.0",
+            "servo_low_pass_filter_coeff": LaunchConfiguration(
+                "servo_low_pass_filter_coeff"
+            ),
         }.items(),
     )
 
@@ -131,6 +139,7 @@ def generate_launch_description() -> LaunchDescription:
             benchmark_profile_arg,
             robot_ip_arg,
             external_control_program_arg,
+            servo_low_pass_filter_coeff_arg,
             SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(run_log_dir)),
             LogInfo(msg=f"URSim tracking benchmark logs will be written to: {run_log_dir}"),
             stage2_launch,

@@ -89,6 +89,19 @@ def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():
     servo_yaml = module.configured_stage2_servo_yaml()
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
     assert servo_yaml["scale"]["rotational"] == math.tau
+    assert servo_yaml["low_pass_filter_coeff"] == 10.0
+    assert (
+        module.configured_stage2_servo_yaml(low_pass_filter_coeff=3.0)[
+            "low_pass_filter_coeff"
+        ]
+        == 3.0
+    )
+    assert (
+        module.configured_stage2_servo_yaml(low_pass_filter_coeff=1.0)[
+            "low_pass_filter_coeff"
+        ]
+        == 1.0
+    )
 
 
 def test_stage2_ursim_pen_node_parameters_match_fakehardware_height_strategy():

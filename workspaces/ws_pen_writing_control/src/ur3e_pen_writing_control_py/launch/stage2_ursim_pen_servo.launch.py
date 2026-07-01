@@ -66,6 +66,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "joint_states_wait_timeout_sec",
         "servo_startup_settle_sec",
         "servo_status_wait_timeout_sec",
+        "servo_low_pass_filter_coeff",
         "dashboard_receive_timeout_sec",
         "script_sender_port",
     ):
@@ -112,10 +113,11 @@ def _as_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes", "on")
 
 
-def configured_stage2_servo_yaml():
+def configured_stage2_servo_yaml(*, low_pass_filter_coeff=10.0):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
     servo_yaml["scale"]["rotational"] = STAGE2_SERVO_ROTATIONAL_SCALE_RADPS
+    servo_yaml["low_pass_filter_coeff"] = low_pass_filter_coeff
     return servo_yaml
 
 
@@ -188,6 +190,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="15.0",
         description="Maximum time to wait for /servo_node/status before starting pen input.",
     )
+    servo_low_pass_filter_coeff_arg = DeclareLaunchArgument(
+        "servo_low_pass_filter_coeff",
+        default_value="10.0",
+        description="MoveIt Servo joint-state low-pass filter coefficient.",
+    )
     auto_start_external_control_arg = DeclareLaunchArgument(
         "auto_start_external_control",
         default_value="true",
@@ -248,7 +255,12 @@ def generate_launch_description() -> LaunchDescription:
         .to_moveit_configs()
     )
 
-    servo_yaml = configured_stage2_servo_yaml()
+    servo_yaml = configured_stage2_servo_yaml(
+        low_pass_filter_coeff=ParameterValue(
+            LaunchConfiguration("servo_low_pass_filter_coeff"),
+            value_type=float,
+        )
+    )
     servo_params = {"moveit_servo": servo_yaml}
 
     driver_launch = IncludeLaunchDescription(
@@ -634,6 +646,7 @@ def generate_launch_description() -> LaunchDescription:
             joint_states_wait_timeout_arg,
             servo_startup_settle_arg,
             servo_status_wait_timeout_arg,
+            servo_low_pass_filter_coeff_arg,
             auto_start_external_control_arg,
             external_control_program_arg,
             dashboard_receive_timeout_arg,
