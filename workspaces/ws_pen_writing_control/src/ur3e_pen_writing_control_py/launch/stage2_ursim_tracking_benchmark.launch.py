@@ -72,6 +72,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="0.004",
         description="MoveIt Servo output publish period in seconds.",
     )
+    servo_max_expected_latency_arg = DeclareLaunchArgument(
+        "servo_max_expected_latency_sec",
+        default_value="0.10",
+        description="MoveIt Servo max expected controller latency in seconds.",
+    )
     servo_linear_scale_arg = DeclareLaunchArgument(
         "servo_linear_scale",
         default_value="0.6",
@@ -204,6 +209,9 @@ def generate_launch_description() -> LaunchDescription:
             ),
             "servo_publish_period_sec": LaunchConfiguration(
                 "servo_publish_period_sec"
+            ),
+            "servo_max_expected_latency_sec": LaunchConfiguration(
+                "servo_max_expected_latency_sec"
             ),
             "pose_target_publish_rate_hz": LaunchConfiguration(
                 "pose_target_publish_rate_hz"
@@ -376,6 +384,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_output_controller_arg,
             servo_low_pass_filter_coeff_arg,
             servo_publish_period_arg,
+            servo_max_expected_latency_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,
             paper_width_arg,

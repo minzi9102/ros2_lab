@@ -111,6 +111,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_linear_scale",
         "servo_low_pass_filter_coeff",
         "servo_publish_period_sec",
+        "servo_max_expected_latency_sec",
         "pose_target_publish_rate_hz",
         "max_planar_speed_mps",
         "paper_width_m",
@@ -192,6 +193,7 @@ def configured_stage2_servo_yaml(
     linear_scale=0.6,
     low_pass_filter_coeff=10.0,
     publish_period=0.004,
+    max_expected_latency=0.1,
 ):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
@@ -199,6 +201,7 @@ def configured_stage2_servo_yaml(
     servo_yaml["scale"]["rotational"] = STAGE2_SERVO_ROTATIONAL_SCALE_RADPS
     servo_yaml["low_pass_filter_coeff"] = low_pass_filter_coeff
     servo_yaml["publish_period"] = publish_period
+    servo_yaml["max_expected_latency"] = max_expected_latency
     return servo_yaml
 
 
@@ -285,6 +288,11 @@ def generate_launch_description() -> LaunchDescription:
         "servo_publish_period_sec",
         default_value="0.004",
         description="MoveIt Servo output publish period in seconds.",
+    )
+    servo_max_expected_latency_arg = DeclareLaunchArgument(
+        "servo_max_expected_latency_sec",
+        default_value="0.10",
+        description="MoveIt Servo max expected controller latency in seconds.",
     )
     servo_output_controller_arg = DeclareLaunchArgument(
         "servo_output_controller",
@@ -819,6 +827,10 @@ def generate_launch_description() -> LaunchDescription:
         LaunchConfiguration("servo_publish_period_sec"),
         value_type=float,
     )
+    servo_yaml["max_expected_latency"] = ParameterValue(
+        LaunchConfiguration("servo_max_expected_latency_sec"),
+        value_type=float,
+    )
     servo_yaml["command_out_type"] = LaunchConfiguration(
         "servo_command_out_type"
     )
@@ -959,6 +971,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             servo_publish_period_arg,
+            servo_max_expected_latency_arg,
             servo_output_controller_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,

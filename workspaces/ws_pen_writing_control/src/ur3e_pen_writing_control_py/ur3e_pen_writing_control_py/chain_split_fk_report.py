@@ -53,6 +53,7 @@ def read_bag_streams(
     list[TimedVector],
     list[TimedVector],
     str,
+    dict,
 ]:
     import rosbag2_py
     from rclpy.serialization import deserialize_message
@@ -71,6 +72,7 @@ def read_bag_streams(
     fallback_targets: list[TimedPose] = []
     commands: list[TimedVector] = []
     trajectory_commands: list[TimedVector] = []
+    trajectory_time_from_start_sec: list[float] = []
     states: list[TimedVector] = []
     tracked_topics = {
         PRIMARY_TARGET_TOPIC,
@@ -120,6 +122,9 @@ def read_bag_streams(
                 trajectory_commands.append(
                     TimedVector(time_ns=timestamp, values=ordered)
                 )
+                trajectory_time_from_start_sec.append(
+                    duration_to_sec(msg.points[-1].time_from_start)
+                )
         elif topic == ACTUAL_JOINT_TOPIC:
             ordered = ordered_joint_values(msg.name, msg.position, joint_names)
             if ordered is not None:
@@ -131,8 +136,24 @@ def read_bag_streams(
             trajectory_commands,
             states,
             JOINT_TRAJECTORY_COMMAND_TOPIC,
+            {
+                "joint_trajectory_time_from_start_sec": stats(
+                    trajectory_time_from_start_sec
+                )
+            },
         )
-    return primary_targets, fallback_targets, commands, states, COMMANDED_JOINT_TOPIC
+    return (
+        primary_targets,
+        fallback_targets,
+        commands,
+        states,
+        COMMANDED_JOINT_TOPIC,
+        {"joint_trajectory_time_from_start_sec": stats([])},
+    )
+
+
+def duration_to_sec(duration) -> float:
+    return float(duration.sec) + float(duration.nanosec) / 1e9
 
 
 def ordered_joint_values(
@@ -152,16 +173,19 @@ def stats(values: list[float]) -> dict:
         return {
             "count": 0,
             "avg": math.nan,
+            "median": math.nan,
             "rms": math.nan,
             "max": math.nan,
             "p95": math.nan,
             "min": math.nan,
         }
     p95_index = min(len(finite) - 1, math.ceil(0.95 * len(finite)) - 1)
+    median_index = len(finite) // 2
     mean = sum(finite) / len(finite)
     return {
         "count": len(finite),
         "avg": mean,
+        "median": finite[median_index],
         "rms": math.sqrt(sum(value * value for value in finite) / len(finite)),
         "max": max(finite),
         "p95": finite[p95_index],
@@ -387,13 +411,41 @@ def summarize_command_to_actual(
     delay_sec = delay["best_delay_sec"]
     if not math.isfinite(delay_sec):
         raise RuntimeError("unable to estimate commanded-to-actual follow delay")
+    uncompensated_matches = command_actual_fk_matches(
+        commands, actual_states, fk=fk, delay_sec=0.0
+    )
+    if not uncompensated_matches:
+        raise RuntimeError("no commanded/actual FK matches found without delay")
+    matches = command_actual_fk_matches(
+        commands, actual_states, fk=fk, delay_sec=delay_sec
+    )
+    if not matches:
+        raise RuntimeError("no commanded/actual FK matches found at best delay")
+    summary = command_actual_summary(matches, fk.joint_names)
+    summary["alignment_delay_sec"] = delay_sec
+    summary["uncompensated_fk_position_error_m"] = stats(
+        [match["fk_position_error"] for match in uncompensated_matches]
+    )
+    summary["uncompensated_joint_norm_error_rad"] = stats(
+        [match["joint_norm_error"] for match in uncompensated_matches]
+    )
+    return summary, matches, len(actual_states)
+
+
+def command_actual_fk_matches(
+    commands: list[TimedVector],
+    actual_states: list[TimedVector],
+    *,
+    fk: UrdfFk,
+    delay_sec: float,
+) -> list[dict]:
     actual_times = [sample.time_ns for sample in actual_states]
     matches: list[dict] = []
     for command in commands:
         actual = interpolate_vector(
             actual_states,
             actual_times,
-            command.time_ns + int(delay_sec * 1e9),
+            command.time_ns + int(round(delay_sec * 1e9)),
         )
         if actual is None:
             continue
@@ -414,15 +466,16 @@ def summarize_command_to_actual(
                 ),
             }
         )
-    if not matches:
-        raise RuntimeError("no commanded/actual FK matches found at best delay")
+    return matches
+
+
+def command_actual_summary(matches: list[dict], joint_names: tuple[str, ...]) -> dict:
     per_joint = {}
-    for index, joint_name in enumerate(fk.joint_names):
+    for index, joint_name in enumerate(joint_names):
         per_joint[joint_name] = stats(
             [match["joint_errors"][index] for match in matches]
         )
-    summary = {
-        "alignment_delay_sec": delay_sec,
+    return {
         "joint_norm_error_rad": stats(
             [match["joint_norm_error"] for match in matches]
         ),
@@ -434,7 +487,6 @@ def summarize_command_to_actual(
             [math.degrees(match["fk_z_axis_error_rad"]) for match in matches]
         ),
     }
-    return summary, matches, len(actual_states)
 
 
 def bbox_size(points: list[tuple[float, float, float]]) -> list[float]:
@@ -459,6 +511,7 @@ def build_report(
         commands,
         actual_states,
         commanded_joint_topic,
+        command_metadata,
     ) = read_bag_streams(bag_path, joint_names=fk.joint_names)
     target_topic = PRIMARY_TARGET_TOPIC if primary_targets else FALLBACK_TARGET_TOPIC
     targets = primary_targets or fallback_targets
@@ -491,6 +544,7 @@ def build_report(
             "commanded_joints": commanded_joint_topic,
             "actual_joints": ACTUAL_JOINT_TOPIC,
         },
+        "commanded_joint_topic_stats": command_metadata,
         "sample_counts": sample_counts,
         "target_pose_to_commanded_joint_fk": target_to_command,
         "shape_check_target_vs_commanded_fk": shape_check,
@@ -600,6 +654,9 @@ def format_markdown_report(report: dict) -> str:
     target = report["target_pose_to_commanded_joint_fk"]
     shape = report["shape_check_target_vs_commanded_fk"]
     actual = report["commanded_joints_to_actual_joints"]
+    trajectory_time = report["commanded_joint_topic_stats"][
+        "joint_trajectory_time_from_start_sec"
+    ]
     lines = [
         "# URSim Chain Split FK Report",
         "",
@@ -634,8 +691,13 @@ def format_markdown_report(report: dict) -> str:
         f"Best delay: `{_fmt(actual['alignment_delay_sec'])} s`",
         f"Joint norm RMS: `{_fmt(actual['joint_norm_error_rad']['rms'])} rad`",
         f"FK position RMS: `{_fmt(actual['fk_position_error_m']['rms'])} m`",
+        "FK position RMS without delay compensation: "
+        f"`{_fmt(actual['uncompensated_fk_position_error_m']['rms'])} m`",
         f"FK position max: `{_fmt(actual['fk_position_error_m']['max'])} m`",
         f"FK Z-axis RMS: `{_fmt(actual['fk_z_axis_error_deg']['rms'])} deg`",
+        "JointTrajectory time_from_start sec median/min/max: "
+        f"`{_fmt(trajectory_time['median'])} / "
+        f"{_fmt(trajectory_time['min'])} / {_fmt(trajectory_time['max'])}`",
         "",
         "## Plots",
         "",

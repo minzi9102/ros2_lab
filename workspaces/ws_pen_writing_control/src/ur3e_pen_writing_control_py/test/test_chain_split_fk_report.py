@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import PoseStamped
 from rclpy.serialization import serialize_message
 from sensor_msgs.msg import JointState
@@ -91,6 +92,7 @@ def _write_trajectory_command(values: tuple[float, ...], timestamp_ns: int):
     msg.joint_names = list(reversed(FORWARD_CONTROLLER_JOINTS))
     point = JointTrajectoryPoint()
     point.positions = list(reversed(values))
+    point.time_from_start = Duration(sec=0, nanosec=120_000_000)
     msg.points = [point]
     return (
         JOINT_TRAJECTORY_COMMAND_TOPIC,
@@ -245,3 +247,15 @@ def test_chain_split_fk_report_reads_joint_trajectory_commands(tmp_path):
 
     assert report["topics"]["commanded_joints"] == JOINT_TRAJECTORY_COMMAND_TOPIC
     assert report["sample_counts"]["commanded_joints"] == 2
+    trajectory_time = report["commanded_joint_topic_stats"][
+        "joint_trajectory_time_from_start_sec"
+    ]
+    assert trajectory_time["median"] == 0.12
+    assert trajectory_time["min"] == 0.12
+    assert trajectory_time["max"] == 0.12
+    assert (
+        report["commanded_joints_to_actual_joints"][
+            "uncompensated_fk_position_error_m"
+        ]["rms"]
+        >= 0.0
+    )
