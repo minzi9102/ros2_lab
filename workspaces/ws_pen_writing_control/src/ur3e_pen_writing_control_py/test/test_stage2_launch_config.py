@@ -177,10 +177,26 @@ def test_stage2_fakehardware_constant_twist_launch_disables_pen_node():
 
 def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():
     module = _load_stage2_ursim_launch_module()
+    source = URSIM_LAUNCH_PATH.read_text(encoding="utf-8")
+    benchmark_source = URSIM_BENCHMARK_LAUNCH_PATH.read_text(encoding="utf-8")
 
     assert module.STAGE2_URSIM_DEFAULT_ROBOT_IP == "172.17.0.2"
     assert module.STAGE2_URSIM_DEFAULT_USE_MOCK_HARDWARE == "false"
     assert module.STAGE2_SERVO_ROTATIONAL_SCALE_RADPS == math.tau
+    assert (
+        source.count(
+            '"servo_output_controller",\n'
+            '        default_value="joint_trajectory_controller",'
+        )
+        == 1
+    )
+    assert (
+        benchmark_source.count(
+            '"servo_output_controller",\n'
+            '        default_value="joint_trajectory_controller",'
+        )
+        == 1
+    )
 
     servo_yaml = module.configured_stage2_servo_yaml()
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
@@ -488,7 +504,10 @@ def test_stage3_real_air_launch_uses_real_robot_driver_defaults():
     module = _load_stage3_real_air_launch_module()
 
     assert module.STAGE3_REAL_DEFAULT_USE_MOCK_HARDWARE == "false"
-    assert module.STAGE3_REAL_INITIAL_JOINT_CONTROLLER == "forward_position_controller"
+    assert (
+        module.STAGE3_REAL_INITIAL_JOINT_CONTROLLER
+        == "joint_trajectory_controller"
+    )
     assert (
         module.STAGE3_REAL_DESCRIPTION_LAUNCHFILE_NAME
         == "task8B_real_calibrated_rsp.launch.py"
@@ -501,6 +520,11 @@ def test_stage3_real_air_launch_uses_current_servo_scale():
     servo_yaml = module.configured_stage3_servo_yaml()
 
     assert servo_yaml["joint_topic"] == "/task7e/joint_states_fresh"
+    assert servo_yaml["command_out_type"] == "trajectory_msgs/JointTrajectory"
+    assert (
+        servo_yaml["command_out_topic"]
+        == "/joint_trajectory_controller/joint_trajectory"
+    )
     assert servo_yaml["scale"]["rotational"] == math.tau
     assert servo_yaml["use_smoothing"] is True
     disabled_servo_yaml = module.configured_stage3_servo_yaml(use_smoothing=False)

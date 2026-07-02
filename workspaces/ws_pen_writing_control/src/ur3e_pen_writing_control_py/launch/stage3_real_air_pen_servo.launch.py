@@ -34,7 +34,11 @@ STAGE3_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
 STAGE3_REAL_DEFAULT_MAX_SESSION_DURATION_SEC = 30.0
 STAGE3_REAL_MAX_SESSION_DURATION_SEC = 60.0
 STAGE3_REAL_DEFAULT_USE_MOCK_HARDWARE = "false"
-STAGE3_REAL_INITIAL_JOINT_CONTROLLER = "forward_position_controller"
+STAGE3_REAL_INITIAL_JOINT_CONTROLLER = "joint_trajectory_controller"
+STAGE3_REAL_COMMAND_OUT_TYPE = "trajectory_msgs/JointTrajectory"
+STAGE3_REAL_COMMAND_OUT_TOPIC = (
+    "/joint_trajectory_controller/joint_trajectory"
+)
 STAGE3_REAL_DESCRIPTION_LAUNCHFILE_NAME = "task8B_real_calibrated_rsp.launch.py"
 STAGE3_REAL_PAPER_ORIGIN_XYZ = [0.45, 0.0, 0.12]
 STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ = [0.0, 0.0, 0.14]
@@ -97,6 +101,8 @@ def validate_real_air_configuration(
 def configured_stage3_servo_yaml(*, use_smoothing: bool = True):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
+    servo_yaml["command_out_type"] = STAGE3_REAL_COMMAND_OUT_TYPE
+    servo_yaml["command_out_topic"] = STAGE3_REAL_COMMAND_OUT_TOPIC
     servo_yaml["scale"]["rotational"] = STAGE3_SERVO_ROTATIONAL_SCALE_RADPS
     servo_yaml["use_smoothing"] = use_smoothing
     return servo_yaml
@@ -423,7 +429,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "timeout_sec": LaunchConfiguration("joint_states_wait_timeout_sec"),
                 "required_active_controllers": [
                     "joint_state_broadcaster",
-                    "forward_position_controller",
+                    STAGE3_REAL_INITIAL_JOINT_CONTROLLER,
                 ],
             }
         ],
@@ -528,8 +534,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                     actions=[
                         LogInfo(
                             msg=(
-                                "Waiting for /joint_states and forward_position_controller "
-                                "before starting MoveIt Servo..."
+                                "Waiting for /joint_states and "
+                                f"{STAGE3_REAL_INITIAL_JOINT_CONTROLLER} before "
+                                "starting MoveIt Servo..."
                             )
                         ),
                         joint_states_gate,
@@ -558,7 +565,10 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         if event.returncode == 0:
             return [
                 LogInfo(
-                    msg="Real robot joint states and forward_position_controller are ready."
+                    msg=(
+                        "Real robot joint states and "
+                        f"{STAGE3_REAL_INITIAL_JOINT_CONTROLLER} are ready."
+                    )
                 ),
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),

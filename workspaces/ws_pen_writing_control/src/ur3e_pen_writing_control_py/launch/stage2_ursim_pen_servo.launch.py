@@ -288,7 +288,7 @@ def generate_launch_description() -> LaunchDescription:
     )
     servo_output_controller_arg = DeclareLaunchArgument(
         "servo_output_controller",
-        default_value="forward_position_controller",
+        default_value="joint_trajectory_controller",
         description=(
             "Servo output controller: forward_position_controller or "
             "joint_trajectory_controller."
