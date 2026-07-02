@@ -687,14 +687,8 @@ def generate_launch_description() -> LaunchDescription:
                 value_type=float,
             ),
             "initial_tip_xy": [
-                ParameterValue(
-                    LaunchConfiguration("initial_tip_x_m"),
-                    value_type=float,
-                ),
-                ParameterValue(
-                    LaunchConfiguration("initial_tip_y_m"),
-                    value_type=float,
-                ),
+                LaunchConfiguration("initial_tip_x_m"),
+                LaunchConfiguration("initial_tip_y_m"),
             ],
             "alignment_error_log_path": PathJoinSubstitution(
                 [
