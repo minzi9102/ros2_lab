@@ -83,7 +83,7 @@ def benchmark_phases(profile: str = EIGHT_DIRECTION_PROFILE) -> list[BenchmarkPh
     if profile == LONG_PLUS_X_PROFILE:
         return [
             BenchmarkPhase("initial_settle", 0.0, 0.0, 2.0),
-            BenchmarkPhase("plus_x", 1.0, 0.0, 8.0, scored=True),
+            BenchmarkPhase("plus_x", 1.0, 0.0, 5.0, scored=True),
             BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
         ]
     raise ValueError(f"unknown benchmark profile: {profile}")
