@@ -8,6 +8,7 @@ from ur3e_pen_writing_control_py.pen_math import PenPose2D, PlanarVelocity
 from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     AlignmentErrorCsvLogger,
     ToolAlignmentError,
+    configured_initial_tip_xy,
     fixed_vertical_pen_orientation,
     has_planar_motion_intent,
     initial_active_servo_command_mode,
@@ -36,6 +37,22 @@ from ur3e_pen_writing_control_py.pose_math import (
 
 def test_neutral_joy_control_has_no_planar_motion_intent():
     assert not has_planar_motion_intent(JoyControl())
+
+
+def test_initial_tip_scalar_parameters_override_legacy_xy_list():
+    assert configured_initial_tip_xy(
+        initial_tip_xy=[0.0, 0.0],
+        initial_tip_x_m=-0.24,
+        initial_tip_y_m=0.01,
+    ) == pytest.approx([-0.24, 0.01])
+
+
+def test_initial_tip_legacy_xy_list_is_preserved_without_scalar_override():
+    assert configured_initial_tip_xy(
+        initial_tip_xy=[0.02, -0.03],
+        initial_tip_x_m=math.nan,
+        initial_tip_y_m=math.nan,
+    ) == pytest.approx([0.02, -0.03])
 
 
 def test_nonzero_joy_control_has_planar_motion_intent():

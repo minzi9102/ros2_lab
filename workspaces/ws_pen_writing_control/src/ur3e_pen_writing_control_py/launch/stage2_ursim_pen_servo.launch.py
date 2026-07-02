@@ -686,10 +686,14 @@ def generate_launch_description() -> LaunchDescription:
                 LaunchConfiguration("paper_height_m"),
                 value_type=float,
             ),
-            "initial_tip_xy": [
+            "initial_tip_x_m": ParameterValue(
                 LaunchConfiguration("initial_tip_x_m"),
+                value_type=float,
+            ),
+            "initial_tip_y_m": ParameterValue(
                 LaunchConfiguration("initial_tip_y_m"),
-            ],
+                value_type=float,
+            ),
             "alignment_error_log_path": PathJoinSubstitution(
                 [
                     LaunchConfiguration("run_log_dir"),

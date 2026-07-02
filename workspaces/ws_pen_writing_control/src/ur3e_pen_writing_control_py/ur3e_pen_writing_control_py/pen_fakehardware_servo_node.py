@@ -107,6 +107,17 @@ def fixed_vertical_pen_orientation(*, pen_length: float) -> Quaternion:
     )
 
 
+def configured_initial_tip_xy(
+    *,
+    initial_tip_xy: list[float],
+    initial_tip_x_m: float,
+    initial_tip_y_m: float,
+) -> list[float]:
+    if math.isfinite(initial_tip_x_m) and math.isfinite(initial_tip_y_m):
+        return [initial_tip_x_m, initial_tip_y_m]
+    return initial_tip_xy
+
+
 def pose_mode_became_ready(*, was_ready: bool, is_ready: bool) -> bool:
     return is_ready and not was_ready
 
@@ -736,6 +747,15 @@ class PenFakeHardwareServoNode(Node):
             "initial_tip_xy",
             [0.0, 0.0],
             expected_size=2,
+        )
+        initial_tip_xy = configured_initial_tip_xy(
+            initial_tip_xy=initial_tip_xy,
+            initial_tip_x_m=float(
+                self.declare_parameter("initial_tip_x_m", math.nan).value
+            ),
+            initial_tip_y_m=float(
+                self.declare_parameter("initial_tip_y_m", math.nan).value
+            ),
         )
 
         self._validate_parameters()
