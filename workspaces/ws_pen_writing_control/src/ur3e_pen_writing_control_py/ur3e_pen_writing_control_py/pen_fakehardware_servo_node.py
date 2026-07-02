@@ -59,6 +59,19 @@ def initial_active_servo_command_mode(configured_mode: str) -> str:
     return "pose" if configured_mode == "twist_linear_only" else configured_mode
 
 
+def should_publish_constant_linear_twist(
+    *,
+    configured_mode: str,
+    command_armed: bool,
+    servo_health_fault: bool,
+) -> bool:
+    return (
+        configured_mode == "twist_constant_linear"
+        and command_armed
+        and not servo_health_fault
+    )
+
+
 def should_switch_linear_only_to_twist(
     *,
     configured_mode: str,
@@ -338,6 +351,13 @@ def twist_feedforward_command(
                 angular_correction,
             )
         ),
+    )
+
+
+def twist_constant_linear_command(velocity: PlanarVelocity) -> CartesianTwist:
+    return CartesianTwist(
+        linear=(velocity.x, velocity.y, 0.0),
+        angular=(0.0, 0.0, 0.0),
     )
 
 
@@ -901,10 +921,11 @@ class PenFakeHardwareServoNode(Node):
             "pose",
             "twist_feedforward",
             "twist_linear_only",
+            "twist_constant_linear",
         ):
             raise ValueError(
                 "servo_command_mode must be 'pose', 'twist_feedforward', "
-                "or 'twist_linear_only'"
+                "'twist_linear_only', or 'twist_constant_linear'"
             )
         if self.diagnostic_orientation_mode not in ("dynamic", "fixed_vertical"):
             raise ValueError(
@@ -1109,12 +1130,19 @@ class PenFakeHardwareServoNode(Node):
                 "Initial POSE alignment complete. Switching to linear-only TWIST."
             )
 
-        publish_pose = not switching_to_linear_only and should_publish_pose_command(
-            pose_command_armed=self._pose_command_armed,
-            has_motion_intent=has_motion_intent,
-            virtual_pen_settling=virtual_pen_settling,
-            tool_pose_aligned=tool_pose_aligned,
-            servo_health_fault=self._servo_health_fault,
+        publish_pose = not switching_to_linear_only and (
+            should_publish_pose_command(
+                pose_command_armed=self._pose_command_armed,
+                has_motion_intent=has_motion_intent,
+                virtual_pen_settling=virtual_pen_settling,
+                tool_pose_aligned=tool_pose_aligned,
+                servo_health_fault=self._servo_health_fault,
+            )
+            or should_publish_constant_linear_twist(
+                configured_mode=self.servo_command_mode,
+                command_armed=self._pose_command_armed,
+                servo_health_fault=self._servo_health_fault,
+            )
         )
         self._publish_tf_markers_and_pose(
             velocity,
@@ -1369,6 +1397,13 @@ class PenFakeHardwareServoNode(Node):
         if publish_pose:
             if self._active_servo_command_mode == "pose":
                 self._pose_publisher.publish(target_msg)
+            elif self.servo_command_mode == "twist_constant_linear":
+                self._twist_publisher.publish(
+                    self._make_twist_stamped(
+                        stamp,
+                        twist_constant_linear_command(velocity),
+                    )
+                )
             else:
                 command = twist_feedforward_command(
                     previous_target=self._previous_target_pose,
@@ -1399,7 +1434,7 @@ class PenFakeHardwareServoNode(Node):
         return msg
 
     def _publish_zero_twist(self) -> None:
-        if self._active_servo_command_mode != "twist_feedforward":
+        if self._active_servo_command_mode == "pose":
             return
         self._twist_publisher.publish(
             self._make_twist_stamped(

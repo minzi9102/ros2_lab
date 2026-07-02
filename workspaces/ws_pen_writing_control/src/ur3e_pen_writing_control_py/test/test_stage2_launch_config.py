@@ -371,6 +371,10 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"
 
+    context.launch_configurations["servo_command_mode"] = "twist_constant_linear"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+
     context.launch_configurations["diagnostic_orientation_mode"] = "fixed_vertical"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"

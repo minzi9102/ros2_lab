@@ -20,11 +20,13 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     pose_mode_became_ready,
     pose_axis_points,
     should_publish_pose_command,
+    should_publish_constant_linear_twist,
     should_switch_linear_only_to_twist,
     target_orientation_for_command,
     tool_alignment_error,
     tool_tail_to_tip_points,
     tool_tip_point_from_tool_pose,
+    twist_constant_linear_command,
     twist_feedforward_command,
 )
 from ur3e_pen_writing_control_py.pose_math import (
@@ -158,8 +160,18 @@ def test_linear_only_twist_keeps_linear_command_and_zeros_angular_command():
     assert linear_only_command.angular == (0.0, 0.0, 0.0)
 
 
+def test_constant_linear_twist_uses_planar_velocity_and_zero_angular_command():
+    command = twist_constant_linear_command(PlanarVelocity(x=0.06, y=0.0))
+
+    assert command.linear == pytest.approx((0.06, 0.0, 0.0))
+    assert command.angular == (0.0, 0.0, 0.0)
+
+
 def test_linear_only_starts_in_pose_and_switches_only_after_alignment():
     assert initial_active_servo_command_mode("twist_linear_only") == "pose"
+    assert initial_active_servo_command_mode("twist_constant_linear") == (
+        "twist_constant_linear"
+    )
     assert initial_active_servo_command_mode("twist_feedforward") == (
         "twist_feedforward"
     )
@@ -390,6 +402,29 @@ def test_pose_command_stops_after_a_button_freezes_following():
         virtual_pen_settling=True,
         tool_pose_aligned=False,
         servo_health_fault=False,
+    )
+
+
+def test_constant_linear_twist_publishes_zero_after_arm_while_settled():
+    assert should_publish_constant_linear_twist(
+        configured_mode="twist_constant_linear",
+        command_armed=True,
+        servo_health_fault=False,
+    )
+    assert not should_publish_constant_linear_twist(
+        configured_mode="pose",
+        command_armed=True,
+        servo_health_fault=False,
+    )
+    assert not should_publish_constant_linear_twist(
+        configured_mode="twist_constant_linear",
+        command_armed=False,
+        servo_health_fault=False,
+    )
+    assert not should_publish_constant_linear_twist(
+        configured_mode="twist_constant_linear",
+        command_armed=True,
+        servo_health_fault=True,
     )
 
 

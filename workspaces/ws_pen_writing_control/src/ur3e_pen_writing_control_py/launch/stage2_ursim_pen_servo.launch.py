@@ -72,10 +72,11 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "pose",
         "twist_feedforward",
         "twist_linear_only",
+        "twist_constant_linear",
     ):
         return _refuse_launch(
             "servo_command_mode must be 'pose', 'twist_feedforward', "
-            "or 'twist_linear_only'"
+            "'twist_linear_only', or 'twist_constant_linear'"
         )
     if diagnostic_orientation_mode not in ("dynamic", "fixed_vertical"):
         return _refuse_launch(
@@ -303,7 +304,10 @@ def generate_launch_description() -> LaunchDescription:
     servo_command_mode_arg = DeclareLaunchArgument(
         "servo_command_mode",
         default_value="pose",
-        description="Servo command mode: pose, twist_feedforward, or twist_linear_only.",
+        description=(
+            "Servo command mode: pose, twist_feedforward, twist_linear_only, "
+            "or twist_constant_linear."
+        ),
     )
     twist_position_gain_arg = DeclareLaunchArgument(
         "twist_position_gain",
