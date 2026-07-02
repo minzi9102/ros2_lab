@@ -39,6 +39,16 @@ STAGE2_URSIM_DEFAULT_USE_MOCK_HARDWARE = "false"
 STAGE2_URSIM_DEFAULT_EXTERNAL_CONTROL_PROGRAM = "/ursim/programs/123.urp"
 STAGE2_URSIM_DEFAULT_PAPER_ORIGIN_XYZ = [0.45, 0.0, 0.12]
 STAGE2_URSIM_DEFAULT_TOOL0_TO_PEN_TIP_XYZ = [0.0, 0.0, 0.14]
+SERVO_OUTPUTS = {
+    "forward_position_controller": (
+        "std_msgs/Float64MultiArray",
+        "/forward_position_controller/commands",
+    ),
+    "joint_trajectory_controller": (
+        "trajectory_msgs/JointTrajectory",
+        "/joint_trajectory_controller/joint_trajectory",
+    ),
+}
 
 
 def load_yaml(package_name: str, file_path: str):
@@ -82,6 +92,14 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         return _refuse_launch(
             "diagnostic_orientation_mode must be 'dynamic' or "
             "'fixed_vertical'"
+        )
+    servo_output_controller = context.perform_substitution(
+        LaunchConfiguration("servo_output_controller")
+    )
+    if servo_output_controller not in SERVO_OUTPUTS:
+        return _refuse_launch(
+            "servo_output_controller must be 'forward_position_controller' "
+            "or 'joint_trajectory_controller'"
         )
 
     for argument_name in (
@@ -132,7 +150,12 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         except ValueError:
             return _refuse_launch(f"{argument_name} must be a number, got {raw_value!r}")
 
-    return [SetLaunchConfiguration(name="pen_ursim_args_valid", value="true")]
+    command_type, command_topic = SERVO_OUTPUTS[servo_output_controller]
+    return [
+        SetLaunchConfiguration(name="pen_ursim_args_valid", value="true"),
+        SetLaunchConfiguration(name="servo_command_out_type", value=command_type),
+        SetLaunchConfiguration(name="servo_command_out_topic", value=command_topic),
+    ]
 
 
 def set_runtime_log_output(context: LaunchContext, *_args, **_kwargs):
@@ -250,6 +273,14 @@ def generate_launch_description() -> LaunchDescription:
         "servo_low_pass_filter_coeff",
         default_value="10.0",
         description="MoveIt Servo joint-state low-pass filter coefficient.",
+    )
+    servo_output_controller_arg = DeclareLaunchArgument(
+        "servo_output_controller",
+        default_value="forward_position_controller",
+        description=(
+            "Servo output controller: forward_position_controller or "
+            "joint_trajectory_controller."
+        ),
     )
     pose_target_publish_rate_arg = DeclareLaunchArgument(
         "pose_target_publish_rate_hz",
@@ -404,7 +435,9 @@ def generate_launch_description() -> LaunchDescription:
             "ur_type": LaunchConfiguration("ur_type"),
             "robot_ip": LaunchConfiguration("robot_ip"),
             "use_mock_hardware": LaunchConfiguration("use_mock_hardware"),
-            "initial_joint_controller": "forward_position_controller",
+            "initial_joint_controller": LaunchConfiguration(
+                "servo_output_controller"
+            ),
             "script_sender_port": LaunchConfiguration("script_sender_port"),
             "launch_rviz": "false",
             "description_launchfile": PathJoinSubstitution(
@@ -578,25 +611,40 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    activate_forward_position_controller = Node(
-        package="ur3e_pen_writing_control_py",
-        executable="controller_switch_once_node",
-        name="activate_ursim_forward_position_controller",
-        output="screen",
-        parameters=[
-            {
-                "activate_controllers": ["forward_position_controller"],
-                "deactivate_controllers": [""],
-                "timeout_sec": 20.0,
-                "result_path": PathJoinSubstitution(
+    def make_activate_servo_output_controller(controller_name: str):
+        return Node(
+            package="ur3e_pen_writing_control_py",
+            executable="controller_switch_once_node",
+            name=f"activate_ursim_{controller_name}",
+            condition=IfCondition(
+                PythonExpression(
                     [
-                        LaunchConfiguration("run_log_dir"),
-                        "activate_forward_position_controller.json",
+                        "'",
+                        LaunchConfiguration("servo_output_controller"),
+                        f"' == '{controller_name}'",
                     ]
-                ),
-            }
-        ],
-    )
+                )
+            ),
+            output="screen",
+            parameters=[
+                {
+                    "activate_controllers": [controller_name],
+                    "deactivate_controllers": [""],
+                    "timeout_sec": 20.0,
+                    "result_path": PathJoinSubstitution(
+                        [
+                            LaunchConfiguration("run_log_dir"),
+                            "activate_servo_output_controller.json",
+                        ]
+                    ),
+                }
+            ],
+        )
+
+    activate_servo_output_controllers = [
+        make_activate_servo_output_controller(controller_name)
+        for controller_name in SERVO_OUTPUTS
+    ]
 
     servo_status_gate = Node(
         package="ur3_moveit_servo_lab_cpp",
@@ -729,14 +777,12 @@ def generate_launch_description() -> LaunchDescription:
                 LogInfo(
                     msg=(
                         "Detected /joint_states and base controllers. "
-                        "Re-activating forward_position_controller before Servo."
+                        "Re-activating selected output controller before Servo."
                     )
                 ),
                 TimerAction(
                     period=LaunchConfiguration("servo_startup_settle_sec"),
-                    actions=[
-                        activate_forward_position_controller,
-                    ],
+                    actions=activate_servo_output_controllers,
                 ),
             ]
 
@@ -757,6 +803,12 @@ def generate_launch_description() -> LaunchDescription:
         LaunchConfiguration("servo_low_pass_filter_coeff"),
         value_type=float,
     )
+    servo_yaml["command_out_type"] = LaunchConfiguration(
+        "servo_command_out_type"
+    )
+    servo_yaml["command_out_topic"] = LaunchConfiguration(
+        "servo_command_out_topic"
+    )
     servo_params = {"moveit_servo": servo_yaml}
     servo_node = Node(
         package="moveit_servo",
@@ -775,7 +827,7 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    def on_activate_forward_position_controller_exit(event, _context):
+    def on_activate_servo_output_controller_exit(event, _context):
         if event.returncode == 0:
             return [
                 TimerAction(
@@ -783,7 +835,7 @@ def generate_launch_description() -> LaunchDescription:
                     actions=[
                         LogInfo(
                             msg=(
-                                "forward_position_controller is active. "
+                                "Selected Servo output controller is active. "
                                 "Starting MoveIt Servo node."
                             )
                         ),
@@ -890,6 +942,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_status_wait_timeout_arg,
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
+            servo_output_controller_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,
             paper_width_arg,
@@ -976,12 +1029,15 @@ def generate_launch_description() -> LaunchDescription:
                             on_exit=on_joint_states_gate_exit,
                         )
                     ),
-                    RegisterEventHandler(
-                        OnProcessExit(
-                            target_action=activate_forward_position_controller,
-                            on_exit=on_activate_forward_position_controller_exit,
+                    *[
+                        RegisterEventHandler(
+                            OnProcessExit(
+                                target_action=activate_controller,
+                                on_exit=on_activate_servo_output_controller_exit,
+                            )
                         )
-                    ),
+                        for activate_controller in activate_servo_output_controllers
+                    ],
                     RegisterEventHandler(
                         OnProcessExit(
                             target_action=servo_status_gate,

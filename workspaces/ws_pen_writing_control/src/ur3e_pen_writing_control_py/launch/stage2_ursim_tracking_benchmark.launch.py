@@ -72,6 +72,14 @@ def generate_launch_description() -> LaunchDescription:
         default_value="0.6",
         description="MoveIt Servo linear scale for Cartesian and pose tracking commands.",
     )
+    servo_output_controller_arg = DeclareLaunchArgument(
+        "servo_output_controller",
+        default_value="forward_position_controller",
+        description=(
+            "Servo output controller: forward_position_controller or "
+            "joint_trajectory_controller."
+        ),
+    )
     pose_target_publish_rate_arg = DeclareLaunchArgument(
         "pose_target_publish_rate_hz",
         default_value="60.0",
@@ -183,6 +191,9 @@ def generate_launch_description() -> LaunchDescription:
             "joint_states_wait_timeout_sec": "60.0",
             "servo_status_wait_timeout_sec": "30.0",
             "servo_linear_scale": LaunchConfiguration("servo_linear_scale"),
+            "servo_output_controller": LaunchConfiguration(
+                "servo_output_controller"
+            ),
             "servo_low_pass_filter_coeff": LaunchConfiguration(
                 "servo_low_pass_filter_coeff"
             ),
@@ -254,6 +265,7 @@ def generate_launch_description() -> LaunchDescription:
             "/servo_node/pose_target_cmds",
             "/servo_node/delta_twist_cmds",
             "/forward_position_controller/commands",
+            "/joint_trajectory_controller/joint_trajectory",
             "/joint_states",
         ],
         output="log",
@@ -353,6 +365,7 @@ def generate_launch_description() -> LaunchDescription:
             robot_ip_arg,
             external_control_program_arg,
             servo_linear_scale_arg,
+            servo_output_controller_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,

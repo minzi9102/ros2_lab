@@ -5,9 +5,11 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.serialization import serialize_message
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from ur3e_pen_writing_control_py.chain_split_fk_report import (
     FALLBACK_TARGET_TOPIC,
+    JOINT_TRAJECTORY_COMMAND_TOPIC,
     PRIMARY_TARGET_TOPIC,
     build_report,
     main,
@@ -84,6 +86,19 @@ def _write_command(values: tuple[float, ...], timestamp_ns: int):
     )
 
 
+def _write_trajectory_command(values: tuple[float, ...], timestamp_ns: int):
+    msg = JointTrajectory()
+    msg.joint_names = list(reversed(FORWARD_CONTROLLER_JOINTS))
+    point = JointTrajectoryPoint()
+    point.positions = list(reversed(values))
+    msg.points = [point]
+    return (
+        JOINT_TRAJECTORY_COMMAND_TOPIC,
+        serialize_message(msg),
+        timestamp_ns,
+    )
+
+
 def _write_state(values: tuple[float, ...], timestamp_ns: int):
     msg = JointState()
     msg.name = list(FORWARD_CONTROLLER_JOINTS)
@@ -95,6 +110,7 @@ def _write_bag(
     bag_path: Path,
     *,
     target_topic: str,
+    trajectory_commands: bool = False,
 ) -> tuple[Path, Path]:
     import rosbag2_py
 
@@ -118,22 +134,30 @@ def _write_bag(
     writer.create_topic(
         topic_metadata(target_topic, "geometry_msgs/msg/PoseStamped")
     )
-    writer.create_topic(
-        topic_metadata(
-            "/forward_position_controller/commands",
-            "std_msgs/msg/Float64MultiArray",
-        )
+    command_topic = (
+        JOINT_TRAJECTORY_COMMAND_TOPIC
+        if trajectory_commands
+        else "/forward_position_controller/commands"
     )
+    command_type = (
+        "trajectory_msgs/msg/JointTrajectory"
+        if trajectory_commands
+        else "std_msgs/msg/Float64MultiArray"
+    )
+    writer.create_topic(topic_metadata(command_topic, command_type))
     writer.create_topic(
         topic_metadata("/joint_states", "sensor_msgs/msg/JointState")
     )
 
+    write_command = (
+        _write_trajectory_command if trajectory_commands else _write_command
+    )
     samples = [
         _write_pose(target_topic, (0.00, 0.00, 0.00), 1_000_000_000),
-        _write_command((0.00, 0.00, 0.00, 0.00, 0.00, 0.00), 1_020_000_000),
+        write_command((0.00, 0.00, 0.00, 0.00, 0.00, 0.00), 1_020_000_000),
         _write_state((0.00, 0.00, 0.00, 0.00, 0.00, 0.00), 1_024_000_000),
         _write_pose(target_topic, (0.05, -0.02, 0.01), 1_030_000_000),
-        _write_command((0.05, -0.02, 0.01, 0.00, 0.00, 0.00), 1_040_000_000),
+        write_command((0.05, -0.02, 0.01, 0.00, 0.00, 0.00), 1_040_000_000),
         _write_state((0.05, -0.02, 0.01, 0.00, 0.00, 0.00), 1_044_000_000),
     ]
     for topic, payload, timestamp_ns in samples:
@@ -202,3 +226,22 @@ def test_chain_split_fk_report_falls_back_to_servo_pose_target_topic(tmp_path):
     assert "target_pose_to_commanded_joint_fk" in report
     assert "shape_check_target_vs_commanded_fk" in report
     assert "commanded_joints_to_actual_joints" in report
+
+
+def test_chain_split_fk_report_reads_joint_trajectory_commands(tmp_path):
+    bag_path = tmp_path / "bag"
+    summary_json, urdf_path = _write_bag(
+        bag_path,
+        target_topic=PRIMARY_TARGET_TOPIC,
+        trajectory_commands=True,
+    )
+
+    report, _, _ = build_report(
+        bag_path=bag_path,
+        summary_json_path=summary_json,
+        urdf_xacro=urdf_path,
+        ur_type="ur3",
+    )
+
+    assert report["topics"]["commanded_joints"] == JOINT_TRAJECTORY_COMMAND_TOPIC
+    assert report["sample_counts"]["commanded_joints"] == 2

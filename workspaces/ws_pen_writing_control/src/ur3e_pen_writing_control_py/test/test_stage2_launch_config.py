@@ -275,9 +275,10 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "joint_states_wait_timeout_sec": "15.0",
                 "servo_startup_settle_sec": "5.0",
                 "servo_status_wait_timeout_sec": "15.0",
-                "servo_linear_scale": "0.6",
-                "servo_low_pass_filter_coeff": "10.0",
-                "pose_target_publish_rate_hz": publish_rate_hz,
+                    "servo_linear_scale": "0.6",
+                    "servo_low_pass_filter_coeff": "10.0",
+                    "servo_output_controller": "forward_position_controller",
+                    "pose_target_publish_rate_hz": publish_rate_hz,
                 "max_planar_speed_mps": "0.06",
                 "paper_width_m": "0.60",
                 "paper_height_m": "0.16",
@@ -334,6 +335,7 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
             "servo_status_wait_timeout_sec": "15.0",
             "servo_linear_scale": "0.6",
             "servo_low_pass_filter_coeff": "10.0",
+            "servo_output_controller": "forward_position_controller",
             "pose_target_publish_rate_hz": "60.0",
             "max_planar_speed_mps": "0.03",
             "paper_width_m": "0.24",
@@ -355,6 +357,12 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
 
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"
+    assert perform_substitutions(context, actions[1].value) == (
+        "std_msgs/Float64MultiArray"
+    )
+    assert perform_substitutions(context, actions[2].value) == (
+        "/forward_position_controller/commands"
+    )
     assert '"servo_command_mode"' in source
     assert '"servo_command_mode"' in benchmark_source
     assert 'default_value="pose"' in source
@@ -375,6 +383,25 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"
 
+    context.launch_configurations["servo_output_controller"] = (
+        "joint_trajectory_controller"
+    )
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+    assert perform_substitutions(context, actions[1].value) == (
+        "trajectory_msgs/JointTrajectory"
+    )
+    assert perform_substitutions(context, actions[2].value) == (
+        "/joint_trajectory_controller/joint_trajectory"
+    )
+
+    context.launch_configurations["servo_output_controller"] = "invalid"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["servo_output_controller"] = (
+        "forward_position_controller"
+    )
     context.launch_configurations["diagnostic_orientation_mode"] = "fixed_vertical"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "true"
@@ -411,6 +438,7 @@ def test_stage2_ursim_benchmark_records_chain_split_inputs_and_outputs():
     assert '"/servo_node/pose_target_cmds"' in source
     assert '"/servo_node/delta_twist_cmds"' in source
     assert '"/forward_position_controller/commands"' in source
+    assert '"/joint_trajectory_controller/joint_trajectory"' in source
     assert '"/joint_states"' in source
 
 

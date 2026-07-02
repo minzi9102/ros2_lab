@@ -18,6 +18,7 @@ from .pose_math import Quaternion
 PRIMARY_TARGET_TOPIC = "/pen_writing/target_pose"
 FALLBACK_TARGET_TOPIC = "/servo_node/pose_target_cmds"
 COMMANDED_JOINT_TOPIC = "/forward_position_controller/commands"
+JOINT_TRAJECTORY_COMMAND_TOPIC = "/joint_trajectory_controller/joint_trajectory"
 ACTUAL_JOINT_TOPIC = "/joint_states"
 MAX_TARGET_TO_COMMAND_LATENCY_SEC = 0.05
 
@@ -46,7 +47,13 @@ def read_bag_streams(
     bag_path: Path,
     *,
     joint_names: tuple[str, ...],
-) -> tuple[list[TimedPose], list[TimedPose], list[TimedVector], list[TimedVector]]:
+) -> tuple[
+    list[TimedPose],
+    list[TimedPose],
+    list[TimedVector],
+    list[TimedVector],
+    str,
+]:
     import rosbag2_py
     from rclpy.serialization import deserialize_message
     from rosidl_runtime_py.utilities import get_message
@@ -63,11 +70,13 @@ def read_bag_streams(
     primary_targets: list[TimedPose] = []
     fallback_targets: list[TimedPose] = []
     commands: list[TimedVector] = []
+    trajectory_commands: list[TimedVector] = []
     states: list[TimedVector] = []
     tracked_topics = {
         PRIMARY_TARGET_TOPIC,
         FALLBACK_TARGET_TOPIC,
         COMMANDED_JOINT_TOPIC,
+        JOINT_TRAJECTORY_COMMAND_TOPIC,
         ACTUAL_JOINT_TOPIC,
     }
     while reader.has_next():
@@ -101,11 +110,29 @@ def read_bag_streams(
                     values=tuple(float(value) for value in msg.data[: len(joint_names)]),
                 )
             )
+        elif topic == JOINT_TRAJECTORY_COMMAND_TOPIC and msg.points:
+            ordered = ordered_joint_values(
+                msg.joint_names,
+                msg.points[-1].positions,
+                joint_names,
+            )
+            if ordered is not None:
+                trajectory_commands.append(
+                    TimedVector(time_ns=timestamp, values=ordered)
+                )
         elif topic == ACTUAL_JOINT_TOPIC:
             ordered = ordered_joint_values(msg.name, msg.position, joint_names)
             if ordered is not None:
                 states.append(TimedVector(time_ns=timestamp, values=ordered))
-    return primary_targets, fallback_targets, commands, states
+    if trajectory_commands:
+        return (
+            primary_targets,
+            fallback_targets,
+            trajectory_commands,
+            states,
+            JOINT_TRAJECTORY_COMMAND_TOPIC,
+        )
+    return primary_targets, fallback_targets, commands, states, COMMANDED_JOINT_TOPIC
 
 
 def ordered_joint_values(
@@ -426,10 +453,13 @@ def build_report(
 ) -> tuple[dict, list[dict], list[dict]]:
     robot_description = load_robot_description(urdf_xacro, ur_type)
     fk = UrdfFk(robot_description, "base_link", "tool0")
-    primary_targets, fallback_targets, commands, actual_states = read_bag_streams(
-        bag_path,
-        joint_names=fk.joint_names,
-    )
+    (
+        primary_targets,
+        fallback_targets,
+        commands,
+        actual_states,
+        commanded_joint_topic,
+    ) = read_bag_streams(bag_path, joint_names=fk.joint_names)
     target_topic = PRIMARY_TARGET_TOPIC if primary_targets else FALLBACK_TARGET_TOPIC
     targets = primary_targets or fallback_targets
     if not targets:
@@ -458,7 +488,7 @@ def build_report(
         "ur_type": ur_type,
         "topics": {
             "target_pose": target_topic,
-            "commanded_joints": COMMANDED_JOINT_TOPIC,
+            "commanded_joints": commanded_joint_topic,
             "actual_joints": ACTUAL_JOINT_TOPIC,
         },
         "sample_counts": sample_counts,
