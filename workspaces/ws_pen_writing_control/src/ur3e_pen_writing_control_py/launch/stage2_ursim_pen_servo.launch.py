@@ -110,6 +110,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_status_wait_timeout_sec",
         "servo_linear_scale",
         "servo_low_pass_filter_coeff",
+        "servo_publish_period_sec",
         "pose_target_publish_rate_hz",
         "max_planar_speed_mps",
         "paper_width_m",
@@ -186,12 +187,18 @@ def _as_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes", "on")
 
 
-def configured_stage2_servo_yaml(*, linear_scale=0.6, low_pass_filter_coeff=10.0):
+def configured_stage2_servo_yaml(
+    *,
+    linear_scale=0.6,
+    low_pass_filter_coeff=10.0,
+    publish_period=0.004,
+):
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
     servo_yaml["joint_topic"] = "/task7e/joint_states_fresh"
     servo_yaml["scale"]["linear"] = linear_scale
     servo_yaml["scale"]["rotational"] = STAGE2_SERVO_ROTATIONAL_SCALE_RADPS
     servo_yaml["low_pass_filter_coeff"] = low_pass_filter_coeff
+    servo_yaml["publish_period"] = publish_period
     return servo_yaml
 
 
@@ -273,6 +280,11 @@ def generate_launch_description() -> LaunchDescription:
         "servo_low_pass_filter_coeff",
         default_value="10.0",
         description="MoveIt Servo joint-state low-pass filter coefficient.",
+    )
+    servo_publish_period_arg = DeclareLaunchArgument(
+        "servo_publish_period_sec",
+        default_value="0.004",
+        description="MoveIt Servo output publish period in seconds.",
     )
     servo_output_controller_arg = DeclareLaunchArgument(
         "servo_output_controller",
@@ -803,6 +815,10 @@ def generate_launch_description() -> LaunchDescription:
         LaunchConfiguration("servo_low_pass_filter_coeff"),
         value_type=float,
     )
+    servo_yaml["publish_period"] = ParameterValue(
+        LaunchConfiguration("servo_publish_period_sec"),
+        value_type=float,
+    )
     servo_yaml["command_out_type"] = LaunchConfiguration(
         "servo_command_out_type"
     )
@@ -942,6 +958,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_status_wait_timeout_arg,
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
+            servo_publish_period_arg,
             servo_output_controller_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,

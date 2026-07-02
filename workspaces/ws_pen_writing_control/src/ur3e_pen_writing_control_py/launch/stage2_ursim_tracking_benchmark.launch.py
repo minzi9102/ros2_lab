@@ -67,6 +67,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value="10.0",
         description="MoveIt Servo joint-state low-pass filter coefficient.",
     )
+    servo_publish_period_arg = DeclareLaunchArgument(
+        "servo_publish_period_sec",
+        default_value="0.004",
+        description="MoveIt Servo output publish period in seconds.",
+    )
     servo_linear_scale_arg = DeclareLaunchArgument(
         "servo_linear_scale",
         default_value="0.6",
@@ -196,6 +201,9 @@ def generate_launch_description() -> LaunchDescription:
             ),
             "servo_low_pass_filter_coeff": LaunchConfiguration(
                 "servo_low_pass_filter_coeff"
+            ),
+            "servo_publish_period_sec": LaunchConfiguration(
+                "servo_publish_period_sec"
             ),
             "pose_target_publish_rate_hz": LaunchConfiguration(
                 "pose_target_publish_rate_hz"
@@ -367,6 +375,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_output_controller_arg,
             servo_low_pass_filter_coeff_arg,
+            servo_publish_period_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,
             paper_width_arg,

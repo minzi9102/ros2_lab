@@ -205,6 +205,13 @@ def test_stage2_ursim_launch_uses_ursim_defaults_and_current_servo_scale():
         ]
         == 1.0
     )
+    assert module.configured_stage2_servo_yaml()["publish_period"] == 0.004
+    assert (
+        module.configured_stage2_servo_yaml(publish_period=0.008)[
+            "publish_period"
+        ]
+        == 0.008
+    )
 
 
 def test_stage2_ursim_pen_node_parameters_match_fakehardware_height_strategy():
@@ -277,6 +284,7 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "servo_status_wait_timeout_sec": "15.0",
                     "servo_linear_scale": "0.6",
                     "servo_low_pass_filter_coeff": "10.0",
+                    "servo_publish_period_sec": "0.004",
                     "servo_output_controller": "forward_position_controller",
                     "pose_target_publish_rate_hz": publish_rate_hz,
                 "max_planar_speed_mps": "0.06",
@@ -335,6 +343,7 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
             "servo_status_wait_timeout_sec": "15.0",
             "servo_linear_scale": "0.6",
             "servo_low_pass_filter_coeff": "10.0",
+            "servo_publish_period_sec": "0.004",
             "servo_output_controller": "forward_position_controller",
             "pose_target_publish_rate_hz": "60.0",
             "max_planar_speed_mps": "0.03",
@@ -374,6 +383,15 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     assert 'default_value="dynamic"' in source
     assert 'default_value="20.0"' in source
     assert 'prefix="prlimit --rtprio=0:0 --"' in source
+    assert '"servo_publish_period_sec"' in source
+    assert '"servo_publish_period_sec"' in benchmark_source
+    assert 'LaunchConfiguration("servo_publish_period_sec")' in source
+    assert '"servo_publish_period_sec": LaunchConfiguration(' in benchmark_source
+
+    context.launch_configurations["servo_publish_period_sec"] = "0.0"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+    context.launch_configurations["servo_publish_period_sec"] = "0.004"
 
     context.launch_configurations["servo_command_mode"] = "twist_linear_only"
     actions = module.validate_ursim_arguments(context)
