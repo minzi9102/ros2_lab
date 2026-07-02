@@ -237,6 +237,10 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
     assert 'default_value="60.0"' in source
     assert 'LaunchConfiguration("pose_target_publish_rate_hz")' in source
     assert '"pose_target_publish_rate_hz"' in benchmark_source
+    assert '"max_planar_speed_mps"' in source
+    assert 'default_value="0.03"' in source
+    assert 'LaunchConfiguration("max_planar_speed_mps")' in source
+    assert '"max_planar_speed_mps"' in benchmark_source
     assert '"auto_start_external_control": "true"' in benchmark_source
     assert '"stop_external_control_on_shutdown": "true"' in benchmark_source
     assert '"launch_rviz": LaunchConfiguration("launch_rviz")' in benchmark_source
@@ -266,6 +270,7 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "servo_linear_scale": "0.6",
                 "servo_low_pass_filter_coeff": "10.0",
                 "pose_target_publish_rate_hz": publish_rate_hz,
+                "max_planar_speed_mps": "0.06",
                 "joint_state_relay_period_sec": "0.004",
                 "servo_command_mode": "pose",
                 "twist_position_gain": "2.0",
@@ -282,6 +287,11 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
         assert perform_substitutions(context, actions[0].value) == "true"
 
     context.launch_configurations["pose_target_publish_rate_hz"] = "0.0"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["pose_target_publish_rate_hz"] = "60.0"
+    context.launch_configurations["max_planar_speed_mps"] = "0.0"
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
 
@@ -303,6 +313,7 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
             "servo_linear_scale": "0.6",
             "servo_low_pass_filter_coeff": "10.0",
             "pose_target_publish_rate_hz": "60.0",
+            "max_planar_speed_mps": "0.03",
             "joint_state_relay_period_sec": "0.004",
             "servo_command_mode": "twist_feedforward",
             "twist_position_gain": "2.0",

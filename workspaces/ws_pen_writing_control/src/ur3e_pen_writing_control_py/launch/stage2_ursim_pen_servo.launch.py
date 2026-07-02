@@ -92,6 +92,7 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_linear_scale",
         "servo_low_pass_filter_coeff",
         "pose_target_publish_rate_hz",
+        "max_planar_speed_mps",
         "joint_state_relay_period_sec",
         "twist_position_gain",
         "twist_orientation_gain",
@@ -244,6 +245,11 @@ def generate_launch_description() -> LaunchDescription:
         "pose_target_publish_rate_hz",
         default_value="60.0",
         description="Publish rate of the virtual pen pose target.",
+    )
+    max_planar_speed_arg = DeclareLaunchArgument(
+        "max_planar_speed_mps",
+        default_value="0.03",
+        description="Maximum virtual pen-tip planar speed in meters per second.",
     )
     fixed_tilt_deg_arg = DeclareLaunchArgument(
         "fixed_tilt_deg",
@@ -639,6 +645,10 @@ def generate_launch_description() -> LaunchDescription:
             "diagnostic_orientation_mode": LaunchConfiguration(
                 "diagnostic_orientation_mode"
             ),
+            "max_planar_speed_mps": ParameterValue(
+                LaunchConfiguration("max_planar_speed_mps"),
+                value_type=float,
+            ),
             "alignment_error_log_path": PathJoinSubstitution(
                 [
                     LaunchConfiguration("run_log_dir"),
@@ -832,6 +842,7 @@ def generate_launch_description() -> LaunchDescription:
             servo_linear_scale_arg,
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
+            max_planar_speed_arg,
             fixed_tilt_deg_arg,
             diagnostic_freeze_tip_xy_arg,
             diagnostic_orientation_mode_arg,
