@@ -13,6 +13,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from std_msgs.msg import ColorRGBA
+from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -487,6 +488,7 @@ class AlignmentErrorCsvLogger:
         self._started_at_sec: float | None = None
         self._last_sample_time_sec: float | None = None
         self.sample_count = 0
+        self._stopped = False
 
     @property
     def started(self) -> bool:
@@ -503,7 +505,7 @@ class AlignmentErrorCsvLogger:
         has_motion_intent: bool,
         virtual_pen_settling: bool,
     ) -> bool:
-        if self.path is None:
+        if self.path is None or self._stopped:
             return False
         if not self.started:
             if not start_requested:
@@ -546,6 +548,10 @@ class AlignmentErrorCsvLogger:
         self._last_sample_time_sec = now_sec
         self.sample_count += 1
         return True
+
+    def stop(self) -> None:
+        self._stopped = True
+        self.close()
 
     def close(self) -> None:
         if self._file is None:
@@ -795,6 +801,11 @@ class PenFakeHardwareServoNode(Node):
         self._alignment_error_logger = AlignmentErrorCsvLogger(
             path=self.alignment_error_log_path,
             sample_rate_hz=self.alignment_error_log_rate_hz,
+        )
+        self.create_service(
+            Trigger,
+            "/pen_writing/stop_alignment_logging",
+            self._on_stop_alignment_logging,
         )
         self._velocity = SmoothPlanarVelocity(
             max_speed_mps=self.max_planar_speed_mps,
@@ -1299,6 +1310,16 @@ class PenFakeHardwareServoNode(Node):
                 "Tool alignment error recording started: "
                 f"{self._alignment_error_logger.path}"
             )
+
+    def _on_stop_alignment_logging(self, _request, response):
+        sample_count = self._alignment_error_logger.sample_count
+        self._alignment_error_logger.stop()
+        response.success = True
+        response.message = f"stopped after {sample_count} samples"
+        self.get_logger().info(
+            f"Tool alignment error recording {response.message}."
+        )
+        return response
 
     def _publish_tf_markers_and_pose(
         self,

@@ -7,7 +7,7 @@ from moveit_msgs.msg import ServoStatus
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 
 from .pen_tracking_benchmark_node import (
@@ -122,6 +122,11 @@ class PenRealTrackingBenchmarkNode(Node):
             SetBool,
             "/servo_node/pause_servo",
         )
+        self._alignment_logging_stop_client = self.create_client(
+            Trigger,
+            "/pen_writing/stop_alignment_logging",
+        )
+        self._alignment_logging_stopped = False
         self._robot_mode_client = self.create_client(
             GetRobotMode,
             "/dashboard_client/get_robot_mode",
@@ -144,6 +149,7 @@ class PenRealTrackingBenchmarkNode(Node):
             self._publish_until_csv_starts()
             score_start_sec = self._wait_until_alignment_ready()
             self._run_phases(phases)
+            self._stop_alignment_logging()
             result = analyze_alignment_csv(
                 self.alignment_error_log_path,
                 phases=phases,
@@ -175,6 +181,11 @@ class PenRealTrackingBenchmarkNode(Node):
             reason = str(exc)
             self._publish_freeze()
 
+        if not self._alignment_logging_stopped:
+            try:
+                self._stop_alignment_logging()
+            except BenchmarkInfrastructureError as exc:
+                self.get_logger().warn(str(exc))
         self._write_result(outcome, reason)
         log = self.get_logger().info if should_return_home(outcome) else self.get_logger().error
         log(f"Real benchmark outcome={outcome} reason={reason}")
@@ -322,6 +333,22 @@ class PenRealTrackingBenchmarkNode(Node):
         response = future.result()
         if response is None or not response.success:
             raise BenchmarkInfrastructureError("Servo pause request failed")
+
+    def _stop_alignment_logging(self) -> None:
+        if self._alignment_logging_stopped:
+            return
+        if not self._alignment_logging_stop_client.wait_for_service(timeout_sec=2.0):
+            raise BenchmarkInfrastructureError(
+                "alignment logging stop service unavailable"
+            )
+        future = self._alignment_logging_stop_client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+        response = future.result()
+        if response is None or not response.success:
+            raise BenchmarkInfrastructureError(
+                "alignment logging stop request failed"
+            )
+        self._alignment_logging_stopped = True
 
     def _write_controlled_stop_summary(self) -> None:
         result = {

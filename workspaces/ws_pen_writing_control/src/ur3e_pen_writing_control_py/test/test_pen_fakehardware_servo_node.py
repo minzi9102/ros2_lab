@@ -556,6 +556,30 @@ def test_alignment_error_csv_starts_on_first_pose_and_samples_at_20_hz(tmp_path)
     assert rows[1]["pose_command_published"] == "0"
 
 
+def test_alignment_error_csv_stop_prevents_reopening(tmp_path):
+    log_path = tmp_path / "tool_alignment_error.csv"
+    logger = AlignmentErrorCsvLogger(path=str(log_path), sample_rate_hz=20.0)
+    error = ToolAlignmentError(
+        position_m=0.005,
+        z_axis_rad=math.radians(2.0),
+        full_quaternion_rad=math.radians(3.0),
+    )
+    record = {
+        "error": error,
+        "pose_command_armed": True,
+        "pose_command_published": True,
+        "has_motion_intent": True,
+        "virtual_pen_settling": False,
+    }
+
+    assert logger.record(now_sec=1.0, start_requested=True, **record)
+    logger.stop()
+    assert not logger.record(now_sec=1.1, start_requested=True, **record)
+
+    with log_path.open(newline="", encoding="utf-8") as log_file:
+        assert len(list(csv.DictReader(log_file))) == 1
+
+
 def test_tool_tip_point_uses_tool0_to_pen_tip_positive_z_direction():
     tool_pose = PoseTarget(
         position=Point3(x=0.1, y=0.2, z=0.3),
