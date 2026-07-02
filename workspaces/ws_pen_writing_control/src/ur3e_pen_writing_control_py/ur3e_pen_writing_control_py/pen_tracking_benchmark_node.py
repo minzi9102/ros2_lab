@@ -39,6 +39,7 @@ class BenchmarkInfrastructureError(RuntimeError):
 
 EIGHT_DIRECTION_PROFILE = "eight_direction"
 LONG_MINUS_Y_PLUS_XY_PROFILE = "long_minus_y_plus_xy"
+LONG_PLUS_X_PROFILE = "long_plus_x"
 
 
 def joy_message_for_target(
@@ -77,6 +78,12 @@ def benchmark_phases(profile: str = EIGHT_DIRECTION_PROFILE) -> list[BenchmarkPh
             BenchmarkPhase("minus_y", 0.0, -1.0, 5.0, scored=True),
             BenchmarkPhase("inter_settle", 0.0, 0.0, 2.0),
             BenchmarkPhase("plus_xy", 1.0, 1.0, 5.0, scored=True),
+            BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
+        ]
+    if profile == LONG_PLUS_X_PROFILE:
+        return [
+            BenchmarkPhase("initial_settle", 0.0, 0.0, 2.0),
+            BenchmarkPhase("plus_x", 1.0, 0.0, 8.0, scored=True),
             BenchmarkPhase("final_settle", 0.0, 0.0, 5.0),
         ]
     raise ValueError(f"unknown benchmark profile: {profile}")

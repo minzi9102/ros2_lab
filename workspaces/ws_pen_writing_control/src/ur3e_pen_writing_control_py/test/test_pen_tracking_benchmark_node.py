@@ -5,6 +5,7 @@ import pytest
 
 from ur3e_pen_writing_control_py.pen_tracking_benchmark_node import (
     BenchmarkInfrastructureError,
+    LONG_PLUS_X_PROFILE,
     LONG_MINUS_Y_PLUS_XY_PROFILE,
     MetricThresholds,
     analyze_alignment_csv,
@@ -60,6 +61,15 @@ def test_long_profile_runs_minus_y_and_plus_xy_as_five_second_segments():
     assert list(windows) == ["minus_y", "plus_xy"]
     assert windows["minus_y"] == pytest.approx((2.0, 7.0))
     assert windows["plus_xy"] == pytest.approx((9.0, 14.0))
+
+
+def test_long_plus_x_profile_runs_one_eight_second_segment():
+    phases = benchmark_phases(LONG_PLUS_X_PROFILE)
+    windows = scored_phase_windows(phases)
+
+    assert total_phase_duration(phases) == pytest.approx(15.0)
+    assert list(windows) == ["plus_x"]
+    assert windows["plus_x"] == pytest.approx((2.0, 10.0))
 
 
 def test_alignment_csv_analysis_passes_good_tracking(tmp_path):

@@ -39,7 +39,7 @@ FRESH_JOINT_STATES_TOPIC = "/task7e/joint_states_fresh"
 MAX_SESSION_DURATION_SEC = 60.0
 RVIZ_LAUNCH_CONFIG = "real_benchmark_launch_rviz"
 STAGE3_SERVO_ROTATIONAL_SCALE_RADPS = math.tau
-BENCHMARK_PROFILES = {"eight_direction", "long_minus_y_plus_xy"}
+BENCHMARK_PROFILES = {"eight_direction", "long_minus_y_plus_xy", "long_plus_x"}
 
 
 def load_yaml(package_name: str, relative_path: str):
