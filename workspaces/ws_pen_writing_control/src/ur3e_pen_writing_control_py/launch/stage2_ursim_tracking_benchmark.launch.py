@@ -82,6 +82,26 @@ def generate_launch_description() -> LaunchDescription:
         default_value="0.03",
         description="Maximum virtual pen-tip planar speed in meters per second.",
     )
+    paper_width_arg = DeclareLaunchArgument(
+        "paper_width_m",
+        default_value="0.24",
+        description="Virtual paper width in meters.",
+    )
+    paper_height_arg = DeclareLaunchArgument(
+        "paper_height_m",
+        default_value="0.16",
+        description="Virtual paper height in meters.",
+    )
+    initial_tip_x_arg = DeclareLaunchArgument(
+        "initial_tip_x_m",
+        default_value="0.0",
+        description="Initial virtual pen-tip X coordinate in the paper frame.",
+    )
+    initial_tip_y_arg = DeclareLaunchArgument(
+        "initial_tip_y_m",
+        default_value="0.0",
+        description="Initial virtual pen-tip Y coordinate in the paper frame.",
+    )
     fixed_tilt_deg_arg = DeclareLaunchArgument(
         "fixed_tilt_deg",
         default_value="20.0",
@@ -170,6 +190,10 @@ def generate_launch_description() -> LaunchDescription:
                 "pose_target_publish_rate_hz"
             ),
             "max_planar_speed_mps": LaunchConfiguration("max_planar_speed_mps"),
+            "paper_width_m": LaunchConfiguration("paper_width_m"),
+            "paper_height_m": LaunchConfiguration("paper_height_m"),
+            "initial_tip_x_m": LaunchConfiguration("initial_tip_x_m"),
+            "initial_tip_y_m": LaunchConfiguration("initial_tip_y_m"),
             "fixed_tilt_deg": LaunchConfiguration("fixed_tilt_deg"),
             "diagnostic_freeze_tip_xy": LaunchConfiguration(
                 "diagnostic_freeze_tip_xy"
@@ -332,6 +356,10 @@ def generate_launch_description() -> LaunchDescription:
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,
+            paper_width_arg,
+            paper_height_arg,
+            initial_tip_x_arg,
+            initial_tip_y_arg,
             fixed_tilt_deg_arg,
             diagnostic_freeze_tip_xy_arg,
             diagnostic_orientation_mode_arg,

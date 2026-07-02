@@ -241,6 +241,14 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
     assert 'default_value="0.03"' in source
     assert 'LaunchConfiguration("max_planar_speed_mps")' in source
     assert '"max_planar_speed_mps"' in benchmark_source
+    assert '"paper_width_m"' in source
+    assert '"paper_height_m"' in source
+    assert '"initial_tip_x_m"' in source
+    assert '"initial_tip_y_m"' in source
+    assert '"paper_width_m": LaunchConfiguration("paper_width_m")' in benchmark_source
+    assert '"paper_height_m": LaunchConfiguration("paper_height_m")' in benchmark_source
+    assert '"initial_tip_x_m": LaunchConfiguration("initial_tip_x_m")' in benchmark_source
+    assert '"initial_tip_y_m": LaunchConfiguration("initial_tip_y_m")' in benchmark_source
     assert '"auto_start_external_control": "true"' in benchmark_source
     assert '"stop_external_control_on_shutdown": "true"' in benchmark_source
     assert '"launch_rviz": LaunchConfiguration("launch_rviz")' in benchmark_source
@@ -271,6 +279,10 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
                 "servo_low_pass_filter_coeff": "10.0",
                 "pose_target_publish_rate_hz": publish_rate_hz,
                 "max_planar_speed_mps": "0.06",
+                "paper_width_m": "0.60",
+                "paper_height_m": "0.16",
+                "initial_tip_x_m": "-0.24",
+                "initial_tip_y_m": "0.0",
                 "joint_state_relay_period_sec": "0.004",
                 "servo_command_mode": "pose",
                 "twist_position_gain": "2.0",
@@ -295,6 +307,16 @@ def test_stage2_ursim_pose_target_publish_rate_is_configurable_and_positive():
     actions = module.validate_ursim_arguments(context)
     assert perform_substitutions(context, actions[0].value) == "false"
 
+    context.launch_configurations["max_planar_speed_mps"] = "0.03"
+    context.launch_configurations["paper_width_m"] = "0.0"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "false"
+
+    context.launch_configurations["paper_width_m"] = "0.60"
+    context.launch_configurations["initial_tip_x_m"] = "-0.24"
+    actions = module.validate_ursim_arguments(context)
+    assert perform_substitutions(context, actions[0].value) == "true"
+
 
 def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
     module = _load_stage2_ursim_launch_module()
@@ -314,6 +336,10 @@ def test_stage2_ursim_twist_feedforward_launch_parameters_are_validated():
             "servo_low_pass_filter_coeff": "10.0",
             "pose_target_publish_rate_hz": "60.0",
             "max_planar_speed_mps": "0.03",
+            "paper_width_m": "0.24",
+            "paper_height_m": "0.16",
+            "initial_tip_x_m": "0.0",
+            "initial_tip_y_m": "0.0",
             "joint_state_relay_period_sec": "0.004",
             "servo_command_mode": "twist_feedforward",
             "twist_position_gain": "2.0",

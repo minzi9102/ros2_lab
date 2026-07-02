@@ -93,6 +93,8 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
         "servo_low_pass_filter_coeff",
         "pose_target_publish_rate_hz",
         "max_planar_speed_mps",
+        "paper_width_m",
+        "paper_height_m",
         "joint_state_relay_period_sec",
         "twist_position_gain",
         "twist_orientation_gain",
@@ -121,6 +123,13 @@ def validate_ursim_arguments(context: LaunchContext, *_args, **_kwargs):
             continue
         if value <= 0.0:
             return _refuse_launch(f"{argument_name} must be greater than 0.0")
+
+    for argument_name in ("initial_tip_x_m", "initial_tip_y_m"):
+        raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
+        try:
+            float(raw_value)
+        except ValueError:
+            return _refuse_launch(f"{argument_name} must be a number, got {raw_value!r}")
 
     return [SetLaunchConfiguration(name="pen_ursim_args_valid", value="true")]
 
@@ -250,6 +259,26 @@ def generate_launch_description() -> LaunchDescription:
         "max_planar_speed_mps",
         default_value="0.03",
         description="Maximum virtual pen-tip planar speed in meters per second.",
+    )
+    paper_width_arg = DeclareLaunchArgument(
+        "paper_width_m",
+        default_value="0.24",
+        description="Virtual paper width in meters.",
+    )
+    paper_height_arg = DeclareLaunchArgument(
+        "paper_height_m",
+        default_value="0.16",
+        description="Virtual paper height in meters.",
+    )
+    initial_tip_x_arg = DeclareLaunchArgument(
+        "initial_tip_x_m",
+        default_value="0.0",
+        description="Initial virtual pen-tip X coordinate in the paper frame.",
+    )
+    initial_tip_y_arg = DeclareLaunchArgument(
+        "initial_tip_y_m",
+        default_value="0.0",
+        description="Initial virtual pen-tip Y coordinate in the paper frame.",
     )
     fixed_tilt_deg_arg = DeclareLaunchArgument(
         "fixed_tilt_deg",
@@ -649,6 +678,24 @@ def generate_launch_description() -> LaunchDescription:
                 LaunchConfiguration("max_planar_speed_mps"),
                 value_type=float,
             ),
+            "paper_width_m": ParameterValue(
+                LaunchConfiguration("paper_width_m"),
+                value_type=float,
+            ),
+            "paper_height_m": ParameterValue(
+                LaunchConfiguration("paper_height_m"),
+                value_type=float,
+            ),
+            "initial_tip_xy": [
+                ParameterValue(
+                    LaunchConfiguration("initial_tip_x_m"),
+                    value_type=float,
+                ),
+                ParameterValue(
+                    LaunchConfiguration("initial_tip_y_m"),
+                    value_type=float,
+                ),
+            ],
             "alignment_error_log_path": PathJoinSubstitution(
                 [
                     LaunchConfiguration("run_log_dir"),
@@ -843,6 +890,10 @@ def generate_launch_description() -> LaunchDescription:
             servo_low_pass_filter_coeff_arg,
             pose_target_publish_rate_arg,
             max_planar_speed_arg,
+            paper_width_arg,
+            paper_height_arg,
+            initial_tip_x_arg,
+            initial_tip_y_arg,
             fixed_tilt_deg_arg,
             diagnostic_freeze_tip_xy_arg,
             diagnostic_orientation_mode_arg,
