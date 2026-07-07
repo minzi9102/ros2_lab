@@ -1,5 +1,7 @@
 #include <chrono>
+#include <fstream>
 #include <iostream>
+#include <istream>
 #include <memory>
 #include <string>
 
@@ -41,10 +43,12 @@ int main(int argc, char ** argv)
   observations.reserve(static_cast<std::size_t>(num_samples));
 
   const auto timeout = tf2::durationFromSec(lookup_timeout_sec);
+  std::ifstream tty("/dev/tty");
+  std::istream & input = tty.is_open() ? tty : std::cin;
   std::string line;
   for (int count = 0; rclcpp::ok() && count < num_samples; ) {
     RCLCPP_INFO(node->get_logger(), "Pose %d/%d: press Enter to capture.", count + 1, num_samples);
-    std::getline(std::cin, line);
+    std::getline(input, line);
 
     try {
       const auto transform = tf_buffer.lookupTransform(base_frame, tool0_frame, tf2::TimePointZero,
