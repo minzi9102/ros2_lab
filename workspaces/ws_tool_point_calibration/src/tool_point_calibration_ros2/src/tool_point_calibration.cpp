@@ -1,5 +1,6 @@
 #include "tool_point_calibration_ros2/tool_point_calibration.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 
@@ -41,6 +42,49 @@ TcpCalibrationResult calibrateTcp(const PoseVector & tool_poses)
     result.message = "TCP calibration solved.";
   } else {
     result.message = "TCP calibration failed: non-finite residual.";
+  }
+  return result;
+}
+
+PlaneCalibrationResult calibratePlane(const PointVector & points)
+{
+  PlaneCalibrationResult result;
+  if (points.size() < 3) {
+    result.message = "At least 3 points are required for paper plane calibration.";
+    return result;
+  }
+
+  for (const auto & point : points) {
+    result.center += point;
+  }
+  result.center /= static_cast<double>(points.size());
+
+  Eigen::MatrixXd centered(points.size(), 3);
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    centered.row(static_cast<Eigen::Index>(i)) = points[i] - result.center;
+  }
+
+  const Eigen::JacobiSVD<Eigen::MatrixXd> svd(centered, Eigen::ComputeThinV);
+  result.normal = svd.matrixV().col(2).normalized();
+  if (result.normal.z() < 0.0) {
+    result.normal = -result.normal;
+  }
+
+  double residual_sum = 0.0;
+  for (const auto & point : points) {
+    const double residual = std::abs(result.normal.dot(point - result.center));
+    residual_sum += residual;
+    result.max_residual = std::max(result.max_residual, residual);
+  }
+
+  result.average_residual = residual_sum / static_cast<double>(points.size());
+  result.success =
+    result.normal.allFinite() && std::isfinite(result.average_residual) &&
+    std::isfinite(result.max_residual);
+  if (result.success) {
+    result.message = "Paper plane calibration solved.";
+  } else {
+    result.message = "Paper plane calibration failed: non-finite result.";
   }
   return result;
 }

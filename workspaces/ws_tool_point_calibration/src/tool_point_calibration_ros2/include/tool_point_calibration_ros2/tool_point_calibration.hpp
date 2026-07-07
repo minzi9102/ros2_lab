@@ -10,6 +10,7 @@ namespace tool_point_calibration_ros2
 {
 
 using PoseVector = std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d>>;
+using PointVector = std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>;
 
 struct TcpCalibrationResult
 {
@@ -23,6 +24,20 @@ struct TcpCalibrationResult
 };
 
 TcpCalibrationResult calibrateTcp(const PoseVector & tool_poses);
+
+struct PlaneCalibrationResult
+{
+  Eigen::Vector3d center{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d normal{Eigen::Vector3d::UnitZ()};
+  double average_residual{0.0};
+  double max_residual{0.0};
+  bool success{false};
+  std::string message;
+
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+PlaneCalibrationResult calibratePlane(const PointVector & points);
 
 }  // namespace tool_point_calibration_ros2
 

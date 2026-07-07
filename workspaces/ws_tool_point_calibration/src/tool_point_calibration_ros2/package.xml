@@ -2,7 +2,7 @@
 <package format="3">
   <name>tool_point_calibration_ros2</name>
   <version>0.0.0</version>
-  <description>ROS 2 console tool for UR3e TCP touch-point calibration.</description>
+  <description>ROS 2 console tools for UR3e TCP and paper plane calibration.</description>
   <maintainer email="chenmj75@mail2.sysu.edu.cn">minzi</maintainer>
   <license>Apache-2.0</license>
 

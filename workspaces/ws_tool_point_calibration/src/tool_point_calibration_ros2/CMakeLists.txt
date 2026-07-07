@@ -37,8 +37,16 @@ ament_target_dependencies(
   tf2_ros
 )
 
+add_executable(console_paper_calibration_node src/console_paper_calibration_node.cpp)
+target_link_libraries(console_paper_calibration_node ${PROJECT_NAME})
+ament_target_dependencies(
+  console_paper_calibration_node
+  rclcpp
+  tf2_ros
+)
+
 install(
-  TARGETS ${PROJECT_NAME} console_calibration_node
+  TARGETS ${PROJECT_NAME} console_calibration_node console_paper_calibration_node
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

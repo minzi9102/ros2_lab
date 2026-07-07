@@ -53,3 +53,51 @@ TEST(ToolPointCalibration, RejectsTooFewSamples)
   EXPECT_FALSE(result.success);
   EXPECT_NE(result.message.find("At least 3"), std::string::npos);
 }
+
+TEST(ToolPointCalibration, RecoversKnownPaperPlane)
+{
+  const Eigen::Vector3d center(0.45, -0.02, 0.12);
+  Eigen::Vector3d normal(0.1, -0.2, 1.0);
+  normal.normalize();
+  const Eigen::Vector3d x_axis = normal.cross(Eigen::Vector3d::UnitY()).normalized();
+  const Eigen::Vector3d y_axis = normal.cross(x_axis).normalized();
+
+  tool_point_calibration_ros2::PointVector points;
+  points.push_back(center + 0.10 * x_axis + 0.05 * y_axis);
+  points.push_back(center - 0.10 * x_axis + 0.05 * y_axis);
+  points.push_back(center + 0.10 * x_axis - 0.05 * y_axis);
+  points.push_back(center - 0.10 * x_axis - 0.05 * y_axis);
+
+  const auto result = tool_point_calibration_ros2::calibratePlane(points);
+
+  ASSERT_TRUE(result.success) << result.message;
+  EXPECT_LT((result.center - center).norm(), 1e-9);
+  EXPECT_LT((result.normal - normal).norm(), 1e-9);
+  EXPECT_LT(result.average_residual, 1e-9);
+  EXPECT_LT(result.max_residual, 1e-9);
+}
+
+TEST(ToolPointCalibration, RejectsTooFewPaperPoints)
+{
+  const auto result = tool_point_calibration_ros2::calibratePlane({});
+
+  EXPECT_FALSE(result.success);
+  EXPECT_NE(result.message.find("At least 3"), std::string::npos);
+}
+
+TEST(ToolPointCalibration, ReportsPaperPlaneResiduals)
+{
+  tool_point_calibration_ros2::PointVector points;
+  points.push_back(Eigen::Vector3d(0.0, 0.0, 0.0));
+  points.push_back(Eigen::Vector3d(1.0, 0.0, 0.0));
+  points.push_back(Eigen::Vector3d(0.0, 1.0, 0.0));
+  points.push_back(Eigen::Vector3d(1.0, 1.0, 0.004));
+
+  const auto result = tool_point_calibration_ros2::calibratePlane(points);
+
+  ASSERT_TRUE(result.success) << result.message;
+  EXPECT_TRUE(std::isfinite(result.average_residual));
+  EXPECT_TRUE(std::isfinite(result.max_residual));
+  EXPECT_GT(result.average_residual, 0.0);
+  EXPECT_GT(result.max_residual, 0.0);
+}
