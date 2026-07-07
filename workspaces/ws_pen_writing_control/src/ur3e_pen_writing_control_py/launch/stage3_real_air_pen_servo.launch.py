@@ -78,6 +78,24 @@ def parse_positive_bounded_float(
     return value, None
 
 
+def parse_float_list(
+    *,
+    context: LaunchContext,
+    argument_name: str,
+    expected_size: int,
+):
+    raw_value = context.perform_substitution(LaunchConfiguration(argument_name))
+    try:
+        value = yaml.safe_load(raw_value)
+        result = [float(item) for item in value]
+    except (TypeError, ValueError, yaml.YAMLError):
+        return None, f"{argument_name} must be a list of {expected_size} numbers"
+
+    if len(result) != expected_size:
+        return None, f"{argument_name} must contain {expected_size} values"
+    return result, None
+
+
 def validate_real_air_configuration(
     *,
     human_confirmation: str,
@@ -108,15 +126,20 @@ def configured_stage3_servo_yaml(*, use_smoothing: bool = True):
     return servo_yaml
 
 
-def pen_real_air_node_parameters(max_session_duration_sec: float):
+def pen_real_air_node_parameters(
+    *,
+    max_session_duration_sec: float,
+    paper_origin_xyz: list[float],
+    tool0_to_pen_tip_xyz: list[float],
+):
     parameters = {
         "base_frame": "base_link",
         "paper_frame": "paper_frame",
         "tool_frame": "tool0",
         "start_from_current_tool0": True,
         "require_motion_before_pose_command": True,
-        "paper_origin_xyz": STAGE3_REAL_PAPER_ORIGIN_XYZ,
-        "tool0_to_pen_tip_xyz": STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ,
+        "paper_origin_xyz": paper_origin_xyz,
+        "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
         "servo_status_topic": "/servo_node/status",
         "servo_status_timeout_sec": 1.0,
         "max_session_duration_sec": max_session_duration_sec,
@@ -205,6 +228,16 @@ def generate_launch_description() -> LaunchDescription:
                 description="Maximum real pen Servo session duration. Hard limit: 60.0s.",
             ),
             DeclareLaunchArgument(
+                "paper_origin_xyz",
+                default_value=str(STAGE3_REAL_PAPER_ORIGIN_XYZ),
+                description="Paper origin [x, y, z] in base_link, meters.",
+            ),
+            DeclareLaunchArgument(
+                "tool0_to_pen_tip_xyz",
+                default_value=str(STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ),
+                description="Pen tip offset [x, y, z] in tool0, meters.",
+            ),
+            DeclareLaunchArgument(
                 "joy_topic",
                 default_value="/joy",
                 description="sensor_msgs/Joy topic used by the real pen Servo node.",
@@ -251,6 +284,20 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 LaunchConfiguration("human_confirmation")
             ),
             max_session_duration_sec=max_session_duration_sec,
+        )
+    paper_origin_xyz = None
+    tool0_to_pen_tip_xyz = None
+    if error is None:
+        paper_origin_xyz, error = parse_float_list(
+            context=context,
+            argument_name="paper_origin_xyz",
+            expected_size=3,
+        )
+    if error is None:
+        tool0_to_pen_tip_xyz, error = parse_float_list(
+            context=context,
+            argument_name="tool0_to_pen_tip_xyz",
+            expected_size=3,
         )
     if error is not None:
         return [
@@ -487,7 +534,11 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         remappings=[("/joy", LaunchConfiguration("joy_topic"))],
     )
 
-    pen_node_parameters = pen_real_air_node_parameters(max_session_duration_sec)
+    pen_node_parameters = pen_real_air_node_parameters(
+        max_session_duration_sec=max_session_duration_sec,
+        paper_origin_xyz=paper_origin_xyz,
+        tool0_to_pen_tip_xyz=tool0_to_pen_tip_xyz,
+    )
     pen_node_parameters.update(
         {
             "joy_topic": LaunchConfiguration("joy_topic"),
