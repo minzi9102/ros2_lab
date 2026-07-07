@@ -12,6 +12,7 @@
   <build_depend>Eigen3</build_depend>
   <depend>geometry_msgs</depend>
   <depend>rclcpp</depend>
+  <exec_depend>rclpy</exec_depend>
   <depend>tf2_eigen</depend>
   <depend>tf2_ros</depend>
 

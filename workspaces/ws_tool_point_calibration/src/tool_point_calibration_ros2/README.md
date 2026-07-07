@@ -27,3 +27,22 @@ ros2 launch tool_point_calibration_ros2 console_calibration.launch.py \
 Move the tool tip to the same fixed point from different orientations. Press
 Enter once per pose. The result prints the TCP offset in `tool0_frame` and the
 shared touch point in `base_frame`, both in meters.
+
+Verify the calibrated TCP:
+
+```bash
+ros2 launch tool_point_calibration_ros2 tcp_verification.launch.py
+```
+
+In another terminal, keep the tool tip touching the same fixed point while
+changing robot posture:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /home/minzi/ros2_lab/workspaces/ws_tool_point_calibration/install/setup.bash
+ros2 run tool_point_calibration_ros2 watch_calibrated_tcp.py
+```
+
+The watcher prints `base -> calibrated_tcp` and drift from the first sample.
+Less than 1 mm is good, 1-2 mm is usable, and more than 3 mm usually means the
+touch point or sampled TCP needs another pass.
