@@ -568,6 +568,21 @@ def test_stage3_real_air_pen_parameters_match_fakehardware_motion_strategy():
     assert parameters["max_session_duration_sec"] == 30.0
 
 
+def test_stage3_real_air_pen_can_use_configured_paper_origin_exactly():
+    module = _load_stage3_real_air_launch_module()
+
+    parameters = module.pen_real_air_node_parameters(
+        30.0,
+        paper_origin_xyz=[-0.168299, -0.355821, -0.0811198],
+        tool0_to_pen_tip_xyz=[0.00121417, 0.0311535, 0.173598],
+        start_from_current_tool0=False,
+    )
+
+    assert parameters["start_from_current_tool0"] is False
+    assert parameters["paper_origin_xyz"] == [-0.168299, -0.355821, -0.0811198]
+    assert parameters["tool0_to_pen_tip_xyz"] == [0.00121417, 0.0311535, 0.173598]
+
+
 def test_stage3_real_benchmark_uses_reviewed_home_and_safe_defaults():
     module = _load_stage3_real_benchmark_launch_module()
 

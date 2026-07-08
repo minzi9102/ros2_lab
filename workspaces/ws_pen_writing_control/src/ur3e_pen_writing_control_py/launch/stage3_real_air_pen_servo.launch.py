@@ -131,6 +131,7 @@ def pen_real_air_node_parameters(
     max_session_duration_sec: float,
     paper_origin_xyz: list[float] | None = None,
     tool0_to_pen_tip_xyz: list[float] | None = None,
+    start_from_current_tool0: bool = True,
 ):
     if paper_origin_xyz is None:
         paper_origin_xyz = STAGE3_REAL_PAPER_ORIGIN_XYZ
@@ -140,7 +141,7 @@ def pen_real_air_node_parameters(
         "base_frame": "base_link",
         "paper_frame": "paper_frame",
         "tool_frame": "tool0",
-        "start_from_current_tool0": True,
+        "start_from_current_tool0": start_from_current_tool0,
         "require_motion_before_pose_command": True,
         "paper_origin_xyz": paper_origin_xyz,
         "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
@@ -235,6 +236,14 @@ def generate_launch_description() -> LaunchDescription:
                 "paper_origin_xyz",
                 default_value=str(STAGE3_REAL_PAPER_ORIGIN_XYZ),
                 description="Paper origin [x, y, z] in base_link, meters.",
+            ),
+            DeclareLaunchArgument(
+                "start_from_current_tool0",
+                default_value="true",
+                description=(
+                    "When true, initialize paper XY from current tool0. "
+                    "Set false to use calibrated paper_origin_xyz exactly."
+                ),
             ),
             DeclareLaunchArgument(
                 "paper_center_xyz",
@@ -586,6 +595,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         max_session_duration_sec=max_session_duration_sec,
         paper_origin_xyz=paper_origin_xyz,
         tool0_to_pen_tip_xyz=tool0_to_pen_tip_xyz,
+        start_from_current_tool0=LaunchConfiguration("start_from_current_tool0"),
     )
     pen_node_parameters.update(
         {
