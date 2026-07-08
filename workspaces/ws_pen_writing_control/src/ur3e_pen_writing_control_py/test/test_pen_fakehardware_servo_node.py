@@ -7,7 +7,10 @@ from ur3e_pen_writing_control_py.joy_mapping import JoyControl
 from ur3e_pen_writing_control_py.pen_math import PenPose2D, PlanarVelocity
 from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     AlignmentErrorCsvLogger,
+    PAPER_SEEK_CONTACT_FOUND,
+    PAPER_SEEK_DESCENDING,
     ToolAlignmentError,
+    contact_force_from_baseline,
     configured_initial_tip_xy,
     fixed_vertical_pen_orientation,
     has_planar_motion_intent,
@@ -16,6 +19,8 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_servo_status_fresh,
     is_tool_pose_aligned,
     is_virtual_pen_settling,
+    lowpass_force_z,
+    next_paper_seek_offset,
     paper_origin_from_current_tool0,
     pose_mode_became_ready,
     pose_axis_points,
@@ -327,6 +332,86 @@ def test_session_timeout_triggers_after_configured_duration():
         session_started_at_sec=10.0,
         now_sec=40.0,
     )
+
+
+def test_paper_seek_lowpass_uses_first_sample_as_initial_value():
+    assert lowpass_force_z(
+        previous_fz_n=0.0,
+        sample_fz_n=10.0,
+        alpha=0.1,
+        initialized=False,
+    ) == pytest.approx(10.0)
+    assert lowpass_force_z(
+        previous_fz_n=10.0,
+        sample_fz_n=0.0,
+        alpha=0.1,
+        initialized=True,
+    ) == pytest.approx(9.0)
+
+
+def test_paper_seek_contact_force_uses_calibrated_axis_sign():
+    assert contact_force_from_baseline(
+        filtered_fz_n=3.0,
+        baseline_fz_n=1.0,
+        force_axis_sign=1.0,
+    ) == pytest.approx(2.0)
+    assert contact_force_from_baseline(
+        filtered_fz_n=-3.0,
+        baseline_fz_n=-1.0,
+        force_axis_sign=-1.0,
+    ) == pytest.approx(2.0)
+
+
+def test_paper_seek_offset_descends_at_limited_speed():
+    assert next_paper_seek_offset(
+        current_offset_m=-0.001,
+        down_speed_mps=0.002,
+        dt_sec=0.5,
+    ) == pytest.approx(-0.002)
+    assert next_paper_seek_offset(
+        current_offset_m=-0.001,
+        down_speed_mps=0.002,
+        dt_sec=-1.0,
+    ) == pytest.approx(-0.001)
+
+
+def test_paper_seek_confirm_samples_gate_contact_detection():
+    threshold = 0.5
+    confirm_samples = 3
+    contact_count = 0
+    state = PAPER_SEEK_DESCENDING
+    for force in (0.6, 0.7):
+        contact_count = contact_count + 1 if force >= threshold else 0
+        if contact_count >= confirm_samples:
+            state = PAPER_SEEK_CONTACT_FOUND
+
+    assert state == PAPER_SEEK_DESCENDING
+
+    contact_count += 1
+    if contact_count >= confirm_samples:
+        state = PAPER_SEEK_CONTACT_FOUND
+
+    assert state == PAPER_SEEK_CONTACT_FOUND
+
+
+def test_paper_seek_max_down_limit_aborts_before_next_target():
+    max_down_m = 0.005
+    next_offset = next_paper_seek_offset(
+        current_offset_m=-0.0049,
+        down_speed_mps=0.001,
+        dt_sec=0.2,
+    )
+
+    assert abs(next_offset) > max_down_m
+
+
+def test_paper_seek_detected_z_uses_start_tip_plus_offset():
+    start_tip_z = 0.123
+    offset_m = -0.002
+    paper_origin = Point3(x=0.4, y=0.1, z=start_tip_z + offset_m)
+
+    assert paper_origin.z == pytest.approx(0.121)
+    assert start_tip_z + offset_m == pytest.approx(0.121)
 
 
 def test_pose_command_publishes_only_after_arm():

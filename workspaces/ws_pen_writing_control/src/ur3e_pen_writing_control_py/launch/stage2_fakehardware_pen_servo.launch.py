@@ -247,6 +247,16 @@ def generate_launch_description() -> LaunchDescription:
         default_value="/joy",
         description="sensor_msgs/Joy topic used by the pen fake-hardware Servo node.",
     )
+    paper_seek_enabled_arg = DeclareLaunchArgument(
+        "paper_seek_enabled",
+        default_value="false",
+        description="Enable manual guarded descent paper-height seek.",
+    )
+    paper_seek_wrench_topic_arg = DeclareLaunchArgument(
+        "paper_seek_wrench_topic",
+        default_value="/pen_writing/fake_wrench",
+        description="Wrench topic used by fakehardware paper seek.",
+    )
     launch_joy_node_arg = DeclareLaunchArgument(
         "launch_joy_node",
         default_value="true",
@@ -512,6 +522,10 @@ def generate_launch_description() -> LaunchDescription:
                 "tool0_to_pen_tip_xyz": [0.0, 0.0, 0.14],
                 "servo_status_topic": "/servo_node/status",
                 "servo_status_timeout_sec": 1.0,
+                "paper_seek_enabled": LaunchConfiguration("paper_seek_enabled"),
+                "paper_seek_wrench_topic": LaunchConfiguration(
+                    "paper_seek_wrench_topic"
+                ),
                 "servo_command_mode": LaunchConfiguration("servo_command_mode"),
                 "twist_position_gain": ParameterValue(
                     LaunchConfiguration("twist_position_gain"),
@@ -649,6 +663,8 @@ def generate_launch_description() -> LaunchDescription:
             twist_linear_correction_limit_arg,
             twist_angular_correction_limit_arg,
             joy_topic_arg,
+            paper_seek_enabled_arg,
+            paper_seek_wrench_topic_arg,
             launch_joy_node_arg,
             launch_pen_node_arg,
             joy_device_id_arg,

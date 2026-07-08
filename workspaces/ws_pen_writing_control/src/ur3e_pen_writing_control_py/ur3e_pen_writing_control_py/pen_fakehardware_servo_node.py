@@ -6,7 +6,13 @@ import traceback
 from dataclasses import dataclass
 from typing import Iterable, TextIO
 
-from geometry_msgs.msg import Point, PoseStamped, TransformStamped, TwistStamped
+from geometry_msgs.msg import (
+    Point,
+    PoseStamped,
+    TransformStamped,
+    TwistStamped,
+    WrenchStamped,
+)
 from moveit_msgs.msg import ServoStatus
 from moveit_msgs.srv import ServoCommandType
 import rclpy
@@ -199,6 +205,43 @@ def is_session_timed_out(
         max_session_duration_sec > 0.0
         and now_sec - session_started_at_sec >= max_session_duration_sec
     )
+
+
+PAPER_SEEK_IDLE = "IDLE"
+PAPER_SEEK_BASELINING = "BASELINING"
+PAPER_SEEK_DESCENDING = "DESCENDING"
+PAPER_SEEK_CONTACT_FOUND = "CONTACT_FOUND"
+PAPER_SEEK_ABORTED = "ABORTED"
+
+
+def lowpass_force_z(
+    *,
+    previous_fz_n: float,
+    sample_fz_n: float,
+    alpha: float,
+    initialized: bool,
+) -> float:
+    if not initialized:
+        return sample_fz_n
+    return previous_fz_n + alpha * (sample_fz_n - previous_fz_n)
+
+
+def contact_force_from_baseline(
+    *,
+    filtered_fz_n: float,
+    baseline_fz_n: float,
+    force_axis_sign: float,
+) -> float:
+    return force_axis_sign * (filtered_fz_n - baseline_fz_n)
+
+
+def next_paper_seek_offset(
+    *,
+    current_offset_m: float,
+    down_speed_mps: float,
+    dt_sec: float,
+) -> float:
+    return current_offset_m - down_speed_mps * max(dt_sec, 0.0)
 
 
 @dataclass(frozen=True)
@@ -686,6 +729,36 @@ class PenFakeHardwareServoNode(Node):
         self.max_session_duration_sec = float(
             self.declare_parameter("max_session_duration_sec", 0.0).value
         )
+        self.paper_seek_enabled = bool(
+            self.declare_parameter("paper_seek_enabled", False).value
+        )
+        self.paper_seek_wrench_topic = str(
+            self.declare_parameter(
+                "paper_seek_wrench_topic",
+                "/force_torque_sensor_broadcaster/wrench",
+            ).value
+        )
+        self.paper_seek_baseline_duration_sec = float(
+            self.declare_parameter("paper_seek_baseline_duration_sec", 1.0).value
+        )
+        self.paper_seek_down_speed_mps = float(
+            self.declare_parameter("paper_seek_down_speed_mps", 0.001).value
+        )
+        self.paper_seek_max_down_m = float(
+            self.declare_parameter("paper_seek_max_down_m", 0.005).value
+        )
+        self.paper_seek_contact_threshold_n = float(
+            self.declare_parameter("paper_seek_contact_threshold_n", 0.5).value
+        )
+        self.paper_seek_contact_confirm_samples = int(
+            self.declare_parameter("paper_seek_contact_confirm_samples", 5).value
+        )
+        self.paper_seek_lowpass_alpha = float(
+            self.declare_parameter("paper_seek_lowpass_alpha", 0.1).value
+        )
+        self.paper_seek_force_axis_sign = float(
+            self.declare_parameter("paper_seek_force_axis_sign", 1.0).value
+        )
         self.max_planar_speed_mps = float(
             self.declare_parameter("max_planar_speed_mps", 0.03).value
         )
@@ -829,6 +902,16 @@ class PenFakeHardwareServoNode(Node):
             self._on_servo_status_message,
             10,
         )
+        self._paper_seek_wrench_subscription = (
+            self.create_subscription(
+                WrenchStamped,
+                self.paper_seek_wrench_topic,
+                self._on_paper_seek_wrench,
+                10,
+            )
+            if self.paper_seek_enabled
+            else None
+        )
         self._joy_mapper = JoyMapper(deadzone=self.joy_deadzone)
         self._latest_joy_control = JoyControl()
         self._last_joy_msg_time = 0.0
@@ -846,6 +929,11 @@ class PenFakeHardwareServoNode(Node):
             Trigger,
             "/pen_writing/stop_alignment_logging",
             self._on_stop_alignment_logging,
+        )
+        self.create_service(
+            Trigger,
+            "/pen_writing/start_paper_seek",
+            self._on_start_paper_seek,
         )
         self._velocity = SmoothPlanarVelocity(
             max_speed_mps=self.max_planar_speed_mps,
@@ -877,6 +965,16 @@ class PenFakeHardwareServoNode(Node):
         self._session_started_at_sec = time.monotonic()
         self._last_timer_time = time.monotonic()
         self._previous_target_pose: PoseTarget | None = None
+        self._paper_seek_state = PAPER_SEEK_IDLE
+        self._paper_seek_started_at_sec = 0.0
+        self._paper_seek_offset_m = 0.0
+        self._paper_seek_start_tip_z = 0.0
+        self._paper_seek_baseline_fz_n = 0.0
+        self._paper_seek_contact_count = 0
+        self._paper_seek_detected_z: float | None = None
+        self._paper_seek_wrench_seen = False
+        self._paper_seek_filter_initialized = False
+        self._paper_seek_filtered_fz_n = 0.0
 
         self._timer = self.create_timer(1.0 / self.publish_rate_hz, self._on_timer)
 
@@ -898,6 +996,8 @@ class PenFakeHardwareServoNode(Node):
             f"diagnostic_orientation_mode={self.diagnostic_orientation_mode} "
             f"diagnostic_freeze_tip_xy={self.diagnostic_freeze_tip_xy} "
             f"max_session_duration={self.max_session_duration_sec:.1f}s "
+            f"paper_seek_enabled={self.paper_seek_enabled} "
+            f"paper_seek_wrench_topic={self.paper_seek_wrench_topic} "
             f"alignment_error_log_rate={self.alignment_error_log_rate_hz:.1f}Hz "
             f"tool0_to_pen_tip=({self.tool0_to_pen_tip.x:.3f}, "
             f"{self.tool0_to_pen_tip.y:.3f}, {self.tool0_to_pen_tip.z:.3f})"
@@ -958,6 +1058,22 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("alignment_error_log_rate_hz must be greater than zero")
         if self.max_session_duration_sec < 0.0:
             raise ValueError("max_session_duration_sec must be non-negative")
+        if self.paper_seek_baseline_duration_sec <= 0.0:
+            raise ValueError(
+                "paper_seek_baseline_duration_sec must be greater than zero"
+            )
+        if self.paper_seek_down_speed_mps <= 0.0:
+            raise ValueError("paper_seek_down_speed_mps must be greater than zero")
+        if self.paper_seek_max_down_m <= 0.0:
+            raise ValueError("paper_seek_max_down_m must be greater than zero")
+        if self.paper_seek_contact_threshold_n <= 0.0:
+            raise ValueError("paper_seek_contact_threshold_n must be greater than zero")
+        if self.paper_seek_contact_confirm_samples <= 0:
+            raise ValueError("paper_seek_contact_confirm_samples must be positive")
+        if not 0.0 < self.paper_seek_lowpass_alpha <= 1.0:
+            raise ValueError("paper_seek_lowpass_alpha must be in (0, 1]")
+        if self.paper_seek_force_axis_sign == 0.0:
+            raise ValueError("paper_seek_force_axis_sign must be non-zero")
         if self.tool_position_tolerance_m <= 0.0:
             raise ValueError("tool_position_tolerance_m must be greater than zero")
         if self.tool_orientation_tolerance_deg <= 0.0:
@@ -1010,6 +1126,72 @@ class PenFakeHardwareServoNode(Node):
             self.get_logger().warn(
                 f"MoveIt Servo status warning: code={msg.code} message={msg.message!r}"
             )
+
+    def _on_paper_seek_wrench(self, msg: WrenchStamped) -> None:
+        self._paper_seek_filtered_fz_n = lowpass_force_z(
+            previous_fz_n=self._paper_seek_filtered_fz_n,
+            sample_fz_n=float(msg.wrench.force.z),
+            alpha=self.paper_seek_lowpass_alpha,
+            initialized=self._paper_seek_filter_initialized,
+        )
+        self._paper_seek_filter_initialized = True
+        self._paper_seek_wrench_seen = True
+
+    def _on_start_paper_seek(self, _request, response):
+        now_sec = time.monotonic()
+        if not self.paper_seek_enabled:
+            response.success = False
+            response.message = "paper seek is disabled"
+            return response
+        if self._paper_seek_state in (PAPER_SEEK_BASELINING, PAPER_SEEK_DESCENDING):
+            response.success = False
+            response.message = f"paper seek already running: {self._paper_seek_state}"
+            return response
+        if self._paper_seek_state == PAPER_SEEK_CONTACT_FOUND:
+            response.success = True
+            response.message = (
+                f"paper already detected: z={self._paper_seek_detected_z:.6f}"
+            )
+            return response
+        if self._paper_origin is None:
+            response.success = False
+            response.message = "paper origin is not initialized"
+            return response
+        if not self._paper_seek_wrench_seen:
+            response.success = False
+            response.message = f"no wrench received on {self.paper_seek_wrench_topic}"
+            return response
+        if not self._is_servo_status_healthy(now_sec):
+            response.success = False
+            response.message = "MoveIt Servo status is not healthy"
+            return response
+
+        current_tool_pose = self._lookup_current_tool_pose()
+        if current_tool_pose is None:
+            response.success = False
+            response.message = "current tool pose is not available"
+            return response
+        current_tip = tool_tip_point_from_tool_pose(
+            tool_pose=current_tool_pose,
+            tool0_to_pen_tip=self.tool0_to_pen_tip,
+        )
+
+        self._paper_seek_state = PAPER_SEEK_BASELINING
+        self._paper_seek_started_at_sec = now_sec
+        self._paper_seek_start_tip_z = current_tip.z
+        self._paper_seek_offset_m = 0.0
+        self._paper_seek_baseline_fz_n = self._paper_seek_filtered_fz_n
+        self._paper_seek_contact_count = 0
+        self._paper_seek_detected_z = None
+        self._pose_command_armed = True
+        self._previous_target_pose = None
+        response.success = True
+        response.message = (
+            "paper seek started: "
+            f"start_tip_z={self._paper_seek_start_tip_z:.6f}"
+        )
+        self.get_logger().info(response.message)
+        return response
 
     def _on_timer(self) -> None:
         now_sec = time.monotonic()
@@ -1065,6 +1247,12 @@ class PenFakeHardwareServoNode(Node):
         if control.emergency_stop:
             velocity = self._velocity.stop_immediately()
             self._pose_command_armed = False
+            if self._paper_seek_state in (
+                PAPER_SEEK_BASELINING,
+                PAPER_SEEK_DESCENDING,
+            ):
+                self._paper_seek_state = PAPER_SEEK_ABORTED
+                self.get_logger().warn("Paper seek aborted by emergency stop.")
             self._publish_zero_twist()
             target_tool_pose = self._make_tool_pose_target()
             current_tool_pose = self._lookup_current_tool_pose()
@@ -1087,6 +1275,10 @@ class PenFakeHardwareServoNode(Node):
                 self._request_shutdown(
                     "Joy B quit requested while emergency stop branch was active",
                 )
+            return
+
+        if self._paper_seek_state in (PAPER_SEEK_BASELINING, PAPER_SEEK_DESCENDING):
+            self._handle_paper_seek_timer(now_sec=now_sec, dt_sec=dt_sec)
             return
         else:
             velocity = self._velocity.update(control.target_x, control.target_y, dt_sec)
@@ -1291,6 +1483,101 @@ class PenFakeHardwareServoNode(Node):
             timeout_sec=self.servo_status_timeout_sec,
         )
 
+    def _handle_paper_seek_timer(self, *, now_sec: float, dt_sec: float) -> None:
+        velocity = self._velocity.stop_immediately()
+        self._pose_command_armed = True
+
+        if not self._is_servo_status_healthy(now_sec):
+            self._paper_seek_state = PAPER_SEEK_ABORTED
+            self._pose_command_armed = False
+            self._publish_zero_twist()
+            self.get_logger().error(
+                "Paper seek aborted: MoveIt Servo status timed out."
+            )
+        elif self._paper_seek_state == PAPER_SEEK_BASELINING:
+            if (
+                now_sec - self._paper_seek_started_at_sec
+                >= self.paper_seek_baseline_duration_sec
+            ):
+                self._paper_seek_baseline_fz_n = self._paper_seek_filtered_fz_n
+                self._paper_seek_state = PAPER_SEEK_DESCENDING
+                self._previous_target_pose = None
+                self.get_logger().info(
+                    "Paper seek baseline captured: "
+                    f"fz={self._paper_seek_baseline_fz_n:.3f}N"
+                )
+        elif self._paper_seek_state == PAPER_SEEK_DESCENDING:
+            next_offset = next_paper_seek_offset(
+                current_offset_m=self._paper_seek_offset_m,
+                down_speed_mps=self.paper_seek_down_speed_mps,
+                dt_sec=dt_sec,
+            )
+            if abs(next_offset) > self.paper_seek_max_down_m:
+                self._paper_seek_state = PAPER_SEEK_ABORTED
+                self._pose_command_armed = False
+                self._publish_zero_twist()
+                self.get_logger().error(
+                    "Paper seek aborted: maximum descent reached "
+                    f"offset={next_offset:.6f}m "
+                    f"limit={self.paper_seek_max_down_m:.6f}m"
+                )
+            else:
+                self._paper_seek_offset_m = next_offset
+                contact_force_n = contact_force_from_baseline(
+                    filtered_fz_n=self._paper_seek_filtered_fz_n,
+                    baseline_fz_n=self._paper_seek_baseline_fz_n,
+                    force_axis_sign=self.paper_seek_force_axis_sign,
+                )
+                if contact_force_n >= self.paper_seek_contact_threshold_n:
+                    self._paper_seek_contact_count += 1
+                else:
+                    self._paper_seek_contact_count = 0
+
+                if (
+                    self._paper_seek_contact_count
+                    >= self.paper_seek_contact_confirm_samples
+                ):
+                    detected_z = (
+                        self._paper_seek_start_tip_z + self._paper_seek_offset_m
+                    )
+                    self._paper_origin = Point3(
+                        x=self._paper_origin.x,
+                        y=self._paper_origin.y,
+                        z=detected_z,
+                    )
+                    self._paper_seek_detected_z = detected_z
+                    self._paper_seek_offset_m = 0.0
+                    self._paper_seek_state = PAPER_SEEK_CONTACT_FOUND
+                    self._pose_command_armed = False
+                    self._publish_zero_twist()
+                    self.get_logger().info(
+                        "Paper seek contact found: "
+                        f"z={detected_z:.6f} "
+                        f"contact_force={contact_force_n:.3f}N"
+                    )
+
+        target_tool_pose = self._make_tool_pose_target()
+        current_tool_pose = self._lookup_current_tool_pose()
+        publish_pose = self._paper_seek_state in (
+            PAPER_SEEK_BASELINING,
+            PAPER_SEEK_DESCENDING,
+        )
+        self._publish_tf_markers_and_pose(
+            velocity,
+            target_tool_pose=target_tool_pose,
+            current_tool_pose=current_tool_pose,
+            publish_pose=publish_pose,
+            dt_sec=dt_sec,
+        )
+        self._record_alignment_error(
+            now_sec=now_sec,
+            target_tool_pose=target_tool_pose,
+            current_tool_pose=current_tool_pose,
+            pose_command_published=publish_pose,
+            has_motion_intent=False,
+            virtual_pen_settling=False,
+        )
+
     def _current_control(self, now_sec: float) -> JoyControl:
         if self._last_joy_msg_time == 0.0:
             return JoyControl()
@@ -1315,7 +1602,7 @@ class PenFakeHardwareServoNode(Node):
     def _make_tool_pose_target(self) -> PoseTarget:
         return tool_pose_from_pen_tip_pose(
             pen_pose=self._pen_state.pose,
-            paper_origin=self._paper_origin,
+            paper_origin=self._target_paper_origin(),
             pen_length=self.pen_length_m,
             tool0_to_pen_tip_xyz=self.tool0_to_pen_tip,
             orientation_override=target_orientation_for_command(
@@ -1326,6 +1613,15 @@ class PenFakeHardwareServoNode(Node):
                 dynamic_orientation=self._pen_orientation.orientation,
             ),
         )
+
+    def _target_paper_origin(self) -> Point3:
+        if self._paper_seek_state in (PAPER_SEEK_BASELINING, PAPER_SEEK_DESCENDING):
+            return Point3(
+                x=self._paper_origin.x,
+                y=self._paper_origin.y,
+                z=self._paper_seek_start_tip_z + self._paper_seek_offset_m,
+            )
+        return self._paper_origin
 
     def _record_alignment_error(
         self,

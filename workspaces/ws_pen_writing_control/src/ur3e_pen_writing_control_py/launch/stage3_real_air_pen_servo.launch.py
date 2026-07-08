@@ -286,6 +286,16 @@ def generate_launch_description() -> LaunchDescription:
                 description="sensor_msgs/Joy topic used by the real pen Servo node.",
             ),
             DeclareLaunchArgument(
+                "paper_seek_enabled",
+                default_value="false",
+                description="Enable manual guarded descent paper-height seek.",
+            ),
+            DeclareLaunchArgument(
+                "paper_seek_wrench_topic",
+                default_value="/force_torque_sensor_broadcaster/wrench",
+                description="Wrench topic used by real paper seek.",
+            ),
+            DeclareLaunchArgument(
                 "launch_joy_node",
                 default_value="true",
                 description="Launch the physical joy_node when true.",
@@ -605,6 +615,8 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 value_type=float,
             ),
             "alignment_error_log_path": str(run_log_dir / "tool_alignment_error.csv"),
+            "paper_seek_enabled": LaunchConfiguration("paper_seek_enabled"),
+            "paper_seek_wrench_topic": LaunchConfiguration("paper_seek_wrench_topic"),
         }
     )
     pen_servo_node = Node(
