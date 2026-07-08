@@ -46,6 +46,8 @@ setup(
             "ur3e_pen_writing_control_py.constant_twist_diagnostic_node:main",
             "speedl_benchmark_node = "
             "ur3e_pen_writing_control_py.speedl_benchmark_node:main",
+            "pen_tip_plane_monitor_node = "
+            "ur3e_pen_writing_control_py.pen_tip_plane_monitor_node:main",
         ],
     },
 )

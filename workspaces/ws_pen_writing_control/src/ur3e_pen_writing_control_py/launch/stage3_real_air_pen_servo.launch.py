@@ -41,6 +41,7 @@ STAGE3_REAL_COMMAND_OUT_TOPIC = (
 )
 STAGE3_REAL_DESCRIPTION_LAUNCHFILE_NAME = "task8B_real_calibrated_rsp.launch.py"
 STAGE3_REAL_PAPER_ORIGIN_XYZ = [0.45, 0.0, 0.12]
+STAGE3_REAL_PAPER_NORMAL_XYZ = [0.0, 0.0, 1.0]
 STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ = [0.0, 0.0, 0.14]
 STAGE3_JOINT_STATE_RELAY_PERIOD_SEC = 0.004
 STAGE3_REAL_FAKEHARDWARE_MATCHED_PEN_PARAMS = {
@@ -127,11 +128,14 @@ def configured_stage3_servo_yaml(*, use_smoothing: bool = True):
 
 
 def pen_real_air_node_parameters(
-    *,
     max_session_duration_sec: float,
-    paper_origin_xyz: list[float],
-    tool0_to_pen_tip_xyz: list[float],
+    paper_origin_xyz: list[float] | None = None,
+    tool0_to_pen_tip_xyz: list[float] | None = None,
 ):
+    if paper_origin_xyz is None:
+        paper_origin_xyz = STAGE3_REAL_PAPER_ORIGIN_XYZ
+    if tool0_to_pen_tip_xyz is None:
+        tool0_to_pen_tip_xyz = STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ
     parameters = {
         "base_frame": "base_link",
         "paper_frame": "paper_frame",
@@ -233,9 +237,39 @@ def generate_launch_description() -> LaunchDescription:
                 description="Paper origin [x, y, z] in base_link, meters.",
             ),
             DeclareLaunchArgument(
+                "paper_center_xyz",
+                default_value=str(STAGE3_REAL_PAPER_ORIGIN_XYZ),
+                description="Calibrated paper plane center [x, y, z] in base_link, meters.",
+            ),
+            DeclareLaunchArgument(
+                "paper_normal_xyz",
+                default_value=str(STAGE3_REAL_PAPER_NORMAL_XYZ),
+                description="Calibrated paper plane unit normal in base_link.",
+            ),
+            DeclareLaunchArgument(
                 "tool0_to_pen_tip_xyz",
                 default_value=str(STAGE3_REAL_TOOL0_TO_PEN_TIP_XYZ),
                 description="Pen tip offset [x, y, z] in tool0, meters.",
+            ),
+            DeclareLaunchArgument(
+                "launch_pen_tip_plane_monitor",
+                default_value="true",
+                description="Launch read-only actual pen-tip to paper-plane monitor.",
+            ),
+            DeclareLaunchArgument(
+                "pen_tip_plane_warn_below_m",
+                default_value="0.001",
+                description="Warn when actual pen tip is below paper by this distance.",
+            ),
+            DeclareLaunchArgument(
+                "pen_tip_plane_error_below_m",
+                default_value="0.003",
+                description="Error when actual pen tip is below paper by this distance.",
+            ),
+            DeclareLaunchArgument(
+                "pen_tip_plane_monitor_rate_hz",
+                default_value="10.0",
+                description="Actual pen-tip plane monitor reporting rate.",
             ),
             DeclareLaunchArgument(
                 "joy_topic",
@@ -286,11 +320,25 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             max_session_duration_sec=max_session_duration_sec,
         )
     paper_origin_xyz = None
+    paper_center_xyz = None
+    paper_normal_xyz = None
     tool0_to_pen_tip_xyz = None
     if error is None:
         paper_origin_xyz, error = parse_float_list(
             context=context,
             argument_name="paper_origin_xyz",
+            expected_size=3,
+        )
+    if error is None:
+        paper_center_xyz, error = parse_float_list(
+            context=context,
+            argument_name="paper_center_xyz",
+            expected_size=3,
+        )
+    if error is None:
+        paper_normal_xyz, error = parse_float_list(
+            context=context,
+            argument_name="paper_normal_xyz",
             expected_size=3,
         )
     if error is None:
@@ -565,6 +613,34 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             pen_node_parameters,
         ],
     )
+    pen_tip_plane_monitor_node = Node(
+        package="ur3e_pen_writing_control_py",
+        executable="pen_tip_plane_monitor_node",
+        name="pen_tip_plane_monitor",
+        condition=IfCondition(LaunchConfiguration("launch_pen_tip_plane_monitor")),
+        output="screen",
+        parameters=[
+            {
+                "base_frame": "base_link",
+                "tool_frame": "tool0",
+                "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
+                "paper_center_xyz": paper_center_xyz,
+                "paper_normal_xyz": paper_normal_xyz,
+                "warn_below_m": ParameterValue(
+                    LaunchConfiguration("pen_tip_plane_warn_below_m"),
+                    value_type=float,
+                ),
+                "error_below_m": ParameterValue(
+                    LaunchConfiguration("pen_tip_plane_error_below_m"),
+                    value_type=float,
+                ),
+                "publish_rate_hz": ParameterValue(
+                    LaunchConfiguration("pen_tip_plane_monitor_rate_hz"),
+                    value_type=float,
+                ),
+            }
+        ],
+    )
 
     def on_hardware_ready_gate_exit(event, _context):
         if event.returncode == 0:
@@ -651,6 +727,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 ),
                 joy_node,
                 pen_servo_node,
+                pen_tip_plane_monitor_node,
             ]
 
         return [
