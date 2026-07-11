@@ -3,7 +3,11 @@ import math
 import pytest
 
 from ur3e_pen_writing_control_py.force_mode_validation_node import (
+    controller_switch_request,
+    controller_switch_verified,
+    FORCE_CONTROLLER,
     force_delta_norm,
+    POSITION_CONTROLLER,
     position_distance,
     PROFILES,
     projected_displacement,
@@ -19,6 +23,36 @@ def test_force_profiles_keep_hard_safety_limits():
     assert max(profile.duration_sec for profile in PROFILES.values()) <= 5.0
     assert (
         max(profile.max_displacement_m for profile in PROFILES.values()) <= 0.005
+    )
+
+
+@pytest.mark.parametrize(
+    ("activate", "deactivate"),
+    [
+        (FORCE_CONTROLLER, POSITION_CONTROLLER),
+        (POSITION_CONTROLLER, FORCE_CONTROLLER),
+    ],
+)
+def test_controller_switches_are_atomic_and_strict(activate, deactivate):
+    request = controller_switch_request(activate, deactivate)
+
+    assert request.activate_controllers == [activate]
+    assert request.deactivate_controllers == [deactivate]
+    assert request.strictness == request.STRICT
+    assert request.activate_asap is True
+    assert request.timeout.sec == 5
+
+
+def test_controller_switch_requires_verified_final_states():
+    assert controller_switch_verified(
+        {FORCE_CONTROLLER: "active", POSITION_CONTROLLER: "inactive"},
+        FORCE_CONTROLLER,
+        POSITION_CONTROLLER,
+    )
+    assert not controller_switch_verified(
+        {FORCE_CONTROLLER: "active", POSITION_CONTROLLER: "active"},
+        FORCE_CONTROLLER,
+        POSITION_CONTROLLER,
     )
 
 

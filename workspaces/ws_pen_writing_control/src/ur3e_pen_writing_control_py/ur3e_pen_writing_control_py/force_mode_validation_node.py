@@ -26,7 +26,9 @@ REQUIRED_CONFIRMATION = "I_CONFIRM_REAL_FORCE_MODE_TEST"
 STATE_WAITING = "WAITING"
 STATE_READY = "READY"
 STATE_BASELINING = "BASELINING"
+STATE_SWITCHING_TO_FORCE = "SWITCHING_TO_FORCE"
 STATE_ACTIVE = "FORCE_MODE_ACTIVE"
+STATE_RESTORING_POSITION = "RESTORING_POSITION"
 STATE_RETRACTING = "RETRACTING"
 STATE_SUCCEEDED = "SUCCEEDED"
 STATE_ABORTED = "ABORTED"
@@ -55,6 +57,25 @@ PROFILES = {
         contact_hold_sec=1.0,
     ),
 }
+
+POSITION_CONTROLLER = "joint_trajectory_controller"
+FORCE_CONTROLLER = "force_mode_controller"
+
+
+def controller_switch_request(activate: str, deactivate: str) -> SwitchController.Request:
+    request = SwitchController.Request()
+    request.activate_controllers = [activate]
+    request.deactivate_controllers = [deactivate]
+    request.strictness = SwitchController.Request.STRICT
+    request.activate_asap = True
+    request.timeout = Duration(sec=5)
+    return request
+
+
+def controller_switch_verified(
+    states: dict[str, str], activate: str, deactivate: str
+) -> bool:
+    return states.get(activate) == "active" and states.get(deactivate) == "inactive"
 
 
 def projected_displacement(
@@ -267,6 +288,8 @@ class ForceModeValidationNode(Node):
         safety_future.add_done_callback(done)
 
     def _ensure_setup(self) -> None:
+        if self._state != STATE_WAITING:
+            return
         if self._setup_pending or (self._controller_ready and self._servo_pose_ready):
             return
         if not self._list_client.service_is_ready():
@@ -277,26 +300,14 @@ class ForceModeValidationNode(Node):
         def listed(done_future) -> None:
             response = done_future.result()
             states = {item.name: item.state for item in response.controller}
-            if states.get("force_mode_controller") == "active":
+            if states.get(POSITION_CONTROLLER) == "active":
                 self._controller_ready = True
                 self._request_servo_pose_mode()
                 return
-            request = SwitchController.Request()
-            request.activate_controllers = ["force_mode_controller"]
-            request.strictness = SwitchController.Request.STRICT
-            request.activate_asap = True
-            request.timeout = Duration(sec=5)
-            switched = self._switch_client.call_async(request)
-
-            def switch_done(switch_future) -> None:
-                result = switch_future.result()
-                self._controller_ready = bool(result and result.ok)
-                if self._controller_ready:
-                    self._request_servo_pose_mode()
-                else:
-                    self._setup_pending = False
-
-            switched.add_done_callback(switch_done)
+            self._setup_pending = False
+            self._publish_status(
+                f"waiting for {POSITION_CONTROLLER} to become active"
+            )
 
         future.add_done_callback(listed)
 
@@ -372,7 +383,7 @@ class ForceModeValidationNode(Node):
         if self._state not in (STATE_READY, STATE_SUCCEEDED, STATE_ABORTED):
             return f"test unavailable while state={self._state}"
         if not self._controller_ready or not self._servo_pose_ready:
-            return "force controller or Servo POSE mode is not ready"
+            return "position controller or Servo POSE mode is not ready"
         if not self._robot_running or not self._safety_normal:
             return "robot must be RUNNING with safety mode NORMAL"
         if now - self._last_wrench_time > self.data_timeout_sec:
@@ -408,7 +419,7 @@ class ForceModeValidationNode(Node):
                         / len(self._wrench_samples)
                         for index in range(3)
                     )
-                    self._start_force_mode()
+                    self._switch_to_force_mode()
         elif self._state == STATE_ACTIVE:
             self._monitor_active(now)
         elif self._state == STATE_RETRACTING:
@@ -439,7 +450,7 @@ class ForceModeValidationNode(Node):
         def done(done_future) -> None:
             result = done_future.result()
             if result is None or not result.success:
-                self._abort("start_force_mode failed", safe_retract=False)
+                self._restore_after_failed_force_start()
                 return
             self._state = STATE_ACTIVE
             self._state_started_at = time.monotonic()
@@ -450,6 +461,50 @@ class ForceModeValidationNode(Node):
 
         future.add_done_callback(done)
 
+    def _switch_to_force_mode(self) -> None:
+        self._state = STATE_SWITCHING_TO_FORCE
+        self._controller_ready = False
+        self._publish_status("switching position controller to force mode controller")
+
+        def done(success: bool) -> None:
+            if not success:
+                self._state = STATE_RESTORING_POSITION
+                self._publish_status(
+                    "force controller switch failed; restoring position controller"
+                )
+
+                def restored(restored_successfully: bool) -> None:
+                    self._state = STATE_ABORTED
+                    self._publish_status(
+                        "force controller switch failed; position controller restored"
+                        if restored_successfully
+                        else "controller switch and position restore failed; use robot stop"
+                    )
+
+                self._restore_position_controller(restored)
+                return
+            self._start_force_mode()
+
+        self._switch_controllers(
+            activate=FORCE_CONTROLLER,
+            deactivate=POSITION_CONTROLLER,
+            done=done,
+        )
+
+    def _restore_after_failed_force_start(self) -> None:
+        self._state = STATE_RESTORING_POSITION
+        self._publish_status("start_force_mode failed; restoring position controller")
+
+        def done(success: bool) -> None:
+            self._state = STATE_ABORTED
+            self._publish_status(
+                "start_force_mode failed; position controller restored"
+                if success
+                else "start_force_mode failed and position controller restore failed; use robot stop"
+            )
+
+        self._restore_position_controller(done)
+
     def _monitor_active(self, now: float) -> None:
         assert self._profile is not None and self._start_pose is not None
         if not self._live_data_healthy(now):
@@ -459,7 +514,6 @@ class ForceModeValidationNode(Node):
         if pose is None:
             self._abort("tool TF unavailable", safe_retract=False)
             return
-        self._pose_pub.publish(self._pose_message(self._start_pose))
         displacement = projected_displacement(
             self._start_pose.position, pose.position, self._axis
         )
@@ -508,17 +562,33 @@ class ForceModeValidationNode(Node):
                 self._state = STATE_ABORTED
                 self._publish_status("stop_force_mode failed; use robot stop")
                 return
-            pose = self._lookup_tool_pose()
-            if pose is None:
-                self._state = STATE_ABORTED
-                self._publish_status("force mode stopped but retraction TF is unavailable")
-                return
-            self._retract_target = retracted_pose(
-                pose, self._axis, self.retract_distance_m
-            )
-            self._state = STATE_RETRACTING
-            self._state_started_at = time.monotonic()
-            self._publish_status("force mode stopped; retracting 3 mm")
+            self._state = STATE_RESTORING_POSITION
+            self._publish_status("force mode stopped; restoring position controller")
+
+            def restored(successfully: bool) -> None:
+                if not successfully:
+                    self._state = STATE_ABORTED
+                    self._publish_status(
+                        "position controller restore failed; use robot stop"
+                    )
+                    return
+                pose = self._lookup_tool_pose()
+                if pose is None:
+                    self._state = STATE_ABORTED
+                    self._publish_status(
+                        "position controller restored but retraction TF is unavailable"
+                    )
+                    return
+                self._retract_target = retracted_pose(
+                    pose, self._axis, self.retract_distance_m
+                )
+                self._state = STATE_RETRACTING
+                self._state_started_at = time.monotonic()
+                self._publish_status(
+                    "position controller restored; retracting 3 mm"
+                )
+
+            self._restore_position_controller(restored)
 
         future.add_done_callback(done)
 
@@ -546,9 +616,67 @@ class ForceModeValidationNode(Node):
             if safe_retract and self._robot_running and self._safety_normal:
                 self._finish_active(success=False, reason=reason)
                 return
-            self._stop_force_client.call_async(Trigger.Request())
+            self._state = STATE_RESTORING_POSITION
+            future = self._stop_force_client.call_async(Trigger.Request())
+
+            def stopped(done_future) -> None:
+                result = done_future.result()
+                if result is None or not result.success:
+                    self._state = STATE_ABORTED
+                    self._publish_status(f"{reason}; stop_force_mode failed; use robot stop")
+                    return
+
+                def restored(success: bool) -> None:
+                    self._state = STATE_ABORTED
+                    self._publish_status(
+                        f"{reason}; position controller restored"
+                        if success
+                        else f"{reason}; position controller restore failed; use robot stop"
+                    )
+
+                self._restore_position_controller(restored)
+
+            future.add_done_callback(stopped)
+            return
         self._state = STATE_ABORTED
         self._publish_status(reason)
+
+    def _restore_position_controller(self, done) -> None:
+        def restored(success: bool) -> None:
+            self._controller_ready = success
+            done(success)
+
+        self._switch_controllers(
+            activate=POSITION_CONTROLLER,
+            deactivate=FORCE_CONTROLLER,
+            done=restored,
+        )
+
+    def _switch_controllers(self, *, activate: str, deactivate: str, done) -> None:
+        if not self._switch_client.service_is_ready():
+            done(False)
+            return
+        request = controller_switch_request(activate, deactivate)
+        future = self._switch_client.call_async(request)
+
+        def switched(done_future) -> None:
+            result = done_future.result()
+            if result is None or not result.ok or not self._list_client.service_is_ready():
+                done(False)
+                return
+            listed = self._list_client.call_async(ListControllers.Request())
+
+            def verified(list_future) -> None:
+                response = list_future.result()
+                if response is None:
+                    done(False)
+                    return
+                states = {item.name: item.state for item in response.controller}
+                done(controller_switch_verified(states, activate, deactivate))
+
+            listed.add_done_callback(verified)
+
+        future.add_done_callback(switched)
 
     def _lookup_tool_pose(self) -> PoseTarget | None:
         try:
