@@ -30,6 +30,7 @@ STATE_SWITCHING_TO_FORCE = "SWITCHING_TO_FORCE"
 STATE_ACTIVE = "FORCE_MODE_ACTIVE"
 STATE_STOPPING_FORCE = "STOPPING_FORCE"
 STATE_RESTORING_POSITION = "RESTORING_POSITION"
+STATE_HOLDING_POSITION = "HOLDING_POSITION"
 STATE_RETRACTING = "RETRACTING"
 STATE_SUCCEEDED = "SUCCEEDED"
 STATE_ABORTED = "ABORTED"
@@ -47,6 +48,7 @@ class ForceTestProfile:
 
 
 PROFILES = {
+    "hold": ForceTestProfile("hold", 0.0, 2.0, 0.001),
     "zero": ForceTestProfile("zero", 0.0, 2.0, 0.001),
     "direction": ForceTestProfile("direction", 0.5, 2.0, 0.001, 0.0002),
     "contact": ForceTestProfile(
@@ -121,6 +123,17 @@ def position_distance(a: Point3, b: Point3) -> float:
     return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2)
 
 
+def quaternion_distance(a: Quaternion, b: Quaternion) -> float:
+    values_a = (a.x, a.y, a.z, a.w)
+    values_b = (b.x, b.y, b.z, b.w)
+    norm_a = math.sqrt(sum(value * value for value in values_a))
+    norm_b = math.sqrt(sum(value * value for value in values_b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return math.inf
+    dot = abs(sum(x * y for x, y in zip(values_a, values_b)) / (norm_a * norm_b))
+    return 2.0 * math.acos(min(1.0, dot))
+
+
 class ForceModeValidationNode(Node):
     def __init__(self) -> None:
         super().__init__("force_mode_validation")
@@ -133,6 +146,12 @@ class ForceModeValidationNode(Node):
         self.base_frame = str(self.declare_parameter("base_frame", "base").value)
         self.tool_frame = str(
             self.declare_parameter("tool_frame", "tool0_controller").value
+        )
+        self.servo_base_frame = str(
+            self.declare_parameter("servo_base_frame", "base_link").value
+        )
+        self.servo_tool_frame = str(
+            self.declare_parameter("servo_tool_frame", "tool0").value
         )
         self.wrench_topic = str(
             self.declare_parameter(
@@ -152,6 +171,17 @@ class ForceModeValidationNode(Node):
         )
         self.baseline_duration_sec = float(
             self.declare_parameter("baseline_duration_sec", 2.0).value
+        )
+        self.hold_duration_sec = float(
+            self.declare_parameter("hold_duration_sec", 1.0).value
+        )
+        self.hold_translation_limit_m = float(
+            self.declare_parameter("hold_translation_limit_m", 0.001).value
+        )
+        self.hold_rotation_limit_rad = float(
+            self.declare_parameter(
+                "hold_rotation_limit_rad", math.radians(1.0)
+            ).value
         )
         self._validate_parameters()
 
@@ -175,6 +205,9 @@ class ForceModeValidationNode(Node):
         self._state_started_at = 0.0
         self._contact_started_at: float | None = None
         self._retract_target: PoseTarget | None = None
+        self._hold_target: PoseTarget | None = None
+        self._servo_axis = (0.0, 0.0, 1.0)
+        self._hold_verified = False
         self._pending_success = False
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -245,6 +278,12 @@ class ForceModeValidationNode(Node):
             raise ValueError("retract_distance_m must be in (0, 0.003]")
         if self.data_timeout_sec <= 0.0 or self.baseline_duration_sec <= 0.0:
             raise ValueError("data and baseline timeouts must be positive")
+        if not 0.0 < self.hold_duration_sec <= 2.0:
+            raise ValueError("hold_duration_sec must be in (0, 2]")
+        if not 0.0 < self.hold_translation_limit_m <= 0.001:
+            raise ValueError("hold_translation_limit_m must be in (0, 0.001]")
+        if not 0.0 < self.hold_rotation_limit_rad <= math.radians(1.0):
+            raise ValueError("hold_rotation_limit_rad must be in (0, 1 degree]")
 
     def _on_wrench(self, msg: WrenchStamped) -> None:
         self._last_wrench_time = time.monotonic()
@@ -332,6 +371,10 @@ class ForceModeValidationNode(Node):
 
     def _start_test(self, profile_name: str, _request, response):
         now = time.monotonic()
+        if profile_name != "hold" and not self._hold_verified:
+            response.success = False
+            response.message = "run and pass start_hold before motion profiles"
+            return response
         reason = self._start_block_reason(now)
         if reason:
             response.success = False
@@ -344,6 +387,8 @@ class ForceModeValidationNode(Node):
             return response
 
         self._profile = PROFILES[profile_name]
+        if profile_name == "hold":
+            self._hold_verified = False
         self._start_pose = pose
         self._axis = rotate_vector(pose.orientation, (0.0, 0.0, 1.0))
         self._publish_direction_marker(pose)
@@ -397,7 +442,12 @@ class ForceModeValidationNode(Node):
         return None
 
     def _stop_test(self, _request, response):
-        if self._state not in (STATE_BASELINING, STATE_ACTIVE, STATE_RETRACTING):
+        if self._state not in (
+            STATE_BASELINING,
+            STATE_ACTIVE,
+            STATE_HOLDING_POSITION,
+            STATE_RETRACTING,
+        ):
             response.success = False
             response.message = f"no active test: state={self._state}"
             return response
@@ -423,6 +473,8 @@ class ForceModeValidationNode(Node):
                     self._switch_to_force_mode()
         elif self._state == STATE_ACTIVE:
             self._monitor_active(now)
+        elif self._state == STATE_HOLDING_POSITION:
+            self._monitor_hold(now)
         elif self._state == STATE_RETRACTING:
             self._monitor_retraction(now)
 
@@ -438,7 +490,7 @@ class ForceModeValidationNode(Node):
     def _start_force_mode(self) -> None:
         assert self._profile is not None and self._start_pose is not None
         request = SetForceMode.Request()
-        request.task_frame = self._pose_message(self._start_pose)
+        request.task_frame = self._pose_message(self._start_pose, self.base_frame)
         request.selection_vector_z = True
         request.wrench.force.z = self._profile.target_force_n
         request.type = SetForceMode.Request.NO_TRANSFORM
@@ -544,7 +596,7 @@ class ForceModeValidationNode(Node):
             else:
                 self._contact_started_at = None
         if elapsed >= self._profile.duration_sec:
-            success = self._profile.name == "zero"
+            success = self._profile.name in ("hold", "zero")
             reason = (
                 "zero-force drift test complete" if success else "profile timed out"
             )
@@ -574,25 +626,70 @@ class ForceModeValidationNode(Node):
                         "position controller restore failed; use robot stop"
                     )
                     return
-                pose = self._lookup_tool_pose()
-                if pose is None:
-                    self._state = STATE_ABORTED
-                    self._publish_status(
-                        "position controller restored but retraction TF is unavailable"
-                    )
-                    return
-                self._retract_target = retracted_pose(
-                    pose, self._axis, self.retract_distance_m
-                )
-                self._state = STATE_RETRACTING
-                self._state_started_at = time.monotonic()
-                self._publish_status(
-                    "position controller restored; retracting 3 mm"
-                )
+                self._begin_hold_position()
 
             self._restore_position_controller(restored)
 
         future.add_done_callback(done)
+
+    def _begin_hold_position(self) -> None:
+        pose = self._lookup_pose(self.servo_base_frame, self.servo_tool_frame)
+        axis = self._force_axis_in_servo_base()
+        if pose is None or axis is None:
+            self._state = STATE_ABORTED
+            self._publish_status(
+                "position controller restored but Servo frame TF is unavailable"
+            )
+            return
+        self._hold_target = pose
+        self._servo_axis = axis
+        self._state = STATE_HOLDING_POSITION
+        self._state_started_at = time.monotonic()
+        self._publish_status(
+            f"holding current {self.servo_tool_frame} pose without retraction"
+        )
+
+    def _monitor_hold(self, now: float) -> None:
+        assert self._hold_target is not None and self._profile is not None
+        if not self._live_data_healthy(now):
+            self._state = STATE_ABORTED
+            self._publish_status("hold aborted because state or data became unhealthy")
+            return
+        self._pose_pub.publish(
+            self._pose_message(self._hold_target, self.servo_base_frame)
+        )
+        pose = self._lookup_pose(self.servo_base_frame, self.servo_tool_frame)
+        if pose is None:
+            self._state = STATE_ABORTED
+            self._publish_status("hold aborted because Servo frame TF is unavailable")
+            return
+        translation = position_distance(pose.position, self._hold_target.position)
+        rotation = quaternion_distance(pose.orientation, self._hold_target.orientation)
+        if translation > self.hold_translation_limit_m:
+            self._state = STATE_ABORTED
+            self._publish_status(f"hold translation exceeded: {translation:.6f}m")
+            return
+        if rotation > self.hold_rotation_limit_rad:
+            self._state = STATE_ABORTED
+            self._publish_status(f"hold rotation exceeded: {rotation:.6f}rad")
+            return
+        if now - self._state_started_at < self.hold_duration_sec:
+            return
+        if self._profile.name == "hold":
+            self._hold_verified = self._pending_success
+            self._state = STATE_SUCCEEDED if self._pending_success else STATE_ABORTED
+            self._publish_status(
+                "hold verification succeeded without retraction"
+                if self._pending_success
+                else "force limits failed; hold completed without retraction"
+            )
+            return
+        self._retract_target = retracted_pose(
+            self._hold_target, self._servo_axis, self.retract_distance_m
+        )
+        self._state = STATE_RETRACTING
+        self._state_started_at = now
+        self._publish_status("hold verified; retracting 3 mm in Servo frames")
 
     def _monitor_retraction(self, now: float) -> None:
         assert self._retract_target is not None
@@ -600,8 +697,10 @@ class ForceModeValidationNode(Node):
             self._state = STATE_ABORTED
             self._publish_status("retraction aborted because state or data became unhealthy")
             return
-        self._pose_pub.publish(self._pose_message(self._retract_target))
-        pose = self._lookup_tool_pose()
+        self._pose_pub.publish(
+            self._pose_message(self._retract_target, self.servo_base_frame)
+        )
+        pose = self._lookup_pose(self.servo_base_frame, self.servo_tool_frame)
         if pose and position_distance(pose.position, self._retract_target.position) <= 0.001:
             self._state = STATE_SUCCEEDED if self._pending_success else STATE_ABORTED
             self._publish_status(
@@ -681,9 +780,12 @@ class ForceModeValidationNode(Node):
         future.add_done_callback(switched)
 
     def _lookup_tool_pose(self) -> PoseTarget | None:
+        return self._lookup_pose(self.base_frame, self.tool_frame)
+
+    def _lookup_pose(self, base_frame: str, tool_frame: str) -> PoseTarget | None:
         try:
             transform = self._tf_buffer.lookup_transform(
-                self.base_frame, self.tool_frame, rclpy.time.Time()
+                base_frame, tool_frame, rclpy.time.Time()
             )
         except TransformException:
             return None
@@ -694,9 +796,21 @@ class ForceModeValidationNode(Node):
             orientation=Quaternion(rotation.x, rotation.y, rotation.z, rotation.w),
         )
 
-    def _pose_message(self, pose: PoseTarget) -> PoseStamped:
+    def _force_axis_in_servo_base(self) -> tuple[float, float, float] | None:
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self.servo_base_frame, self.base_frame, rclpy.time.Time()
+            )
+        except TransformException:
+            return None
+        rotation = transform.transform.rotation
+        return rotate_vector(
+            Quaternion(rotation.x, rotation.y, rotation.z, rotation.w), self._axis
+        )
+
+    def _pose_message(self, pose: PoseTarget, frame_id: str) -> PoseStamped:
         message = PoseStamped()
-        message.header.frame_id = self.base_frame
+        message.header.frame_id = frame_id
         message.header.stamp = self.get_clock().now().to_msg()
         message.pose.position.x = pose.position.x
         message.pose.position.y = pose.position.y

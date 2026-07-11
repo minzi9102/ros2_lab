@@ -521,6 +521,10 @@ def test_stage3_force_mode_launch_is_manual_and_disables_pen_input():
     assert '"launch_joy_node": "false"' in source
     assert "force_mode_validation_node" in source
     assert '"human_confirmation": REQUIRED_FORCE_CONFIRMATION' in source
+    assert '"base_frame": "base"' in source
+    assert '"tool_frame": "tool0_controller"' in source
+    assert '"servo_base_frame": "base_link"' in source
+    assert '"servo_tool_frame": "tool0"' in source
     assert '"max_speed_mps": 0.002' in source
     assert '"max_force_n": 10.0' in source
 

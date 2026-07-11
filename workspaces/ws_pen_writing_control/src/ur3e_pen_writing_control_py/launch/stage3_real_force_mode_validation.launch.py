@@ -64,6 +64,10 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {
                 "human_confirmation": REQUIRED_FORCE_CONFIRMATION,
+                "base_frame": "base",
+                "tool_frame": "tool0_controller",
+                "servo_base_frame": "base_link",
+                "servo_tool_frame": "tool0",
                 "max_speed_mps": 0.002,
                 "max_force_n": 10.0,
                 "retract_distance_m": 0.003,
