@@ -296,6 +296,16 @@ def generate_launch_description() -> LaunchDescription:
                 description="Wrench topic used by real paper seek.",
             ),
             DeclareLaunchArgument(
+                "paper_seek_payload_mass_kg",
+                default_value="-1.0",
+                description="Installed pen tool mass; required before real paper seek.",
+            ),
+            DeclareLaunchArgument(
+                "paper_seek_payload_cog_xyz",
+                default_value="[0.0, 0.0, 0.0]",
+                description="Installed pen tool center of gravity in tool0, meters.",
+            ),
+            DeclareLaunchArgument(
                 "launch_joy_node",
                 default_value="true",
                 description="Launch the physical joy_node when true.",
@@ -347,6 +357,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
     paper_center_xyz = None
     paper_normal_xyz = None
     tool0_to_pen_tip_xyz = None
+    paper_seek_payload_cog_xyz = None
     if error is None:
         paper_origin_xyz, error = parse_float_list(
             context=context,
@@ -369,6 +380,12 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         tool0_to_pen_tip_xyz, error = parse_float_list(
             context=context,
             argument_name="tool0_to_pen_tip_xyz",
+            expected_size=3,
+        )
+    if error is None:
+        paper_seek_payload_cog_xyz, error = parse_float_list(
+            context=context,
+            argument_name="paper_seek_payload_cog_xyz",
             expected_size=3,
         )
     if error is not None:
@@ -622,6 +639,13 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             "alignment_error_log_path": str(run_log_dir / "tool_alignment_error.csv"),
             "paper_seek_enabled": LaunchConfiguration("paper_seek_enabled"),
             "paper_seek_wrench_topic": LaunchConfiguration("paper_seek_wrench_topic"),
+            "paper_seek_configure_payload": True,
+            "paper_seek_payload_mass_kg": ParameterValue(
+                LaunchConfiguration("paper_seek_payload_mass_kg"),
+                value_type=float,
+            ),
+            "paper_seek_payload_cog_xyz": paper_seek_payload_cog_xyz,
+            "paper_seek_zero_ft_before_start": True,
         }
     )
     pen_servo_node = Node(

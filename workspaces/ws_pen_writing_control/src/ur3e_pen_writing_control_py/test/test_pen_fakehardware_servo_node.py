@@ -21,9 +21,12 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_virtual_pen_settling,
     lowpass_force_z,
     next_paper_seek_offset,
+    paper_seek_baseline_stats,
+    paper_seek_dynamic_threshold,
     paper_origin_from_current_tool0,
     pose_mode_became_ready,
     pose_axis_points,
+    projected_force_z_in_base,
     should_publish_pose_command,
     should_publish_constant_linear_twist,
     should_switch_linear_only_to_twist,
@@ -412,6 +415,42 @@ def test_paper_seek_detected_z_uses_start_tip_plus_offset():
 
     assert paper_origin.z == pytest.approx(0.121)
     assert start_tip_z + offset_m == pytest.approx(0.121)
+
+
+def test_paper_seek_projects_full_force_into_base_z():
+    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    rotate_tool_z_to_base_x = Quaternion(
+        x=0.0,
+        y=math.sin(math.pi / 4.0),
+        z=0.0,
+        w=math.cos(math.pi / 4.0),
+    )
+
+    assert projected_force_z_in_base(
+        force_xyz=(0.0, 0.0, 2.0),
+        source_orientation_in_base=identity,
+    ) == pytest.approx(2.0)
+    assert projected_force_z_in_base(
+        force_xyz=(0.0, 0.0, 2.0),
+        source_orientation_in_base=rotate_tool_z_to_base_x,
+    ) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_paper_seek_threshold_is_six_sigma_with_half_newton_floor():
+    mean, standard_deviation = paper_seek_baseline_stats([0.8, 1.0, 1.2])
+
+    assert mean == pytest.approx(1.0)
+    assert standard_deviation == pytest.approx(math.sqrt(0.08 / 3.0))
+    assert paper_seek_dynamic_threshold(
+        minimum_threshold_n=0.5,
+        baseline_standard_deviation_n=standard_deviation,
+        sigma_multiplier=6.0,
+    ) == pytest.approx(6.0 * standard_deviation)
+    assert paper_seek_dynamic_threshold(
+        minimum_threshold_n=0.5,
+        baseline_standard_deviation_n=0.01,
+        sigma_multiplier=6.0,
+    ) == pytest.approx(0.5)
 
 
 def test_pose_command_publishes_only_after_arm():

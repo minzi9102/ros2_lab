@@ -584,6 +584,15 @@ def test_stage3_real_air_pen_parameters_match_fakehardware_motion_strategy():
     assert parameters["max_session_duration_sec"] == 30.0
 
 
+def test_stage3_real_air_paper_seek_requires_tool_payload_configuration():
+    source = REAL_AIR_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert '"paper_seek_payload_mass_kg"' in source
+    assert 'default_value="-1.0"' in source
+    assert '"paper_seek_configure_payload": True' in source
+    assert '"paper_seek_zero_ft_before_start": True' in source
+
+
 def test_stage3_real_air_pen_can_use_configured_paper_origin_exactly():
     module = _load_stage3_real_air_launch_module()
 
