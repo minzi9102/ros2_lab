@@ -520,6 +520,7 @@ def test_stage3_force_mode_launch_is_manual_and_disables_pen_input():
     assert '"launch_pen_node": "false"' in source
     assert '"launch_joy_node": "false"' in source
     assert "force_mode_validation_node" in source
+    assert '"human_confirmation": REQUIRED_FORCE_CONFIRMATION' in source
     assert '"max_speed_mps": 0.002' in source
     assert '"max_force_n": 10.0' in source
 

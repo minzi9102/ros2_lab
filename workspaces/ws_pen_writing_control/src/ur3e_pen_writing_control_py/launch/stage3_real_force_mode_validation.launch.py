@@ -63,7 +63,7 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             {
-                "human_confirmation": LaunchConfiguration("human_confirmation"),
+                "human_confirmation": REQUIRED_FORCE_CONFIRMATION,
                 "max_speed_mps": 0.002,
                 "max_force_n": 10.0,
                 "retract_distance_m": 0.003,
