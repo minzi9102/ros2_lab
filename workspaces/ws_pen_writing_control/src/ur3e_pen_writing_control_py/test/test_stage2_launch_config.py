@@ -41,6 +41,11 @@ REAL_BENCHMARK_LAUNCH_PATH = (
     / "launch"
     / "stage3_real_tracking_benchmark.launch.py"
 )
+REAL_FORCE_MODE_LAUNCH_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "launch"
+    / "stage3_real_force_mode_validation.launch.py"
+)
 
 
 def _load_stage2_launch_module():
@@ -506,6 +511,17 @@ def test_stage3_real_air_launch_requires_human_confirmation():
 
     assert error is not None
     assert module.REQUIRED_REAL_AIR_CONFIRMATION in error
+
+
+def test_stage3_force_mode_launch_is_manual_and_disables_pen_input():
+    source = REAL_FORCE_MODE_LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert "I_CONFIRM_REAL_FORCE_MODE_TEST" in source
+    assert '"launch_pen_node": "false"' in source
+    assert '"launch_joy_node": "false"' in source
+    assert "force_mode_validation_node" in source
+    assert '"max_speed_mps": 0.002' in source
+    assert '"max_force_n": 10.0' in source
 
 
 def test_stage3_real_air_launch_rejects_session_duration_over_hard_limit():

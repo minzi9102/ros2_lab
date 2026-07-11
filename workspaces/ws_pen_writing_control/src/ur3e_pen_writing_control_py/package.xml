@@ -16,6 +16,7 @@
   <depend>std_srvs</depend>
   <depend>tf2_ros</depend>
   <depend>ur_dashboard_msgs</depend>
+  <depend>ur_msgs</depend>
   <depend>visualization_msgs</depend>
 
   <exec_depend>ament_index_python</exec_depend>

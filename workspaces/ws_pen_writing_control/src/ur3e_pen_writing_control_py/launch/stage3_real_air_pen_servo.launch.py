@@ -301,6 +301,11 @@ def generate_launch_description() -> LaunchDescription:
                 description="Launch the physical joy_node when true.",
             ),
             DeclareLaunchArgument(
+                "launch_pen_node",
+                default_value="true",
+                description="Launch the real pen command node when true.",
+            ),
+            DeclareLaunchArgument(
                 "joy_device_id",
                 default_value="0",
                 description="Joystick device id passed to joy_node.",
@@ -623,6 +628,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         package="ur3e_pen_writing_control_py",
         executable="pen_fakehardware_servo_node",
         name="pen_real_air_servo",
+        condition=IfCondition(LaunchConfiguration("launch_pen_node")),
         output="screen",
         parameters=[
             PathJoinSubstitution(
