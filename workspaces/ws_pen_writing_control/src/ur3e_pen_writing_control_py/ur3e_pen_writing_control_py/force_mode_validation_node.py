@@ -603,8 +603,11 @@ class ForceModeValidationNode(Node):
 
     def _publish_status(self, detail: str) -> None:
         self._status_pub.publish(String(data=f"{self._state}: {detail}"))
-        log = self.get_logger().error if self._state == STATE_ABORTED else self.get_logger().info
-        log(f"Force mode validation state={self._state}: {detail}")
+        message = f"Force mode validation state={self._state}: {detail}"
+        if self._state == STATE_ABORTED:
+            self.get_logger().error(message)
+        else:
+            self.get_logger().info(message)
 
 
 def main(args=None) -> None:
