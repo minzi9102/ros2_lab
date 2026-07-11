@@ -1,4 +1,5 @@
 import math
+import inspect
 
 import pytest
 
@@ -12,6 +13,7 @@ from ur3e_pen_writing_control_py.force_mode_validation_node import (
     PROFILES,
     projected_displacement,
     retracted_pose,
+    ForceModeValidationNode,
 )
 from ur3e_pen_writing_control_py.pose_math import Point3, PoseTarget, Quaternion
 
@@ -48,6 +50,14 @@ def test_controller_switch_requires_verified_final_states():
         {FORCE_CONTROLLER: "active", POSITION_CONTROLLER: "inactive"},
         FORCE_CONTROLLER,
         POSITION_CONTROLLER,
+    )
+
+
+def test_force_stop_leaves_active_state_before_async_request():
+    source = inspect.getsource(ForceModeValidationNode._finish_active)
+
+    assert source.index("self._state = STATE_STOPPING_FORCE") < source.index(
+        "call_async"
     )
     assert not controller_switch_verified(
         {FORCE_CONTROLLER: "active", POSITION_CONTROLLER: "active"},

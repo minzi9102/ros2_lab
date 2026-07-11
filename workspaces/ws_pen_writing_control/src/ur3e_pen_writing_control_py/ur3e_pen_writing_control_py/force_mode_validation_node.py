@@ -28,6 +28,7 @@ STATE_READY = "READY"
 STATE_BASELINING = "BASELINING"
 STATE_SWITCHING_TO_FORCE = "SWITCHING_TO_FORCE"
 STATE_ACTIVE = "FORCE_MODE_ACTIVE"
+STATE_STOPPING_FORCE = "STOPPING_FORCE"
 STATE_RESTORING_POSITION = "RESTORING_POSITION"
 STATE_RETRACTING = "RETRACTING"
 STATE_SUCCEEDED = "SUCCEEDED"
@@ -552,6 +553,7 @@ class ForceModeValidationNode(Node):
     def _finish_active(self, *, success: bool, reason: str) -> None:
         if self._state != STATE_ACTIVE:
             return
+        self._state = STATE_STOPPING_FORCE
         self._pending_success = success
         self._publish_status(f"stopping force mode: {reason}")
         future = self._stop_force_client.call_async(Trigger.Request())
