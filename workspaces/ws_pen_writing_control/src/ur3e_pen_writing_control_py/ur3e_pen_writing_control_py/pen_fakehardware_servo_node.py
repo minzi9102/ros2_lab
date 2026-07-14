@@ -189,6 +189,28 @@ def paper_origin_from_current_tool0(
     )
 
 
+def paper_seek_tool_pose_target(
+    *,
+    captured_tip_xy: tuple[float, float],
+    target_tip_z: float,
+    captured_tool_orientation: Quaternion,
+    tool0_to_pen_tip: Point3,
+) -> PoseTarget:
+    """Build a seek target that only changes the pen-tip base Z coordinate."""
+    tip_offset = rotate_tool_offset(
+        captured_tool_orientation,
+        tool0_to_pen_tip,
+    )
+    return PoseTarget(
+        position=Point3(
+            x=captured_tip_xy[0] - tip_offset.x,
+            y=captured_tip_xy[1] - tip_offset.y,
+            z=target_tip_z - tip_offset.z,
+        ),
+        orientation=captured_tool_orientation,
+    )
+
+
 def is_servo_status_fresh(
     *,
     status_seen: bool,
@@ -1055,6 +1077,13 @@ class PenFakeHardwareServoNode(Node):
         self._paper_seek_started_at_sec = 0.0
         self._paper_seek_offset_m = 0.0
         self._paper_seek_start_tip_z = 0.0
+        self._paper_seek_captured_tip_xy = (0.0, 0.0)
+        self._paper_seek_captured_tool_orientation = Quaternion(
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            w=1.0,
+        )
         self._paper_seek_baseline_fz_n = 0.0
         self._paper_seek_contact_threshold_active_n = (
             self.paper_seek_contact_threshold_n
@@ -1352,6 +1381,8 @@ class PenFakeHardwareServoNode(Node):
         self._paper_seek_state = PAPER_SEEK_ZEROING
         self._paper_seek_started_at_sec = now_sec
         self._paper_seek_start_tip_z = current_tip.z
+        self._paper_seek_captured_tip_xy = (current_tip.x, current_tip.y)
+        self._paper_seek_captured_tool_orientation = current_tool_pose.orientation
         self._paper_seek_offset_m = 0.0
         self._paper_seek_baseline_fz_n = self._paper_seek_filtered_fz_n
         self._paper_seek_baseline_samples = []
@@ -1947,6 +1978,15 @@ class PenFakeHardwareServoNode(Node):
         return pose_target_from_transform(transform)
 
     def _make_tool_pose_target(self) -> PoseTarget:
+        if self._paper_seek_active():
+            return paper_seek_tool_pose_target(
+                captured_tip_xy=self._paper_seek_captured_tip_xy,
+                target_tip_z=self._paper_seek_target_tip_z(),
+                captured_tool_orientation=(
+                    self._paper_seek_captured_tool_orientation
+                ),
+                tool0_to_pen_tip=self.tool0_to_pen_tip,
+            )
         return tool_pose_from_pen_tip_pose(
             pen_pose=self._pen_state.pose,
             paper_origin=self._target_paper_origin(),
@@ -1960,6 +2000,12 @@ class PenFakeHardwareServoNode(Node):
                 dynamic_orientation=self._pen_orientation.orientation,
             ),
         )
+
+    def _paper_seek_target_tip_z(self) -> float:
+        if self._paper_seek_state == PAPER_SEEK_RETRACTING:
+            assert self._paper_seek_retract_target_z is not None
+            return self._paper_seek_retract_target_z
+        return self._paper_seek_start_tip_z + self._paper_seek_offset_m
 
     def _target_paper_origin(self) -> Point3:
         if self._paper_seek_state in (

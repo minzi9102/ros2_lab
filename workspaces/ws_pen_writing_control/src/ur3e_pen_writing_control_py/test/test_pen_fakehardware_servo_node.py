@@ -23,6 +23,7 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     next_paper_seek_offset,
     paper_seek_baseline_stats,
     paper_seek_dynamic_threshold,
+    paper_seek_tool_pose_target,
     paper_origin_from_current_tool0,
     pose_mode_became_ready,
     pose_axis_points,
@@ -293,6 +294,90 @@ def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():
     assert paper_origin.y == pytest.approx(0.22)
     assert paper_origin.z == pytest.approx(0.12)
     assert estimated_tip_z == pytest.approx(0.64)
+
+
+def test_paper_seek_target_locks_captured_tip_xy_and_tool_orientation():
+    orientation = Quaternion(
+        x=0.0,
+        y=math.sin(math.pi / 8.0),
+        z=0.0,
+        w=math.cos(math.pi / 8.0),
+    )
+    tool_offset = Point3(x=0.00079, y=-0.00076, z=0.15172)
+
+    target_a = paper_seek_tool_pose_target(
+        captured_tip_xy=(0.412, -0.087),
+        target_tip_z=0.123,
+        captured_tool_orientation=orientation,
+        tool0_to_pen_tip=tool_offset,
+    )
+    target_b = paper_seek_tool_pose_target(
+        captured_tip_xy=(0.412, -0.087),
+        target_tip_z=0.119,
+        captured_tool_orientation=orientation,
+        tool0_to_pen_tip=tool_offset,
+    )
+
+    tip_a = tool_tip_point_from_tool_pose(
+        tool_pose=target_a,
+        tool0_to_pen_tip=tool_offset,
+    )
+    tip_b = tool_tip_point_from_tool_pose(
+        tool_pose=target_b,
+        tool0_to_pen_tip=tool_offset,
+    )
+    assert (tip_a.x, tip_a.y) == pytest.approx((0.412, -0.087))
+    assert (tip_b.x, tip_b.y) == pytest.approx((0.412, -0.087))
+    assert tip_a.z == pytest.approx(0.123)
+    assert tip_b.z == pytest.approx(0.119)
+    assert target_a.orientation == orientation
+    assert target_b.orientation == orientation
+
+
+def test_paper_seek_target_is_independent_of_virtual_paper_target():
+    captured_orientation = Quaternion(x=0.2, y=-0.3, z=0.1, w=0.9)
+    tool_offset = Point3(x=0.001, y=-0.002, z=0.15)
+    expected = paper_seek_tool_pose_target(
+        captured_tip_xy=(0.31, 0.04),
+        target_tip_z=-0.08,
+        captured_tool_orientation=captured_orientation,
+        tool0_to_pen_tip=tool_offset,
+    )
+
+    virtual_targets = (
+        tool_pose_from_pen_tip_pose(
+            pen_pose=PenPose2D(
+                tip_x=-0.1,
+                tip_y=0.2,
+                yaw=0.0,
+                tilt_rad=0.0,
+            ),
+            paper_origin=Point3(x=0.0, y=0.0, z=0.5),
+            pen_length=0.15,
+            tool0_to_pen_tip_xyz=tool_offset,
+        ),
+        tool_pose_from_pen_tip_pose(
+            pen_pose=PenPose2D(
+                tip_x=0.25,
+                tip_y=-0.3,
+                yaw=math.pi / 2.0,
+                tilt_rad=math.radians(20.0),
+            ),
+            paper_origin=Point3(x=0.7, y=-0.4, z=-0.2),
+            pen_length=0.15,
+            tool0_to_pen_tip_xyz=tool_offset,
+        ),
+    )
+
+    assert virtual_targets[0] != virtual_targets[1]
+    for _virtual_target in virtual_targets:
+        actual = paper_seek_tool_pose_target(
+            captured_tip_xy=(0.31, 0.04),
+            target_tip_z=-0.08,
+            captured_tool_orientation=captured_orientation,
+            tool0_to_pen_tip=tool_offset,
+        )
+        assert actual == expected
 
 
 def test_servo_status_fresh_requires_seen_recent_status():
