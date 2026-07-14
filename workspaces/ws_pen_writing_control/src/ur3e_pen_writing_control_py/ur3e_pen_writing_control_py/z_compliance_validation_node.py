@@ -1,0 +1,1159 @@
+import csv
+from dataclasses import dataclass
+from datetime import datetime
+import math
+from pathlib import Path
+import signal
+import statistics
+import threading
+import time
+
+from action_msgs.msg import GoalStatus
+from control_msgs.action import FollowJointTrajectory
+from controller_manager_msgs.srv import ListControllers, SwitchController
+from geometry_msgs.msg import PointStamped, Pose, PoseStamped, Twist, WrenchStamped
+from moveit_msgs.msg import MoveItErrorCodes, RobotState
+from moveit_msgs.srv import GetCartesianPath
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.duration import Duration
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.signals import SignalHandlerOptions
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64, String
+from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformException, TransformListener
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from ur_dashboard_msgs.msg import RobotMode, SafetyMode
+from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
+from ur_msgs.srv import SetForceMode, SetPayload
+
+from .pen_fakehardware_servo_node import (
+    pose_target_from_transform,
+    projected_force_z_in_base,
+)
+from .pose_math import Point3, Quaternion, transform_point
+
+
+CONFIRMATION = "I_CONFIRM_REAL_Z_COMPLIANCE_TEST"
+MOTION_CONTROLLERS = (
+    "joint_trajectory_controller",
+    "scaled_joint_trajectory_controller",
+    "forward_position_controller",
+    "forward_velocity_controller",
+    "forward_effort_controller",
+)
+PASSTHROUGH = "passthrough_trajectory_controller"
+FORCE = "force_mode_controller"
+
+
+@dataclass(frozen=True)
+class ControllerDelta:
+    activate: tuple[str, ...]
+    deactivate: tuple[str, ...]
+
+
+def controller_delta(
+    states: dict[str, str], *, activate: tuple[str, ...], deactivate: tuple[str, ...]
+) -> ControllerDelta:
+    return ControllerDelta(
+        activate=tuple(name for name in activate if states.get(name) != "active"),
+        deactivate=tuple(name for name in deactivate if states.get(name) == "active"),
+    )
+
+
+def controllers_match(
+    states: dict[str, str], *, active: tuple[str, ...], inactive: tuple[str, ...]
+) -> bool:
+    return all(states.get(name) == "active" for name in active) and all(
+        states.get(name) != "active" for name in inactive
+    )
+
+
+def duration_seconds(duration) -> float:
+    return float(duration.sec) + float(duration.nanosec) * 1e-9
+
+
+def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) -> str | None:
+    if len(trajectory.joint_names) != 6:
+        return "trajectory must contain six UR joints"
+    if len(trajectory.points) < 2:
+        return "trajectory must contain at least two points"
+    previous_time = -1.0
+    previous_positions = None
+    for point in trajectory.points:
+        if len(point.positions) != len(trajectory.joint_names):
+            return "trajectory point has incomplete joint positions"
+        stamp = duration_seconds(point.time_from_start)
+        if stamp <= previous_time:
+            return "trajectory time_from_start must be strictly increasing"
+        if previous_positions is not None and any(
+            abs(current - previous) > max_joint_step_rad
+            for current, previous in zip(point.positions, previous_positions)
+        ):
+            return "trajectory contains a joint-space jump"
+        previous_time = stamp
+        previous_positions = point.positions
+    return None
+
+
+def relative_normal_force(*, projected_force_n: float, baseline_force_n: float) -> float:
+    return projected_force_n - baseline_force_n
+
+
+def contact_lost(
+    *, force_n: float, threshold_n: float, below_since: float | None, now: float, duration: float
+) -> tuple[bool, float | None]:
+    if force_n >= threshold_n:
+        return False, None
+    started = now if below_since is None else below_since
+    return now - started >= duration, started
+
+
+def force_mode_request(
+    *, paper_point: PointStamped, target_force_n: float, speed_limit_mps: float,
+    damping_factor: float, gain_scaling: float, xy_limit_m: float,
+    rotation_limit_rad: float,
+) -> SetForceMode.Request:
+    request = SetForceMode.Request()
+    request.task_frame.header.frame_id = paper_point.header.frame_id or "base_link"
+    request.task_frame.pose.position.x = paper_point.point.x
+    request.task_frame.pose.position.y = paper_point.point.y
+    request.task_frame.pose.position.z = paper_point.point.z
+    request.task_frame.pose.orientation.w = 1.0
+    request.selection_vector_z = True
+    request.wrench.force.z = -abs(target_force_n)
+    request.type = SetForceMode.Request.NO_TRANSFORM
+    request.speed_limits = Twist()
+    request.speed_limits.linear.z = speed_limit_mps
+    request.deviation_limits = [
+        xy_limit_m,
+        xy_limit_m,
+        speed_limit_mps,
+        rotation_limit_rad,
+        rotation_limit_rad,
+        rotation_limit_rad,
+    ]
+    request.damping_factor = damping_factor
+    request.gain_scaling = gain_scaling
+    return request
+
+
+class RunStopped(RuntimeError):
+    pass
+
+
+class ZComplianceValidationNode(Node):
+    def __init__(self) -> None:
+        super().__init__("z_compliance_validation")
+        if self.declare_parameter("human_confirmation", "").value != CONFIRMATION:
+            raise ValueError(f"human_confirmation must equal {CONFIRMATION}")
+
+        self.base_frame = str(self.declare_parameter("base_frame", "base_link").value)
+        self.tool_frame = str(self.declare_parameter("tool_frame", "tool0").value)
+        self.wrench_topic = str(
+            self.declare_parameter(
+                "wrench_topic", "/force_torque_sensor_broadcaster/wrench"
+            ).value
+        )
+        self.detected_point_topic = str(
+            self.declare_parameter(
+                "detected_point_topic", "/pen_writing/detected_paper_point"
+            ).value
+        )
+        self.payload_mass_kg = float(
+            self.declare_parameter("payload_mass_kg", 0.085).value
+        )
+        self.payload_cog_xyz = tuple(
+            float(value)
+            for value in self.declare_parameter(
+                "payload_cog_xyz", [0.0, 0.0, 0.0]
+            ).value
+        )
+        self.tool0_to_pen_tip_xyz = Point3(
+            *(
+                float(value)
+                for value in self.declare_parameter(
+                    "tool0_to_pen_tip_xyz", [0.00079, -0.00076, 0.15172]
+                ).value
+            )
+        )
+        self.target_force_n = self._float_parameter("target_force_n", 0.8)
+        self.direction_force_n = self._float_parameter("direction_force_n", 0.2)
+        self.max_force_filtered_n = self._float_parameter("max_force_filtered_n", 1.5)
+        self.max_force_raw_n = self._float_parameter("max_force_raw_n", 2.0)
+        self.max_z_speed_mps = self._float_parameter("max_z_speed_mps", 0.0005)
+        self.damping_factor = self._float_parameter("damping_factor", 0.5)
+        self.gain_scaling = self._float_parameter("gain_scaling", 0.3)
+        self.max_acquire_travel_m = self._float_parameter("max_acquire_travel_m", 0.004)
+        self.max_contact_z_offset_m = self._float_parameter(
+            "max_contact_z_offset_m", 0.0015
+        )
+        self.max_xy_error_m = self._float_parameter("max_xy_error_m", 0.003)
+        self.max_rotation_error_rad = self._float_parameter(
+            "max_rotation_error_rad", math.radians(2.0)
+        )
+        self.steady_force_min_n = self._float_parameter("steady_force_min_n", 0.5)
+        self.steady_force_max_n = self._float_parameter("steady_force_max_n", 1.1)
+        self.lost_contact_force_n = self._float_parameter("lost_contact_force_n", 0.2)
+        self.lost_contact_duration_sec = self._float_parameter(
+            "lost_contact_duration_sec", 0.3
+        )
+        self.retract_distance_m = self._float_parameter("retract_distance_m", 0.003)
+        self.line_length_m = self._float_parameter("line_length_m", 0.01)
+        self.line_speed_mps = self._float_parameter("line_speed_mps", 0.002)
+        self.cartesian_step_m = self._float_parameter("cartesian_step_m", 0.0005)
+        self.data_timeout_sec = self._float_parameter("data_timeout_sec", 0.2)
+        self.baseline_duration_sec = self._float_parameter("baseline_duration_sec", 1.0)
+        self.baseline_settle_sec = self._float_parameter("baseline_settle_sec", 0.5)
+        self.max_baseline_stddev_n = self._float_parameter("max_baseline_stddev_n", 0.1)
+        self.contact_settle_sec = self._float_parameter("contact_settle_sec", 1.0)
+        self.hold_duration_sec = self._float_parameter("hold_duration_sec", 5.0)
+        self.air_hold_duration_sec = self._float_parameter("air_hold_duration_sec", 2.0)
+        self.max_session_duration_sec = self._float_parameter(
+            "max_session_duration_sec", 60.0
+        )
+        self.cleanup_margin_sec = self._float_parameter("cleanup_margin_sec", 15.0)
+        self._validate_parameters()
+
+        log_directory = str(self.declare_parameter("log_directory", "").value)
+        root = (
+            Path(log_directory)
+            if log_directory
+            else Path.cwd() / "logs" / "stage3_real_z_compliance"
+        )
+        self._run_directory = root / datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+        self._lock = threading.Lock()
+        self._abort_event = threading.Event()
+        self._abort_reason = "manual stop requested"
+        self._worker: threading.Thread | None = None
+        self._session_started_at = time.monotonic()
+        self._state = "IDLE"
+        self._detail = "ready"
+        self._paper_point: PointStamped | None = None
+        self._latest_joint_state: JointState | None = None
+        self._last_joint_time = 0.0
+        self._last_wrench_time = 0.0
+        self._raw_projected_force_n = 0.0
+        self._filtered_projected_force_n = 0.0
+        self._filter_initialized = False
+        self._baseline_force_n = 0.0
+        self._active_target_force_n = 0.0
+        self._force_started = False
+        self._controllers_switched = False
+        self._original_controller_states: dict[str, str] = {}
+        self._active_goal_handle = None
+        self._profile = ""
+        self._last_dashboard_check = 0.0
+        self._force_start_tip: Point3 | None = None
+        self._force_start_pose: PoseStamped | None = None
+        self._contact_tip: Point3 | None = None
+        self._line_start_tip: Point3 | None = None
+        self._line_max_lateral_error_m = 0.0
+        self._csv_file = None
+        self._csv_writer = None
+
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._status_pub = self.create_publisher(
+            String, "/pen_writing/z_compliance/status", latched
+        )
+        self._force_pub = self.create_publisher(
+            Float64, "/pen_writing/z_compliance/normal_force", 10
+        )
+        self._offset_pub = self.create_publisher(
+            Float64, "/pen_writing/z_compliance/z_offset", 10
+        )
+        self.create_subscription(WrenchStamped, self.wrench_topic, self._on_wrench, 20)
+        self.create_subscription(JointState, "/joint_states", self._on_joint_state, 20)
+        self.create_subscription(
+            PointStamped, self.detected_point_topic, self._on_paper_point, latched
+        )
+
+        self._list_client = self.create_client(
+            ListControllers, "/controller_manager/list_controllers"
+        )
+        self._switch_client = self.create_client(
+            SwitchController, "/controller_manager/switch_controller"
+        )
+        self._payload_client = self.create_client(
+            SetPayload, "/io_and_status_controller/set_payload"
+        )
+        self._zero_client = self.create_client(
+            Trigger, "/io_and_status_controller/zero_ftsensor"
+        )
+        self._start_force_client = self.create_client(
+            SetForceMode, "/force_mode_controller/start_force_mode"
+        )
+        self._stop_force_client = self.create_client(
+            Trigger, "/force_mode_controller/stop_force_mode"
+        )
+        self._robot_mode_client = self.create_client(
+            GetRobotMode, "/dashboard_client/get_robot_mode"
+        )
+        self._safety_mode_client = self.create_client(
+            GetSafetyMode, "/dashboard_client/get_safety_mode"
+        )
+        self._cartesian_client = self.create_client(
+            GetCartesianPath, "/compute_cartesian_path"
+        )
+        self._trajectory_client = ActionClient(
+            self,
+            FollowJointTrajectory,
+            "/passthrough_trajectory_controller/follow_joint_trajectory",
+        )
+
+        for service_name, profile in (
+            ("start_switch_hold", "switch_hold"),
+            ("start_direction", "direction"),
+            ("start_contact_hold", "contact_hold"),
+            ("start_line", "line"),
+        ):
+            self.create_service(
+                Trigger,
+                f"/pen_writing/z_compliance/{service_name}",
+                lambda request, response, selected=profile: self._start_profile(
+                    selected, request, response
+                ),
+            )
+        self.create_service(Trigger, "/pen_writing/z_compliance/stop", self._stop)
+        self.create_timer(0.02, self._publish_measurements)
+        self.create_timer(0.1, self._session_watchdog)
+        self._publish_status("IDLE", "ready; no motion starts until a start service is called")
+
+    def _float_parameter(self, name: str, default: float) -> float:
+        return float(self.declare_parameter(name, default).value)
+
+    def _validate_parameters(self) -> None:
+        if not 0.0 < self.target_force_n <= 1.0:
+            raise ValueError("target_force_n must be in (0, 1]")
+        if not 0.0 < self.max_z_speed_mps <= 0.0005:
+            raise ValueError("max_z_speed_mps must be in (0, 0.0005]")
+        if not 0.0 < self.max_acquire_travel_m <= 0.004:
+            raise ValueError("max_acquire_travel_m must be in (0, 0.004]")
+        if not 0.0 < self.max_contact_z_offset_m <= 0.0015:
+            raise ValueError("max_contact_z_offset_m must be in (0, 0.0015]")
+        if not 0.0 <= self.damping_factor <= 1.0:
+            raise ValueError("damping_factor must be in [0, 1]")
+        if not 0.0 < self.gain_scaling <= 1.0:
+            raise ValueError("gain_scaling must be in (0, 1]")
+        if len(self.payload_cog_xyz) != 3:
+            raise ValueError("payload_cog_xyz must contain three values")
+        if not 0.0 < self.direction_force_n <= 0.5:
+            raise ValueError("direction_force_n must be in (0, 0.5]")
+        if not (
+            0.0
+            <= self.lost_contact_force_n
+            < self.steady_force_min_n
+            < self.steady_force_max_n
+            <= self.max_force_filtered_n
+            < self.max_force_raw_n
+        ):
+            raise ValueError("force thresholds are not strictly ordered")
+        if self.max_force_filtered_n > 1.5 or self.max_force_raw_n > 2.0:
+            raise ValueError("force hard limits exceed the validated bounds")
+        if not 0.0 < self.max_xy_error_m <= 0.003:
+            raise ValueError("max_xy_error_m must be in (0, 0.003]")
+        if not 0.0 < self.max_rotation_error_rad <= math.radians(2.0):
+            raise ValueError("max_rotation_error_rad must be in (0, 2deg]")
+        if not 0.0 < self.retract_distance_m <= 0.003:
+            raise ValueError("retract_distance_m must be in (0, 0.003]")
+        if not 0.0 < self.line_length_m <= 0.01:
+            raise ValueError("line_length_m must be in (0, 0.01]")
+        if not 0.0 < self.line_speed_mps <= 0.002:
+            raise ValueError("line_speed_mps must be in (0, 0.002]")
+        if not 0.0 < self.cartesian_step_m <= 0.0005:
+            raise ValueError("cartesian_step_m must be in (0, 0.0005]")
+        if self.max_session_duration_sec < 30.0:
+            raise ValueError("max_session_duration_sec must be at least 30 seconds")
+        if not 5.0 <= self.cleanup_margin_sec < self.max_session_duration_sec:
+            raise ValueError("cleanup_margin_sec must leave at least 5 seconds")
+
+    def _on_paper_point(self, message: PointStamped) -> None:
+        self._paper_point = message
+
+    def _on_joint_state(self, message: JointState) -> None:
+        self._latest_joint_state = message
+        self._last_joint_time = time.monotonic()
+
+    def _on_wrench(self, message: WrenchStamped) -> None:
+        orientation = Quaternion(0.0, 0.0, 0.0, 1.0)
+        source_frame = message.header.frame_id or self.tool_frame
+        if source_frame != self.base_frame:
+            try:
+                transform = self._tf_buffer.lookup_transform(
+                    self.base_frame, source_frame, rclpy.time.Time()
+                )
+            except TransformException:
+                return
+            rotation = transform.transform.rotation
+            orientation = Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)
+        projected = projected_force_z_in_base(
+            force_xyz=(
+                float(message.wrench.force.x),
+                float(message.wrench.force.y),
+                float(message.wrench.force.z),
+            ),
+            source_orientation_in_base=orientation,
+        )
+        with self._lock:
+            self._raw_projected_force_n = projected
+            if not self._filter_initialized:
+                self._filtered_projected_force_n = projected
+                self._filter_initialized = True
+            else:
+                self._filtered_projected_force_n += 0.1 * (
+                    projected - self._filtered_projected_force_n
+                )
+            self._last_wrench_time = time.monotonic()
+
+    def _start_profile(self, profile: str, _request, response):
+        if self._worker is not None and self._worker.is_alive():
+            response.success = False
+            response.message = f"already running: {self._state}"
+            return response
+        remaining = self.max_session_duration_sec - (
+            time.monotonic() - self._session_started_at
+        )
+        if remaining < 25.0:
+            response.success = False
+            response.message = (
+                f"only {remaining:.1f}s remain in the bounded real session; relaunch"
+            )
+            return response
+        self._abort_event.clear()
+        self._abort_reason = "manual stop requested"
+        self._worker = threading.Thread(
+            target=self._run_profile, args=(profile,), daemon=True
+        )
+        self._worker.start()
+        response.success = True
+        response.message = f"{profile} accepted"
+        return response
+
+    def _stop(self, _request, response):
+        if self._worker is None or not self._worker.is_alive():
+            response.success = False
+            response.message = "no active Z-compliance run"
+            return response
+        self._abort_reason = "operator stop requested"
+        self._abort_event.set()
+        response.success = True
+        response.message = "stop requested"
+        return response
+
+    def _run_profile(self, profile: str) -> None:
+        self._profile = profile
+        succeeded = False
+        failure = ""
+        try:
+            self._open_csv(profile)
+            start_tip = self._precheck()
+            if profile != "switch_hold":
+                self._prepare_force_baseline()
+            self._switch_to_passthrough_force()
+            self._send_hold_current_joints()
+            if profile == "switch_hold":
+                self._air_hold(start_tip)
+            else:
+                force = self.direction_force_n if profile == "direction" else self.target_force_n
+                self._start_force_mode(force)
+                if profile == "direction":
+                    self._verify_direction(start_tip)
+                else:
+                    self._acquire_contact(start_tip)
+                    if profile == "contact_hold":
+                        self._hold_contact()
+                    else:
+                        self._write_line()
+            succeeded = True
+        except Exception as exc:  # Safety state machine reports the exact failed gate.
+            failure = str(exc)
+            self.get_logger().error(f"Z-compliance {profile} failed: {failure}")
+        finally:
+            cleanup_error = self._safe_cleanup(allow_retract=profile != "switch_hold")
+            if cleanup_error:
+                failure = f"{failure}; {cleanup_error}" if failure else cleanup_error
+                succeeded = False
+            self._publish_status(
+                "SUCCEEDED" if succeeded else "ABORTED",
+                f"{profile} complete" if succeeded else failure or "stopped",
+            )
+            self._close_csv()
+
+    def _precheck(self) -> Point3:
+        self._publish_status("PRECHECK", "checking paper, TF, robot and controllers")
+        self._raise_if_stopped()
+        if self._paper_point is None:
+            raise RunStopped("no detected paper point")
+        now = time.monotonic()
+        if now - self._last_wrench_time > self.data_timeout_sec:
+            raise RunStopped("wrench data is stale")
+        if self._latest_joint_state is None or now - self._last_joint_time > self.data_timeout_sec:
+            raise RunStopped("joint state is stale")
+        tip = self._current_tip()
+        gap = tip.z - self._paper_point.point.z
+        if not 0.002 <= gap <= 0.004:
+            raise RunStopped(f"pen-tip air gap must be 2-4mm, got {gap:.6f}m")
+        self._assert_dashboard_safe(force=True)
+        return tip
+
+    def _prepare_force_baseline(self) -> None:
+        self._publish_status("AIR_ZERO", "setting payload and zeroing F/T in air")
+        payload = SetPayload.Request()
+        payload.mass = self.payload_mass_kg
+        (
+            payload.center_of_gravity.x,
+            payload.center_of_gravity.y,
+            payload.center_of_gravity.z,
+        ) = self.payload_cog_xyz
+        result = self._call(self._payload_client, payload, 2.0)
+        if not result.success:
+            raise RunStopped("set_payload failed")
+        result = self._call(self._zero_client, Trigger.Request(), 2.0)
+        if not result.success:
+            raise RunStopped("zero_ftsensor failed")
+        with self._lock:
+            self._filter_initialized = False
+        self._sleep_checked(self.baseline_settle_sec)
+        self._publish_status("BASELINE", "collecting relative-force baseline")
+        samples = []
+        end = time.monotonic() + self.baseline_duration_sec
+        while time.monotonic() < end:
+            self._assert_live_data()
+            with self._lock:
+                samples.append(self._filtered_projected_force_n)
+            time.sleep(0.01)
+        if len(samples) < 5:
+            raise RunStopped("insufficient baseline samples")
+        stddev = statistics.pstdev(samples)
+        if stddev > self.max_baseline_stddev_n:
+            raise RunStopped(f"baseline noise too high: {stddev:.3f}N")
+        self._baseline_force_n = statistics.fmean(samples)
+        self._publish_status(
+            "BASELINE", f"mean={self._baseline_force_n:.3f}N stddev={stddev:.3f}N"
+        )
+
+    def _list_controllers(self) -> dict[str, str]:
+        result = self._call(self._list_client, ListControllers.Request(), 2.0)
+        return {
+            controller.name: controller.state for controller in result.controller
+        }
+
+    def _switch_to_passthrough_force(self) -> None:
+        self._publish_status("CONTROLLER_SWITCH", "activating passthrough + force")
+        states = self._list_controllers()
+        self._original_controller_states = states
+        required = (PASSTHROUGH, FORCE)
+        if any(name not in states for name in required):
+            raise RunStopped("passthrough or force controller is not loaded")
+        delta = controller_delta(states, activate=required, deactivate=MOTION_CONTROLLERS)
+        self._switch(delta)
+        self._controllers_switched = bool(delta.activate or delta.deactivate)
+        states = self._list_controllers()
+        if not controllers_match(states, active=required, inactive=MOTION_CONTROLLERS):
+            raise RunStopped("controller state verification failed after switch")
+
+    def _switch(self, delta: ControllerDelta) -> None:
+        if not delta.activate and not delta.deactivate:
+            return
+        request = SwitchController.Request()
+        request.activate_controllers = list(delta.activate)
+        request.deactivate_controllers = list(delta.deactivate)
+        request.strictness = SwitchController.Request.STRICT
+        request.activate_asap = True
+        request.timeout.sec = 5
+        result = self._call(self._switch_client, request, 6.0)
+        if not result.ok:
+            raise RunStopped("STRICT controller switch failed")
+
+    def _send_hold_current_joints(self, *, publish_state: bool = True) -> None:
+        if publish_state:
+            self._publish_status("AIR_HOLD", "holding current joint position")
+        joint_state = self._fresh_joint_state()
+        trajectory = JointTrajectory()
+        selected = dict(zip(joint_state.name, joint_state.position))
+        trajectory.joint_names = [
+            "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+            "wrist_1_joint", "wrist_2_joint", "wrist_3_joint",
+        ]
+        point = JointTrajectoryPoint()
+        point.positions = [selected[name] for name in trajectory.joint_names]
+        point.time_from_start.sec = 1
+        trajectory.points = [point]
+        self._execute_trajectory(trajectory, timeout=3.0, allow_single_point=True)
+
+    def _air_hold(self, start_tip: Point3) -> None:
+        end = time.monotonic() + self.air_hold_duration_sec
+        while time.monotonic() < end:
+            self._assert_live_data()
+            current = self._current_tip()
+            translation = math.dist(
+                (start_tip.x, start_tip.y, start_tip.z),
+                (current.x, current.y, current.z),
+            )
+            if translation > 0.001:
+                raise RunStopped("air hold translation exceeded 1mm")
+            time.sleep(0.02)
+
+    def _start_force_mode(self, force_n: float) -> None:
+        assert self._paper_point is not None
+        self._force_start_tip = self._current_tip()
+        self._force_start_pose = self._current_tool_pose_stamped()
+        request = force_mode_request(
+            paper_point=self._paper_point,
+            target_force_n=force_n,
+            speed_limit_mps=self.max_z_speed_mps,
+            damping_factor=self.damping_factor,
+            gain_scaling=self.gain_scaling,
+            xy_limit_m=self.max_xy_error_m,
+            rotation_limit_rad=self.max_rotation_error_rad,
+        )
+        result = self._call(self._start_force_client, request, 3.0)
+        if not result.success:
+            raise RunStopped("start_force_mode failed")
+        self._active_target_force_n = force_n
+        self._force_started = True
+
+    def _verify_direction(self, start_tip: Point3) -> None:
+        self._publish_status("DIRECTION_CHECK", "verifying motion toward -paper Z")
+        end = time.monotonic() + 2.0
+        while time.monotonic() < end:
+            self._assert_live_data(check_contact_force=False)
+            current = self._current_tip()
+            downward = start_tip.z - current.z
+            lateral = math.hypot(current.x - start_tip.x, current.y - start_tip.y)
+            if lateral > 0.001:
+                raise RunStopped("direction check lateral displacement exceeded 1mm")
+            if downward >= 0.0001:
+                return
+            if abs(downward) > 0.0005:
+                raise RunStopped("direction check displacement exceeded 0.5mm")
+            time.sleep(0.01)
+        raise RunStopped("direction check timed out")
+
+    def _acquire_contact(self, start_tip: Point3) -> None:
+        self._publish_status("CONTACT_ACQUIRE", "approaching paper under Force Mode")
+        stable_since = None
+        deadline = (
+            time.monotonic()
+            + self.max_acquire_travel_m / self.max_z_speed_mps
+            + self.contact_settle_sec
+            + 2.0
+        )
+        while True:
+            if time.monotonic() > deadline:
+                raise RunStopped("contact acquisition timed out")
+            force = self._assert_live_data(check_contact_force=True)
+            current = self._current_tip()
+            travel = start_tip.z - current.z
+            if travel > self.max_acquire_travel_m or travel < -0.0005:
+                raise RunStopped(f"contact acquisition Z travel exceeded: {travel:.6f}m")
+            if self.steady_force_min_n <= force <= self.steady_force_max_n:
+                stable_since = stable_since or time.monotonic()
+                if time.monotonic() - stable_since >= self.contact_settle_sec:
+                    self._contact_tip = current
+                    self._publish_status("CONTACT_STABLE", f"force={force:.3f}N")
+                    return
+            else:
+                stable_since = None
+            time.sleep(0.01)
+
+    def _hold_contact(self) -> None:
+        self._publish_status("HOLDING", "holding 0.8N relative contact")
+        self._monitor_contact_until(time.monotonic() + self.hold_duration_sec)
+
+    def _write_line(self) -> None:
+        self._publish_status("WRITING", "planning 10mm +X line")
+        self._line_start_tip = self._current_tip()
+        self._line_max_lateral_error_m = 0.0
+        trajectory = self._plan_cartesian(delta_x=self.line_length_m, delta_z=0.0)
+        timeout = max(10.0, self.line_length_m / self.line_speed_mps + 5.0)
+        self._execute_trajectory(trajectory, timeout=timeout, monitor_contact=True)
+        current = self._current_tip()
+        endpoint_error = math.hypot(
+            current.x - (self._line_start_tip.x + self.line_length_m),
+            current.y - self._line_start_tip.y,
+        )
+        if endpoint_error > 0.0005:
+            raise RunStopped(f"line endpoint error exceeded: {endpoint_error:.6f}m")
+        if self._line_max_lateral_error_m > 0.0005:
+            raise RunStopped(
+                "line lateral error exceeded: "
+                f"{self._line_max_lateral_error_m:.6f}m"
+            )
+        _, rotation_error = self._tracking_errors(current)
+        if rotation_error > math.radians(1.0):
+            raise RunStopped(
+                f"line final rotation error exceeded 1deg: {rotation_error:.6f}rad"
+            )
+
+    def _plan_cartesian(self, *, delta_x: float, delta_z: float):
+        pose = self._current_tool_pose_stamped()
+        target = Pose()
+        target.position.x = pose.pose.position.x + delta_x
+        target.position.y = pose.pose.position.y
+        target.position.z = pose.pose.position.z + delta_z
+        target.orientation = pose.pose.orientation
+        request = GetCartesianPath.Request()
+        request.header.frame_id = self.base_frame
+        request.group_name = "ur_manipulator"
+        request.link_name = self.tool_frame
+        request.start_state = RobotState(joint_state=self._fresh_joint_state())
+        request.waypoints = [target]
+        request.max_step = self.cartesian_step_m
+        request.jump_threshold = 2.0
+        request.revolute_jump_threshold = 0.2
+        request.max_velocity_scaling_factor = 0.1
+        request.max_acceleration_scaling_factor = 0.05
+        request.cartesian_speed_limited_link = self.tool_frame
+        request.max_cartesian_speed = self.line_speed_mps
+        result = self._call(self._cartesian_client, request, 5.0)
+        if result.error_code.val != MoveItErrorCodes.SUCCESS or result.fraction < 0.999:
+            raise RunStopped(
+                "Cartesian path incomplete: "
+                f"code={result.error_code.val} fraction={result.fraction:.3f}"
+            )
+        trajectory = result.solution.joint_trajectory
+        error = validate_joint_trajectory(trajectory)
+        if error:
+            raise RunStopped(error)
+        return trajectory
+
+    def _execute_trajectory(
+        self, trajectory, *, timeout: float, monitor_contact: bool = False,
+        allow_single_point: bool = False,
+    ) -> None:
+        if not allow_single_point:
+            error = validate_joint_trajectory(trajectory)
+            if error:
+                raise RunStopped(error)
+        if not self._trajectory_client.wait_for_server(timeout_sec=2.0):
+            raise RunStopped("passthrough trajectory action is unavailable")
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = trajectory
+        handle = self._wait_future(
+            self._trajectory_client.send_goal_async(goal), 3.0, "trajectory goal"
+        )
+        if handle is None or not handle.accepted:
+            raise RunStopped("passthrough trajectory goal rejected")
+        self._active_goal_handle = handle
+        result_future = handle.get_result_async()
+        deadline = time.monotonic() + timeout
+        below_since = None
+        in_band = total = 0
+        while not result_future.done():
+            if time.monotonic() > deadline:
+                handle.cancel_goal_async()
+                raise RunStopped("passthrough trajectory timed out")
+            if monitor_contact:
+                force = self._assert_live_data(check_contact_force=True)
+                total += 1
+                in_band += int(self.steady_force_min_n <= force <= self.steady_force_max_n)
+                lost, below_since = contact_lost(
+                    force_n=force,
+                    threshold_n=self.lost_contact_force_n,
+                    below_since=below_since,
+                    now=time.monotonic(),
+                    duration=self.lost_contact_duration_sec,
+                )
+                if lost:
+                    handle.cancel_goal_async()
+                    raise RunStopped("contact lost during line")
+                self._assert_contact_z_offset()
+            self._raise_if_stopped()
+            time.sleep(0.01)
+        wrapped = result_future.result()
+        self._active_goal_handle = None
+        if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
+            raise RunStopped(f"trajectory action failed with status {wrapped.status}")
+        if wrapped.result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
+            raise RunStopped(f"trajectory controller error {wrapped.result.error_code}")
+        if monitor_contact and (total == 0 or in_band / total < 0.9):
+            raise RunStopped(f"steady-force coverage below 90%: {in_band}/{total}")
+
+    def _monitor_contact_until(self, deadline: float) -> None:
+        below_since = None
+        in_band = total = 0
+        while time.monotonic() < deadline:
+            force = self._assert_live_data(check_contact_force=True)
+            total += 1
+            in_band += int(self.steady_force_min_n <= force <= self.steady_force_max_n)
+            lost, below_since = contact_lost(
+                force_n=force,
+                threshold_n=self.lost_contact_force_n,
+                below_since=below_since,
+                now=time.monotonic(),
+                duration=self.lost_contact_duration_sec,
+            )
+            if lost:
+                raise RunStopped("contact lost during hold")
+            self._assert_contact_z_offset()
+            time.sleep(0.01)
+        if total == 0 or in_band / total < 0.9:
+            raise RunStopped(f"steady-force coverage below 90%: {in_band}/{total}")
+
+    def _assert_live_data(self, *, check_contact_force: bool = False) -> float:
+        self._raise_if_stopped()
+        now = time.monotonic()
+        if now - self._last_wrench_time > self.data_timeout_sec:
+            raise RunStopped("wrench data timed out")
+        if now - self._last_joint_time > self.data_timeout_sec:
+            raise RunStopped("joint state timed out")
+        self._assert_dashboard_safe()
+        with self._lock:
+            raw = relative_normal_force(
+                projected_force_n=self._raw_projected_force_n,
+                baseline_force_n=self._baseline_force_n,
+            )
+            filtered = relative_normal_force(
+                projected_force_n=self._filtered_projected_force_n,
+                baseline_force_n=self._baseline_force_n,
+            )
+        enforce_force_limits = check_contact_force or self._force_started
+        if enforce_force_limits and abs(raw) > self.max_force_raw_n:
+            raise RunStopped(f"raw force limit exceeded: {raw:.3f}N")
+        if enforce_force_limits and abs(filtered) > self.max_force_filtered_n:
+            raise RunStopped(f"filtered force limit exceeded: {filtered:.3f}N")
+        if self._force_started:
+            self._assert_noncompliant_limits()
+        self._write_csv(raw, filtered)
+        return filtered
+
+    def _assert_dashboard_safe(self, *, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_dashboard_check < 0.25:
+            return
+        robot = self._call(self._robot_mode_client, GetRobotMode.Request(), 1.0)
+        safety = self._call(self._safety_mode_client, GetSafetyMode.Request(), 1.0)
+        self._last_dashboard_check = time.monotonic()
+        if not robot.success or robot.robot_mode.mode != RobotMode.RUNNING:
+            raise RunStopped(f"robot mode is not RUNNING: {robot.robot_mode.mode}")
+        if not safety.success or safety.safety_mode.mode != SafetyMode.NORMAL:
+            raise RunStopped(f"safety mode is not NORMAL: {safety.safety_mode.mode}")
+
+    def _assert_noncompliant_limits(self) -> None:
+        if self._force_start_tip is None or self._force_start_pose is None:
+            return
+        tip = self._current_tip()
+        xy_error, rotation_error = self._tracking_errors(tip)
+        if xy_error > self.max_xy_error_m:
+            raise RunStopped(f"noncompliant XY error exceeded: {xy_error:.6f}m")
+        if rotation_error > self.max_rotation_error_rad:
+            raise RunStopped(
+                f"noncompliant rotation error exceeded: {rotation_error:.6f}rad"
+            )
+
+    def _tracking_errors(self, tip: Point3) -> tuple[float, float]:
+        assert self._force_start_tip is not None
+        assert self._force_start_pose is not None
+        if self._profile == "line" and self._line_start_tip is not None:
+            lateral_error = abs(tip.y - self._line_start_tip.y)
+            self._line_max_lateral_error_m = max(
+                self._line_max_lateral_error_m, lateral_error
+            )
+            x_error = max(
+                self._line_start_tip.x - tip.x,
+                tip.x - (self._line_start_tip.x + self.line_length_m),
+                0.0,
+            )
+            xy_error = math.hypot(x_error, tip.y - self._line_start_tip.y)
+        else:
+            xy_error = math.hypot(
+                tip.x - self._force_start_tip.x,
+                tip.y - self._force_start_tip.y,
+            )
+        current = self._current_tool_pose_stamped().pose.orientation
+        start = self._force_start_pose.pose.orientation
+        dot = abs(
+            current.x * start.x
+            + current.y * start.y
+            + current.z * start.z
+            + current.w * start.w
+        )
+        rotation_error = 2.0 * math.acos(min(1.0, max(-1.0, dot)))
+        return xy_error, rotation_error
+
+    def _assert_contact_z_offset(self) -> None:
+        if self._contact_tip is None:
+            return
+        current = self._current_tip()
+        if abs(current.z - self._contact_tip.z) > self.max_contact_z_offset_m:
+            raise RunStopped("contact Z offset exceeded")
+
+    def _safe_cleanup(self, *, allow_retract: bool) -> str:
+        errors = []
+        self._abort_event.clear()
+        self._publish_status("FORCE_STOP", "canceling trajectory and holding joints")
+        self._cancel_active_goal(wait=True)
+        force_was_started = self._force_started
+        if self._controllers_switched:
+            try:
+                self._send_hold_current_joints(publish_state=False)
+            except Exception as exc:
+                errors.append(f"current-joint hold failed: {exc}")
+        if self._force_started:
+            try:
+                result = self._call(
+                    self._stop_force_client, Trigger.Request(), 3.0, allow_abort=False
+                )
+                if not result.success:
+                    raise RunStopped("stop_force_mode returned false")
+                self._force_started = False
+            except Exception as exc:
+                errors.append(f"stop force failed; use robot stop: {exc}")
+                return "; ".join(errors)
+        if self._controllers_switched:
+            try:
+                if allow_retract and force_was_started and self._safety_is_normal():
+                    self._publish_status("RETRACT", "retracting 3mm along base +Z")
+                    retract_start = self._current_tip()
+                    trajectory = self._plan_cartesian(
+                        delta_x=0.0, delta_z=self.retract_distance_m
+                    )
+                    self._execute_trajectory(trajectory, timeout=6.0)
+                    retracted = self._current_tip().z - retract_start.z
+                    if not 0.002 <= retracted <= 0.004:
+                        raise RunStopped(
+                            f"retract distance outside 3+/-1mm: {retracted:.6f}m"
+                        )
+                elif allow_retract and force_was_started:
+                    errors.append("safety is not NORMAL; automatic retract skipped")
+                    return "; ".join(errors)
+                self._publish_status(
+                    "CONTROLLER_RESTORE", "restoring pre-run controller state"
+                )
+                self._restore_controllers()
+            except Exception as exc:
+                errors.append(f"retract/restore failed; use robot stop: {exc}")
+        return "; ".join(errors)
+
+    def _restore_controllers(self) -> None:
+        states = self._list_controllers()
+        originally_active = tuple(
+            name for name, state in self._original_controller_states.items() if state == "active"
+        )
+        delta = controller_delta(
+            states,
+            activate=originally_active,
+            deactivate=tuple(
+                name for name in (PASSTHROUGH, FORCE) if name not in originally_active
+            ),
+        )
+        self._switch(delta)
+        restored = self._list_controllers()
+        if not all(restored.get(name) == "active" for name in originally_active):
+            raise RunStopped("original controller state was not restored")
+        self._controllers_switched = False
+
+    def _safety_is_normal(self) -> bool:
+        try:
+            result = self._call(
+                self._safety_mode_client,
+                GetSafetyMode.Request(),
+                2.0,
+                allow_abort=False,
+            )
+            return result.safety_mode.mode == SafetyMode.NORMAL
+        except Exception:
+            return False
+
+    def _current_tool_pose_stamped(self) -> PoseStamped:
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self.base_frame,
+                self.tool_frame,
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.2),
+            )
+        except TransformException as exc:
+            raise RunStopped(f"tool TF unavailable: {exc}") from exc
+        pose = PoseStamped()
+        pose.header = transform.header
+        pose.pose.position.x = transform.transform.translation.x
+        pose.pose.position.y = transform.transform.translation.y
+        pose.pose.position.z = transform.transform.translation.z
+        pose.pose.orientation = transform.transform.rotation
+        return pose
+
+    def _current_tip(self, *, timeout_sec: float = 0.2) -> Point3:
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self.base_frame,
+                self.tool_frame,
+                rclpy.time.Time(),
+                timeout=Duration(seconds=timeout_sec),
+            )
+        except TransformException as exc:
+            raise RunStopped(f"tool TF unavailable: {exc}") from exc
+        pose = pose_target_from_transform(transform)
+        return transform_point(pose, self.tool0_to_pen_tip_xyz)
+
+    def _fresh_joint_state(self) -> JointState:
+        if (
+            self._latest_joint_state is None
+            or time.monotonic() - self._last_joint_time > self.data_timeout_sec
+        ):
+            raise RunStopped("joint state unavailable")
+        copied = JointState()
+        copied.header = self._latest_joint_state.header
+        copied.name = list(self._latest_joint_state.name)
+        copied.position = list(self._latest_joint_state.position)
+        copied.velocity = list(self._latest_joint_state.velocity)
+        return copied
+
+    def _call(self, client, request, timeout: float, *, allow_abort: bool = True):
+        if not client.wait_for_service(timeout_sec=min(timeout, 1.0)):
+            raise RunStopped(f"service unavailable: {client.srv_name}")
+        return self._wait_future(
+            client.call_async(request), timeout, client.srv_name, allow_abort=allow_abort
+        )
+
+    def _wait_future(
+        self, future, timeout: float, label: str, *, allow_abort: bool = True
+    ):
+        deadline = time.monotonic() + timeout
+        while not future.done():
+            if allow_abort:
+                self._raise_if_stopped()
+            if time.monotonic() > deadline:
+                raise RunStopped(f"{label} timed out")
+            time.sleep(0.01)
+        if future.exception() is not None:
+            raise RunStopped(f"{label} failed: {future.exception()}")
+        return future.result()
+
+    def _sleep_checked(self, duration: float) -> None:
+        deadline = time.monotonic() + duration
+        while time.monotonic() < deadline:
+            self._raise_if_stopped()
+            time.sleep(0.01)
+
+    def _raise_if_stopped(self) -> None:
+        if self._abort_event.is_set():
+            raise RunStopped(self._abort_reason)
+
+    def _cancel_active_goal(self, *, wait: bool = False) -> None:
+        handle = self._active_goal_handle
+        if handle is not None:
+            try:
+                future = handle.cancel_goal_async()
+                if wait:
+                    self._wait_future(
+                        future, 2.0, "trajectory cancel", allow_abort=False
+                    )
+            except Exception:
+                pass
+            self._active_goal_handle = None
+
+    def _publish_measurements(self) -> None:
+        with self._lock:
+            force = relative_normal_force(
+                projected_force_n=self._filtered_projected_force_n,
+                baseline_force_n=self._baseline_force_n,
+            )
+        self._force_pub.publish(Float64(data=force))
+        offset = 0.0
+        if self._contact_tip is not None:
+            try:
+                offset = self._current_tip(timeout_sec=0.0).z - self._contact_tip.z
+            except (TransformException, RunStopped):
+                pass
+        self._offset_pub.publish(Float64(data=offset))
+
+    def _session_watchdog(self) -> None:
+        worker = self._worker
+        if worker is None or not worker.is_alive():
+            return
+        elapsed = time.monotonic() - self._session_started_at
+        if elapsed >= self.max_session_duration_sec - self.cleanup_margin_sec:
+            self._abort_reason = "bounded session cleanup margin reached"
+            self._abort_event.set()
+
+    def _publish_status(self, state: str, detail: str) -> None:
+        self._state = state
+        self._detail = detail
+        self._status_pub.publish(String(data=f"{state}: {detail}"))
+        self.get_logger().info(f"Z compliance {state}: {detail}")
+
+    def _open_csv(self, profile: str) -> None:
+        self._run_directory.mkdir(parents=True, exist_ok=True)
+        self._csv_file = (self._run_directory / f"{profile}.csv").open(
+            "w", newline="", encoding="utf-8", buffering=1
+        )
+        self._csv_writer = csv.writer(self._csv_file)
+        self._csv_writer.writerow(
+            (
+                "monotonic_sec", "state", "target_force_n", "raw_force_n",
+                "filtered_force_n", "tip_x", "tip_y", "tip_z", "z_offset_m",
+                "xy_error_m", "rotation_error_rad", "controllers_switched",
+                "force_started", "trajectory_action_state",
+            )
+        )
+
+    def _write_csv(self, raw: float, filtered: float) -> None:
+        if self._csv_writer is None:
+            return
+        try:
+            tip = self._current_tip()
+        except Exception:
+            return
+        z_offset = 0.0 if self._contact_tip is None else tip.z - self._contact_tip.z
+        xy_error = rotation_error = 0.0
+        if self._force_start_tip is not None and self._force_start_pose is not None:
+            try:
+                xy_error, rotation_error = self._tracking_errors(tip)
+            except Exception:
+                pass
+        self._csv_writer.writerow(
+            (
+                time.monotonic(), self._state, self._active_target_force_n, raw,
+                filtered, tip.x, tip.y, tip.z, z_offset, xy_error,
+                rotation_error, self._controllers_switched, self._force_started,
+                "active" if self._active_goal_handle is not None else "idle",
+            )
+        )
+
+    def _close_csv(self) -> None:
+        if self._csv_file is not None:
+            self._csv_file.close()
+        self._csv_file = None
+        self._csv_writer = None
+
+
+def main(args=None) -> None:
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    node = ZComplianceValidationNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
+
+    def request_safe_shutdown(_signum, _frame) -> None:
+        node._abort_reason = "process shutdown requested"
+        node._abort_event.set()
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, request_safe_shutdown)
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        node._abort_reason = "process shutdown requested"
+        node._abort_event.set()
+        deadline = time.monotonic() + 12.0
+        while (
+            node._worker is not None
+            and node._worker.is_alive()
+            and time.monotonic() < deadline
+        ):
+            executor.spin_once(timeout_sec=0.05)
+    finally:
+        executor.shutdown()
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

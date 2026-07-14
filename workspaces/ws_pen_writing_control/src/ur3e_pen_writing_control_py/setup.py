@@ -50,6 +50,8 @@ setup(
             "ur3e_pen_writing_control_py.pen_tip_plane_monitor_node:main",
             "force_mode_validation_node = "
             "ur3e_pen_writing_control_py.force_mode_validation_node:main",
+            "z_compliance_validation_node = "
+            "ur3e_pen_writing_control_py.z_compliance_validation_node:main",
         ],
     },
 )
