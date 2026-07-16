@@ -34,7 +34,7 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     tip_path_distance,
     tool_waypoints_for_tip_targets,
     validate_joint_trajectory,
-    validate_single_contact_stroke,
+    validate_contact_strokes,
     ZComplianceValidationNode,
 )
 
@@ -299,14 +299,27 @@ def test_polyline_tracking_reports_progress_and_lateral_error_across_v_corner():
     assert second.total_length_m == pytest.approx(0.01)
 
 
-def test_contact_path_requires_exactly_one_stroke_no_longer_than_50mm():
-    valid = [[(0.0, 0.0), (0.030, 0.0), (0.030, 0.020)]]
+def test_contact_path_allows_multiple_strokes_with_stage_five_limits():
+    valid = [
+        [(0.0, 0.0), (0.020, 0.0)],
+        [(0.0, 0.010), (0.030, 0.010)],
+    ]
 
-    assert validate_single_contact_stroke(valid) == valid[0]
-    with pytest.raises(ValueError, match="exactly one stroke"):
-        validate_single_contact_stroke([valid[0], valid[0]])
+    assert validate_contact_strokes(valid, speed_mps=0.002) == valid
     with pytest.raises(ValueError, match="exceeds 50mm"):
-        validate_single_contact_stroke([[(0.0, 0.0), (0.050001, 0.0)]])
+        validate_contact_strokes(
+            [[(0.0, 0.0), (0.050001, 0.0)]], speed_mps=0.002
+        )
+    with pytest.raises(ValueError, match="total contact path length exceeds 60mm"):
+        validate_contact_strokes(
+            [
+                [(0.0, 0.0), (0.031, 0.0)],
+                [(0.0, 0.010), (0.031, 0.010)],
+            ],
+            speed_mps=0.002,
+        )
+    with pytest.raises(ValueError, match="writing time exceeds 60s"):
+        validate_contact_strokes(valid, speed_mps=0.0005)
 
 
 def test_handwriting_strokes_are_centered_on_anchor_at_fixed_air_gap():
@@ -384,15 +397,18 @@ def test_air_path_profile_skips_force_mode_and_monitors_live_data():
     assert "self._assert_live_data()" in execute_source
 
 
-def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
+def test_contact_path_reuses_one_baseline_and_recontacts_each_stroke():
     node = object.__new__(ZComplianceValidationNode)
-    stroke = [Point3(0.0, 0.0, 0.003), Point3(0.005, 0.0, 0.003)]
+    strokes = [
+        [Point3(0.0, 0.0, 0.003), Point3(0.005, 0.0, 0.003)],
+        [Point3(0.0, 0.005, 0.003), Point3(0.005, 0.005, 0.003)],
+    ]
     orientation = Pose().orientation
     orientation.w = 1.0
     events = []
     node.target_force_n = 0.8
     node.steady_force_min_n = 0.5
-    node._compile_contact_stroke = lambda: stroke
+    node._compile_contact_strokes = lambda: strokes
     node._current_tool_pose_stamped = lambda: SimpleNamespace(
         pose=SimpleNamespace(orientation=orientation)
     )
@@ -407,6 +423,7 @@ def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
         f"contact:{kwargs['minimum_mean_force_n']:.1f}"
     )
     node._write_contact_path = lambda *_args: events.append("write")
+    node._lift_between_contact_strokes = lambda: events.append("pen_up")
 
     node._run_contact_path()
 
@@ -418,7 +435,87 @@ def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
         "force_start",
         "contact:0.7",
         "write",
+        "pen_up",
+        "air_move",
+        "force_start",
+        "contact:0.7",
+        "write",
     ]
+
+
+def test_pen_up_between_strokes_holds_stops_force_then_retracts():
+    node = object.__new__(ZComplianceValidationNode)
+    events = []
+    node._active_stroke_index = 1
+    node._stroke_count = 2
+    node._force_started = True
+    node._active_target_force_n = 0.8
+    node._pen_state = "pen_down"
+    node.retract_distance_m = 0.003
+    node._stop_force_client = object()
+    node._publish_status = lambda *_args: events.append("status")
+    node._send_hold_current_joints = lambda **_kwargs: events.append("hold")
+    node._call = lambda *_args, **_kwargs: (
+        events.append("stop") or SimpleNamespace(success=True)
+    )
+    node._current_tip = lambda: Point3(0.0, 0.0, 0.0)
+
+    def plan(**_kwargs):
+        events.append("plan_retract")
+        return object()
+
+    node._plan_cartesian = plan
+    node._execute_trajectory = lambda *_args, **_kwargs: events.append("retract")
+    node._wait_for_stable_retract = lambda *_args: events.append("stable")
+    node._contact_tip = Point3(0.0, 0.0, 0.0)
+    node._force_start_tip = Point3(0.0, 0.0, 0.003)
+    node._force_start_pose = object()
+
+    node._lift_between_contact_strokes()
+
+    assert events == ["status", "hold", "stop", "plan_retract", "retract", "stable"]
+    assert not node._force_started
+    assert node._active_target_force_n == 0.0
+    assert node._pen_state == "pen_up"
+    assert node._contact_tip is None
+
+
+def test_contact_path_stops_entire_character_when_a_stroke_fails():
+    node = object.__new__(ZComplianceValidationNode)
+    strokes = [
+        [Point3(0.0, y, 0.003), Point3(0.005, y, 0.003)]
+        for y in (0.0, 0.005, 0.010)
+    ]
+    orientation = Pose().orientation
+    orientation.w = 1.0
+    writes = []
+    node.target_force_n = 0.8
+    node.steady_force_min_n = 0.5
+    node._compile_contact_strokes = lambda: strokes
+    node._current_tool_pose_stamped = lambda: SimpleNamespace(
+        pose=SimpleNamespace(orientation=orientation)
+    )
+    node._current_tip = lambda: Point3(0.0, 0.0, 0.003)
+    node._switch_to_passthrough_force = lambda: None
+    node._send_hold_current_joints = lambda: None
+    node._publish_status = lambda *_args: None
+    node._execute_air_tip_targets = lambda *_args: None
+    node._prepare_force_baseline = lambda: None
+    node._start_force_mode = lambda _force: None
+    node._acquire_contact = lambda *_args, **_kwargs: None
+    node._lift_between_contact_strokes = lambda: None
+
+    def write(*_args):
+        writes.append(node._active_stroke_index)
+        if node._active_stroke_index == 2:
+            raise RunStopped("stroke 2 failed")
+
+    node._write_contact_path = write
+
+    with pytest.raises(RunStopped, match="stroke 2 failed"):
+        node._run_contact_path()
+
+    assert writes == [1, 2]
 
 
 def test_contact_path_watchdog_cancels_for_lateral_error_and_backtracking():
@@ -457,6 +554,12 @@ def test_csv_logging_uses_unique_run_numbers_without_overwriting(tmp_path: Path)
         "line_003.csv",
     ]
     assert messages[-1].endswith("line_003.csv")
+    header = (tmp_path / "line_003.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert "trajectory_file_id" in header
+    assert "stroke_index" in header
+    assert "planned_progress_m" in header
+    assert "lateral_error_m" in header
+    assert "pen_state" in header
 
 
 def test_force_mode_request_commands_only_negative_base_z_compliance():
