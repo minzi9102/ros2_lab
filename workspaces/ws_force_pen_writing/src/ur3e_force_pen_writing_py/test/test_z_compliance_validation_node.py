@@ -22,6 +22,7 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     line_motion_reversed,
     MOTION_CONTROLLERS,
     PASSTHROUGH,
+    polyline_tracking,
     relative_normal_force,
     retime_passthrough_trajectory,
     retract_distance_is_stable,
@@ -30,6 +31,7 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     tip_path_distance,
     tool_waypoints_for_tip_targets,
     validate_joint_trajectory,
+    validate_single_contact_stroke,
     ZComplianceValidationNode,
 )
 
@@ -225,9 +227,36 @@ def test_line_reverse_watchdog_cancels_goal_before_aborting():
     source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
     watchdog = source.index("if line_motion_reversed")
     cancel = source.index("handle.cancel_goal_async()", watchdog)
-    abort = source.index('"line reversed beyond 0.1mm', watchdog)
+    abort = source.index("reversed beyond 0.1mm", watchdog)
 
     assert watchdog < cancel < abort
+
+
+def test_polyline_tracking_reports_progress_and_lateral_error_across_v_corner():
+    path = [
+        Point3(0.0, 0.0, 0.0),
+        Point3(0.003, -0.004, 0.0),
+        Point3(0.006, 0.0, 0.0),
+    ]
+
+    first = polyline_tracking(Point3(0.0015, -0.002, 0.2), path)
+    second = polyline_tracking(Point3(0.0045, -0.0018, -0.1), path)
+
+    assert first.progress_m == pytest.approx(0.0025)
+    assert first.lateral_error_m == pytest.approx(0.0)
+    assert second.progress_m > 0.005
+    assert second.lateral_error_m == pytest.approx(0.00012)
+    assert second.total_length_m == pytest.approx(0.01)
+
+
+def test_contact_path_requires_exactly_one_stroke_no_longer_than_10mm():
+    valid = [[(0.0, 0.0), (0.006, 0.0), (0.006, 0.004)]]
+
+    assert validate_single_contact_stroke(valid) == valid[0]
+    with pytest.raises(ValueError, match="exactly one stroke"):
+        validate_single_contact_stroke([valid[0], valid[0]])
+    with pytest.raises(ValueError, match="exceeds 10mm"):
+        validate_single_contact_stroke([[(0.0, 0.0), (0.010001, 0.0)]])
 
 
 def test_handwriting_strokes_are_centered_on_anchor_at_fixed_air_gap():
@@ -303,6 +332,53 @@ def test_air_path_profile_skips_force_mode_and_monitors_live_data():
     assert 'allow_retract=profile not in ("switch_hold", "path_air")' in run_source
     assert "elif monitor_live" in execute_source
     assert "self._assert_live_data()" in execute_source
+
+
+def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
+    node = object.__new__(ZComplianceValidationNode)
+    stroke = [Point3(0.0, 0.0, 0.003), Point3(0.005, 0.0, 0.003)]
+    orientation = Pose().orientation
+    orientation.w = 1.0
+    events = []
+    node.target_force_n = 0.8
+    node._compile_contact_stroke = lambda: stroke
+    node._current_tool_pose_stamped = lambda: SimpleNamespace(
+        pose=SimpleNamespace(orientation=orientation)
+    )
+    node._current_tip = lambda: Point3(0.0, 0.0, 0.003)
+    node._switch_to_passthrough_force = lambda: events.append("switch")
+    node._send_hold_current_joints = lambda: events.append("hold")
+    node._publish_status = lambda *_args: None
+    node._execute_air_tip_targets = lambda *_args: events.append("air_move")
+    node._prepare_force_baseline = lambda: events.append("baseline")
+    node._start_force_mode = lambda _force: events.append("force_start")
+    node._acquire_contact = lambda _start: events.append("contact")
+    node._write_contact_path = lambda *_args: events.append("write")
+
+    node._run_contact_path()
+
+    assert events == [
+        "switch",
+        "hold",
+        "air_move",
+        "baseline",
+        "force_start",
+        "contact",
+        "write",
+    ]
+
+
+def test_contact_path_watchdog_cancels_for_lateral_error_and_backtracking():
+    source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
+    path_branch = source.index('self._profile == "path_contact"')
+    lateral = source.index("tracking.lateral_error_m >", path_branch)
+    lateral_cancel = source.index("handle.cancel_goal_async()", lateral)
+    lateral_abort = source.index("lateral error exceeded 0.5mm", lateral)
+    reverse = source.index("if line_motion_reversed", path_branch)
+    reverse_cancel = source.index("handle.cancel_goal_async()", reverse)
+
+    assert path_branch < lateral < lateral_cancel < lateral_abort
+    assert reverse < reverse_cancel
 
 
 def test_csv_logging_uses_unique_run_numbers_without_overwriting(tmp_path: Path):
@@ -389,6 +465,7 @@ def test_service_interface_names_are_stable_and_manual_only():
         "start_contact_hold",
         "start_line",
         "start_path_air",
+        "start_path_contact",
     ):
         assert f'(\"{name}\",' in source
     assert 'f"/pen_writing/z_compliance/{service_name}"' in source

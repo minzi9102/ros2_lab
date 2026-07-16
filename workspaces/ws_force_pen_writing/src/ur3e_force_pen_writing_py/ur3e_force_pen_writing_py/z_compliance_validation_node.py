@@ -37,7 +37,7 @@ from .geometry import (
     projected_force_z_in_base,
     transform_point,
 )
-from .handwriting_path import compile_strokes, load_handwriting
+from .handwriting_path import compile_strokes, load_handwriting, path_length
 
 
 CONFIRMATION = "I_CONFIRM_REAL_Z_COMPLIANCE_TEST"
@@ -58,13 +58,22 @@ PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
 MAX_HANDWRITING_DIMENSION_M = 0.01
 MAX_AIR_PATH_LENGTH_M = 0.06
+MAX_CONTACT_PATH_LENGTH_M = 0.01
 PATH_ENDPOINT_TOLERANCE_M = 0.0005
+PATH_LATERAL_TOLERANCE_M = 0.0005
 
 
 @dataclass(frozen=True)
 class ControllerDelta:
     activate: tuple[str, ...]
     deactivate: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PathTracking:
+    progress_m: float
+    lateral_error_m: float
+    total_length_m: float
 
 
 def controller_delta(
@@ -144,6 +153,52 @@ def line_motion_reversed(
     tolerance_m: float = LINE_REVERSE_TOLERANCE_M,
 ) -> bool:
     return progress_m < furthest_progress_m - tolerance_m
+
+
+def validate_single_contact_stroke(
+    strokes, *, maximum_length_m: float = MAX_CONTACT_PATH_LENGTH_M
+):
+    if len(strokes) != 1:
+        raise ValueError("contact path must contain exactly one stroke")
+    length = path_length(strokes)
+    if length > maximum_length_m + 1e-12:
+        raise ValueError(
+            f"contact stroke length exceeds {maximum_length_m * 1000.0:g}mm: "
+            f"{length:.6f}m"
+        )
+    return strokes[0]
+
+
+def polyline_tracking(point: Point3, path: list[Point3]) -> PathTracking:
+    if len(path) < 2:
+        raise ValueError("tracking path must contain at least two points")
+    best_lateral = math.inf
+    best_progress = 0.0
+    cumulative = 0.0
+    for start, end in zip(path, path[1:]):
+        delta_x = end.x - start.x
+        delta_y = end.y - start.y
+        segment_length = math.hypot(delta_x, delta_y)
+        if segment_length <= 1e-12:
+            continue
+        projection = (
+            (point.x - start.x) * delta_x + (point.y - start.y) * delta_y
+        ) / (segment_length * segment_length)
+        projection = max(0.0, min(1.0, projection))
+        nearest_x = start.x + projection * delta_x
+        nearest_y = start.y + projection * delta_y
+        lateral = math.hypot(point.x - nearest_x, point.y - nearest_y)
+        progress = cumulative + projection * segment_length
+        if lateral < best_lateral - 1e-12 or (
+            math.isclose(lateral, best_lateral, abs_tol=1e-12)
+            and progress > best_progress
+        ):
+            best_lateral = lateral
+            best_progress = progress
+        cumulative += segment_length
+    if not math.isfinite(best_lateral):
+        raise ValueError("tracking path has no movement")
+    return PathTracking(best_progress, best_lateral, cumulative)
 
 
 def anchored_tip_strokes(
@@ -398,6 +453,8 @@ class ZComplianceValidationNode(Node):
         self._contact_tip: Point3 | None = None
         self._line_start_tip: Point3 | None = None
         self._line_max_lateral_error_m = 0.0
+        self._contact_path: list[Point3] | None = None
+        self._path_max_lateral_error_m = 0.0
         self._csv_file = None
         self._csv_writer = None
         self._csv_run_index = 0
@@ -457,6 +514,7 @@ class ZComplianceValidationNode(Node):
             ("start_contact_hold", "contact_hold"),
             ("start_line", "line"),
             ("start_path_air", "path_air"),
+            ("start_path_contact", "path_contact"),
         ):
             self.create_service(
                 Trigger,
@@ -591,25 +649,32 @@ class ZComplianceValidationNode(Node):
         try:
             self._open_csv(profile)
             start_tip = self._precheck()
-            if profile not in ("switch_hold", "path_air"):
-                self._prepare_force_baseline()
-            self._switch_to_passthrough_force()
-            self._send_hold_current_joints()
-            if profile == "switch_hold":
-                self._air_hold(start_tip)
-            elif profile == "path_air":
-                self._run_air_path()
+            if profile == "path_contact":
+                self._run_contact_path()
             else:
-                force = self.direction_force_n if profile == "direction" else self.target_force_n
-                self._start_force_mode(force)
-                if profile == "direction":
-                    self._verify_direction(start_tip)
+                if profile not in ("switch_hold", "path_air"):
+                    self._prepare_force_baseline()
+                self._switch_to_passthrough_force()
+                self._send_hold_current_joints()
+                if profile == "switch_hold":
+                    self._air_hold(start_tip)
+                elif profile == "path_air":
+                    self._run_air_path()
                 else:
-                    self._acquire_contact(start_tip)
-                    if profile == "contact_hold":
-                        self._hold_contact()
+                    force = (
+                        self.direction_force_n
+                        if profile == "direction"
+                        else self.target_force_n
+                    )
+                    self._start_force_mode(force)
+                    if profile == "direction":
+                        self._verify_direction(start_tip)
                     else:
-                        self._write_line()
+                        self._acquire_contact(start_tip)
+                        if profile == "contact_hold":
+                            self._hold_contact()
+                        else:
+                            self._write_line()
             succeeded = True
         except Exception as exc:  # Safety state machine reports the exact failed gate.
             failure = str(exc)
@@ -635,6 +700,8 @@ class ZComplianceValidationNode(Node):
         self._contact_tip = None
         self._line_start_tip = None
         self._line_max_lateral_error_m = 0.0
+        self._contact_path = None
+        self._path_max_lateral_error_m = 0.0
 
     def _precheck(self) -> Point3:
         self._publish_status("PRECHECK", "checking paper, TF, robot and controllers")
@@ -794,6 +861,90 @@ class ZComplianceValidationNode(Node):
                     "air path rotation error exceeded 1deg: "
                     f"{rotation_error:.6f}rad"
                 )
+
+    def _compile_contact_stroke(self) -> list[Point3]:
+        if not self.trajectory_file:
+            raise RunStopped("trajectory_file is required for path_contact")
+        assert self._paper_point is not None
+        try:
+            compiled = compile_strokes(
+                load_handwriting(self.trajectory_file),
+                writing_width_m=self.writing_width_m,
+                writing_height_m=self.writing_height_m,
+                simplify_tolerance_m=self.path_simplify_tolerance_m,
+                cartesian_step_m=self.cartesian_step_m,
+            )
+            stroke = validate_single_contact_stroke(compiled)
+        except (OSError, ValueError) as exc:
+            raise RunStopped(f"invalid contact path: {exc}") from exc
+        paper = self._paper_point.point
+        return anchored_tip_strokes(
+            [stroke],
+            anchor=Point3(paper.x, paper.y, paper.z),
+            tip_z=paper.z + self.retract_distance_m,
+        )[0]
+
+    def _run_contact_path(self) -> None:
+        stroke = self._compile_contact_stroke()
+        start_orientation = self._current_tool_pose_stamped().pose.orientation
+        self._contact_path = stroke
+        self._switch_to_passthrough_force()
+        self._send_hold_current_joints()
+        self._publish_status(
+            "CONTACT_PATH_TRANSITION", "moving above single-stroke start"
+        )
+        self._execute_air_tip_targets([stroke[0]], start_orientation)
+        rotation_error = pose_rotation_distance(
+            self._current_tool_pose_stamped().pose.orientation,
+            start_orientation,
+        )
+        if rotation_error > math.radians(1.0):
+            raise RunStopped(
+                "contact path air-transition rotation error exceeded 1deg: "
+                f"{rotation_error:.6f}rad"
+            )
+        self._prepare_force_baseline()
+        contact_start = self._current_tip()
+        self._start_force_mode(self.target_force_n)
+        self._acquire_contact(contact_start)
+        self._write_contact_path(stroke, start_orientation)
+
+    def _write_contact_path(self, stroke: list[Point3], orientation) -> None:
+        assert self._contact_tip is not None
+        contact_z = self._current_tip().z
+        self._contact_path = [
+            Point3(point.x, point.y, contact_z) for point in stroke
+        ]
+        self._path_max_lateral_error_m = 0.0
+        self._publish_status("CONTACT_PATH_WRITING", "executing single contact stroke")
+        trajectory = self._plan_tip_targets(
+            self._contact_path[1:], fixed_orientation=orientation
+        )
+        distance = path_length(
+            [[(point.x, point.y) for point in self._contact_path]]
+        )
+        timeout = max(10.0, distance / self.line_speed_mps + 5.0)
+        self._execute_trajectory(
+            trajectory, timeout=timeout, monitor_contact=True
+        )
+        current = self._current_tip()
+        endpoint = self._contact_path[-1]
+        endpoint_error = math.hypot(current.x - endpoint.x, current.y - endpoint.y)
+        if endpoint_error > PATH_ENDPOINT_TOLERANCE_M:
+            raise RunStopped(
+                f"contact path endpoint error exceeded: {endpoint_error:.6f}m"
+            )
+        if self._path_max_lateral_error_m > PATH_LATERAL_TOLERANCE_M:
+            raise RunStopped(
+                "contact path lateral error exceeded: "
+                f"{self._path_max_lateral_error_m:.6f}m"
+            )
+        _, rotation_error = self._tracking_errors(current)
+        if rotation_error > math.radians(1.0):
+            raise RunStopped(
+                "contact path final rotation error exceeded 1deg: "
+                f"{rotation_error:.6f}rad"
+            )
 
     def _execute_air_tip_targets(self, targets: list[Point3], orientation) -> None:
         if not targets:
@@ -1009,7 +1160,7 @@ class ZComplianceValidationNode(Node):
         deadline = time.monotonic() + timeout
         below_since = None
         in_band = total = 0
-        furthest_line_progress = 0.0
+        furthest_progress = 0.0
         while not result_future.done():
             if time.monotonic() > deadline:
                 handle.cancel_goal_async()
@@ -1027,20 +1178,34 @@ class ZComplianceValidationNode(Node):
                 )
                 if lost:
                     handle.cancel_goal_async()
-                    raise RunStopped("contact lost during line")
-                assert self._line_start_tip is not None
-                line_progress = self._current_tip().x - self._line_start_tip.x
+                    raise RunStopped(f"contact lost during {self._profile}")
+                current_tip = self._current_tip()
+                if self._profile == "path_contact":
+                    assert self._contact_path is not None
+                    tracking = polyline_tracking(current_tip, self._contact_path)
+                    if tracking.lateral_error_m > PATH_LATERAL_TOLERANCE_M:
+                        handle.cancel_goal_async()
+                        raise RunStopped(
+                            "contact path lateral error exceeded 0.5mm: "
+                            f"{tracking.lateral_error_m:.6f}m"
+                        )
+                    progress = tracking.progress_m
+                    motion_label = "contact path"
+                else:
+                    assert self._line_start_tip is not None
+                    progress = current_tip.x - self._line_start_tip.x
+                    motion_label = "line"
                 if line_motion_reversed(
-                    progress_m=line_progress,
-                    furthest_progress_m=furthest_line_progress,
+                    progress_m=progress,
+                    furthest_progress_m=furthest_progress,
                 ):
                     handle.cancel_goal_async()
                     raise RunStopped(
-                        "line reversed beyond 0.1mm: "
-                        f"progress={line_progress:.6f}m "
-                        f"furthest={furthest_line_progress:.6f}m"
+                        f"{motion_label} reversed beyond 0.1mm: "
+                        f"progress={progress:.6f}m "
+                        f"furthest={furthest_progress:.6f}m"
                     )
-                furthest_line_progress = max(furthest_line_progress, line_progress)
+                furthest_progress = max(furthest_progress, progress)
                 self._assert_contact_z_offset()
             elif monitor_live:
                 self._assert_live_data()
@@ -1143,7 +1308,13 @@ class ZComplianceValidationNode(Node):
     def _tracking_errors(self, tip: Point3) -> tuple[float, float]:
         assert self._force_start_tip is not None
         assert self._force_start_pose is not None
-        if self._profile == "line" and self._line_start_tip is not None:
+        if self._profile == "path_contact" and self._contact_path is not None:
+            tracking = polyline_tracking(tip, self._contact_path)
+            self._path_max_lateral_error_m = max(
+                self._path_max_lateral_error_m, tracking.lateral_error_m
+            )
+            xy_error = tracking.lateral_error_m
+        elif self._profile == "line" and self._line_start_tip is not None:
             lateral_error = abs(tip.y - self._line_start_tip.y)
             self._line_max_lateral_error_m = max(
                 self._line_max_lateral_error_m, lateral_error
