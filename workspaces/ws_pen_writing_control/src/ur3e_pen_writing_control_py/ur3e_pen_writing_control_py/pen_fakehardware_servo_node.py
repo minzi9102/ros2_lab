@@ -7,6 +7,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Iterable, TextIO
 
+from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import (
     Point,
     PointStamped,
@@ -46,6 +47,33 @@ from .pose_math import (
     tool_pose_from_pen_tip_pose,
     transform_point,
 )
+
+
+PAPER_SEEK_REQUIRED_CONTROLLER = "joint_trajectory_controller"
+PAPER_SEEK_INCOMPATIBLE_CONTROLLERS = (
+    "passthrough_trajectory_controller",
+    "force_mode_controller",
+)
+PAPER_SEEK_MIN_TF_PROGRESS_M = 0.00005
+
+
+def paper_seek_controller_error(states: dict[str, str]) -> str | None:
+    active_incompatible = tuple(
+        name for name in PAPER_SEEK_INCOMPATIBLE_CONTROLLERS
+        if states.get(name) == "active"
+    )
+    if states.get(PAPER_SEEK_REQUIRED_CONTROLLER) != "active":
+        return f"{PAPER_SEEK_REQUIRED_CONTROLLER} is not active"
+    if active_incompatible:
+        return "incompatible controllers are active: " + ", ".join(active_incompatible)
+    return None
+
+
+def paper_seek_tf_progressed(
+    *, previous_descent_m: float, actual_descent_m: float,
+    minimum_progress_m: float = PAPER_SEEK_MIN_TF_PROGRESS_M,
+) -> bool:
+    return actual_descent_m >= previous_descent_m + minimum_progress_m
 
 
 def has_planar_motion_intent(control: JoyControl) -> bool:
@@ -822,6 +850,9 @@ class PenFakeHardwareServoNode(Node):
         self.paper_seek_wrench_timeout_sec = float(
             self.declare_parameter("paper_seek_wrench_timeout_sec", 0.2).value
         )
+        self.paper_seek_motion_timeout_sec = float(
+            self.declare_parameter("paper_seek_motion_timeout_sec", 1.0).value
+        )
         self.paper_seek_retract_distance_m = float(
             self.declare_parameter("paper_seek_retract_distance_m", 0.003).value
         )
@@ -980,6 +1011,10 @@ class PenFakeHardwareServoNode(Node):
             Trigger,
             "/io_and_status_controller/zero_ftsensor",
         )
+        self._paper_seek_list_controllers_client = self.create_client(
+            ListControllers,
+            "/controller_manager/list_controllers",
+        )
         self._paper_origin = (
             None if self.start_from_current_tool0 else self._configured_paper_origin()
         )
@@ -1096,6 +1131,8 @@ class PenFakeHardwareServoNode(Node):
         self._paper_seek_retract_target_z: float | None = None
         self._paper_seek_retract_started_at_sec = 0.0
         self._paper_seek_last_progress_status_sec = 0.0
+        self._paper_seek_last_actual_descent_m = 0.0
+        self._paper_seek_last_actual_progress_at_sec = 0.0
         self._paper_seek_wrench_seen = False
         self._paper_seek_wrench_sequence = 0
         self._paper_seek_last_evaluated_wrench_sequence = 0
@@ -1208,6 +1245,8 @@ class PenFakeHardwareServoNode(Node):
             raise ValueError("paper_seek_sigma_multiplier must be greater than zero")
         if self.paper_seek_wrench_timeout_sec <= 0.0:
             raise ValueError("paper_seek_wrench_timeout_sec must be greater than zero")
+        if not 0.2 <= self.paper_seek_motion_timeout_sec <= 2.0:
+            raise ValueError("paper_seek_motion_timeout_sec must be in [0.2, 2.0]")
         if not 0.0 < self.paper_seek_retract_distance_m <= 0.003:
             raise ValueError("paper_seek_retract_distance_m must be in (0, 0.003]")
         if self.paper_seek_retract_timeout_sec <= 0.0:
@@ -1351,6 +1390,10 @@ class PenFakeHardwareServoNode(Node):
             response.success = False
             response.message = "MoveIt Servo status is not healthy"
             return response
+        if not self._paper_seek_list_controllers_client.service_is_ready():
+            response.success = False
+            response.message = "list_controllers service is unavailable"
+            return response
         if self.paper_seek_configure_payload:
             if self.paper_seek_payload_mass_kg < 0.0:
                 response.success = False
@@ -1428,26 +1471,53 @@ class PenFakeHardwareServoNode(Node):
 
             future.add_done_callback(zeroed)
 
-        if not self.paper_seek_configure_payload:
-            begin_zeroing()
-            return
-        request = SetPayload.Request()
-        request.mass = self.paper_seek_payload_mass_kg
-        request.center_of_gravity.x = self.paper_seek_payload_cog_xyz[0]
-        request.center_of_gravity.y = self.paper_seek_payload_cog_xyz[1]
-        request.center_of_gravity.z = self.paper_seek_payload_cog_xyz[2]
-        future = self._paper_seek_payload_client.call_async(request)
+        def configure_payload() -> None:
+            if not self.paper_seek_configure_payload:
+                begin_zeroing()
+                return
+            request = SetPayload.Request()
+            request.mass = self.paper_seek_payload_mass_kg
+            request.center_of_gravity.x = self.paper_seek_payload_cog_xyz[0]
+            request.center_of_gravity.y = self.paper_seek_payload_cog_xyz[1]
+            request.center_of_gravity.z = self.paper_seek_payload_cog_xyz[2]
+            future = self._paper_seek_payload_client.call_async(request)
 
-        def payload_set(done_future) -> None:
-            result = done_future.result()
+            def payload_set(done_future) -> None:
+                result = done_future.result()
+                if self._paper_seek_state != PAPER_SEEK_ZEROING:
+                    return
+                if result is None or not result.success:
+                    self._abort_paper_seek("set_payload failed")
+                    return
+                begin_zeroing()
+
+            future.add_done_callback(payload_set)
+
+        future = self._paper_seek_list_controllers_client.call_async(
+            ListControllers.Request()
+        )
+
+        def controllers_listed(done_future) -> None:
+            try:
+                result = done_future.result()
+            except Exception as exc:
+                self._abort_paper_seek(f"list_controllers failed: {exc}")
+                return
             if self._paper_seek_state != PAPER_SEEK_ZEROING:
                 return
-            if result is None or not result.success:
-                self._abort_paper_seek("set_payload failed")
+            if result is None:
+                self._abort_paper_seek("list_controllers returned no response")
                 return
-            begin_zeroing()
+            states = {
+                controller.name: controller.state for controller in result.controller
+            }
+            error = paper_seek_controller_error(states)
+            if error:
+                self._abort_paper_seek(f"controller precheck failed: {error}")
+                return
+            configure_payload()
 
-        future.add_done_callback(payload_set)
+        future.add_done_callback(controllers_listed)
 
     def _begin_paper_seek_baseline(self) -> None:
         self._paper_seek_state = PAPER_SEEK_BASELINING
@@ -1788,6 +1858,8 @@ class PenFakeHardwareServoNode(Node):
                     )
                 )
                 self._paper_seek_state = PAPER_SEEK_DESCENDING
+                self._paper_seek_last_actual_descent_m = 0.0
+                self._paper_seek_last_actual_progress_at_sec = now_sec
                 self._previous_target_pose = None
                 self._publish_paper_seek_status(
                     "baseline captured: "
@@ -1798,6 +1870,27 @@ class PenFakeHardwareServoNode(Node):
             current_tool_pose = self._lookup_current_tool_pose()
             if current_tool_pose is None:
                 self._abort_paper_seek("current tool pose is unavailable")
+                return
+            current_tip = tool_tip_point_from_tool_pose(
+                tool_pose=current_tool_pose,
+                tool0_to_pen_tip=self.tool0_to_pen_tip,
+            )
+            actual_descent = self._paper_seek_start_tip_z - current_tip.z
+            if paper_seek_tf_progressed(
+                previous_descent_m=self._paper_seek_last_actual_descent_m,
+                actual_descent_m=actual_descent,
+            ):
+                self._paper_seek_last_actual_descent_m = actual_descent
+                self._paper_seek_last_actual_progress_at_sec = now_sec
+            elif (
+                now_sec - self._paper_seek_last_actual_progress_at_sec
+                > self.paper_seek_motion_timeout_sec
+            ):
+                self._abort_paper_seek(
+                    "actual TF descent stalled: "
+                    f"commanded={self._paper_seek_offset_m:.6f}m "
+                    f"actual={-actual_descent:.6f}m"
+                )
                 return
             next_offset = next_paper_seek_offset(
                 current_offset_m=self._paper_seek_offset_m,
@@ -1846,10 +1939,6 @@ class PenFakeHardwareServoNode(Node):
                     self._paper_seek_contact_count
                     >= self.paper_seek_contact_confirm_samples
                 ):
-                    current_tip = tool_tip_point_from_tool_pose(
-                        tool_pose=current_tool_pose,
-                        tool0_to_pen_tip=self.tool0_to_pen_tip,
-                    )
                     self._paper_seek_candidate_z = current_tip.z
                     self._paper_seek_candidate_point = current_tip
                     self._paper_seek_retract_target_z = (

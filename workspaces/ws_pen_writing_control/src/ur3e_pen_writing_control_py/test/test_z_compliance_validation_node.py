@@ -16,6 +16,7 @@ from ur3e_pen_writing_control_py.z_compliance_validation_node import (
     MOTION_CONTROLLERS,
     PASSTHROUGH,
     relative_normal_force,
+    retract_distance_is_stable,
     RunStopped,
     validate_joint_trajectory,
     ZComplianceValidationNode,
@@ -186,6 +187,7 @@ def test_cleanup_order_is_cancel_hold_stop_force_retract_restore():
         "self._send_hold_current_joints(publish_state=False)",
         "self._stop_force_client",
         "self._plan_cartesian(",
+        "self._wait_for_stable_retract(retract_start)",
         "self._restore_controllers()",
     )
 
@@ -268,3 +270,42 @@ def test_force_stop_failure_skips_blind_retract_and_restore():
     error = node._safe_cleanup(allow_retract=True)
 
     assert "stop force failed; use robot stop" in error
+
+
+def test_retract_acceptance_requires_distance_band_and_stability():
+    assert retract_distance_is_stable(
+        [0.00295, 0.00300, 0.00304], minimum_m=0.002, maximum_m=0.004
+    )
+    assert not retract_distance_is_stable(
+        [0.00095, 0.00100], minimum_m=0.002, maximum_m=0.004
+    )
+    assert not retract_distance_is_stable(
+        [0.0021, 0.0038], minimum_m=0.002, maximum_m=0.004
+    )
+
+
+def test_retract_failure_still_restores_original_controllers():
+    node = object.__new__(ZComplianceValidationNode)
+    node._abort_event = threading.Event()
+    node._controllers_switched = True
+    node._force_started = True
+    node.retract_distance_m = 0.003
+    node._publish_status = lambda *_args: None
+    node._cancel_active_goal = lambda **_kwargs: None
+    node._send_hold_current_joints = lambda **_kwargs: None
+    node._stop_force_client = object()
+    node._call = lambda *_args, **_kwargs: SimpleNamespace(success=True)
+    node._safety_is_normal = lambda: True
+    node._current_tip = lambda: SimpleNamespace(x=0.0, y=0.0, z=0.1)
+    node._plan_cartesian = lambda **_kwargs: object()
+    node._execute_trajectory = lambda *_args, **_kwargs: None
+    node._wait_for_stable_retract = lambda _start: (_ for _ in ()).throw(
+        RunStopped("retract TF stalled")
+    )
+    restored = []
+    node._restore_controllers = lambda: restored.append(True)
+
+    error = node._safe_cleanup(allow_retract=True)
+
+    assert "retract failed: retract TF stalled" in error
+    assert restored == [True]

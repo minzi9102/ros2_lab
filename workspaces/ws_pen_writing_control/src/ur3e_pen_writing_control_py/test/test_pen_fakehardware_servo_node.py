@@ -23,6 +23,8 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     next_paper_seek_offset,
     paper_seek_baseline_stats,
     paper_seek_dynamic_threshold,
+    paper_seek_controller_error,
+    paper_seek_tf_progressed,
     paper_seek_tool_pose_target,
     paper_origin_from_current_tool0,
     pose_mode_became_ready,
@@ -461,6 +463,41 @@ def test_paper_seek_offset_descends_at_limited_speed():
         down_speed_mps=0.002,
         dt_sec=-1.0,
     ) == pytest.approx(-0.001)
+
+
+def test_paper_seek_controller_precheck_requires_jtc_without_force_pair():
+    assert paper_seek_controller_error(
+        {
+            "joint_trajectory_controller": "active",
+            "passthrough_trajectory_controller": "inactive",
+            "force_mode_controller": "inactive",
+        }
+    ) is None
+    assert "joint_trajectory_controller is not active" in paper_seek_controller_error(
+        {
+            "joint_trajectory_controller": "inactive",
+            "passthrough_trajectory_controller": "active",
+            "force_mode_controller": "active",
+        }
+    )
+    assert "passthrough_trajectory_controller" in paper_seek_controller_error(
+        {
+            "joint_trajectory_controller": "active",
+            "passthrough_trajectory_controller": "active",
+            "force_mode_controller": "active",
+        }
+    )
+
+
+def test_paper_seek_tf_progress_requires_real_fifty_micron_descent():
+    assert paper_seek_tf_progressed(
+        previous_descent_m=0.00010,
+        actual_descent_m=0.000151,
+    )
+    assert not paper_seek_tf_progressed(
+        previous_descent_m=0.00010,
+        actual_descent_m=0.00014,
+    )
 
 
 def test_paper_seek_confirm_samples_gate_contact_detection():

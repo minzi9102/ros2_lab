@@ -47,6 +47,9 @@ MOTION_CONTROLLERS = (
 )
 PASSTHROUGH = "passthrough_trajectory_controller"
 FORCE = "force_mode_controller"
+RETRACT_SETTLE_TIMEOUT_SEC = 2.0
+RETRACT_STABLE_WINDOW_SEC = 0.2
+RETRACT_STABLE_SPAN_M = 0.0001
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,15 @@ def controllers_match(
     return all(states.get(name) == "active" for name in active) and all(
         states.get(name) != "active" for name in inactive
     )
+
+
+def retract_distance_is_stable(
+    distances_m: list[float], *, minimum_m: float, maximum_m: float,
+    maximum_span_m: float = RETRACT_STABLE_SPAN_M,
+) -> bool:
+    return bool(distances_m) and all(
+        minimum_m <= distance <= maximum_m for distance in distances_m
+    ) and max(distances_m) - min(distances_m) <= maximum_span_m
 
 
 def duration_seconds(duration) -> float:
@@ -889,29 +901,62 @@ class ZComplianceValidationNode(Node):
                 errors.append(f"stop force failed; use robot stop: {exc}")
                 return "; ".join(errors)
         if self._controllers_switched:
-            try:
-                if allow_retract and force_was_started and self._safety_is_normal():
+            if allow_retract and force_was_started and self._safety_is_normal():
+                try:
                     self._publish_status("RETRACT", "retracting 3mm along base +Z")
                     retract_start = self._current_tip()
                     trajectory = self._plan_cartesian(
                         delta_x=0.0, delta_z=self.retract_distance_m
                     )
                     self._execute_trajectory(trajectory, timeout=6.0)
-                    retracted = self._current_tip().z - retract_start.z
-                    if not 0.002 <= retracted <= 0.004:
-                        raise RunStopped(
-                            f"retract distance outside 3+/-1mm: {retracted:.6f}m"
-                        )
-                elif allow_retract and force_was_started:
-                    errors.append("safety is not NORMAL; automatic retract skipped")
-                    return "; ".join(errors)
+                    self._wait_for_stable_retract(retract_start)
+                except Exception as exc:
+                    errors.append(f"retract failed: {exc}")
+            elif allow_retract and force_was_started:
+                errors.append("safety is not NORMAL; automatic retract skipped")
+            try:
                 self._publish_status(
                     "CONTROLLER_RESTORE", "restoring pre-run controller state"
                 )
                 self._restore_controllers()
             except Exception as exc:
-                errors.append(f"retract/restore failed; use robot stop: {exc}")
+                errors.append(f"controller restore failed; use robot stop: {exc}")
         return "; ".join(errors)
+
+    def _wait_for_stable_retract(self, retract_start: Point3) -> float:
+        minimum = max(0.0, self.retract_distance_m - 0.001)
+        maximum = self.retract_distance_m + 0.001
+        deadline = time.monotonic() + RETRACT_SETTLE_TIMEOUT_SEC
+        samples: list[tuple[float, float]] = []
+        last_distance = 0.0
+        while time.monotonic() < deadline:
+            self._assert_dashboard_safe()
+            now = time.monotonic()
+            last_distance = self._current_tip().z - retract_start.z
+            if last_distance > maximum:
+                raise RunStopped(
+                    f"retract distance exceeded 3+/-1mm: {last_distance:.6f}m"
+                )
+            samples.append((now, last_distance))
+            samples = [
+                sample for sample in samples
+                if now - sample[0] <= RETRACT_STABLE_WINDOW_SEC
+            ]
+            if (
+                samples
+                and now - samples[0][0] >= RETRACT_STABLE_WINDOW_SEC * 0.9
+                and retract_distance_is_stable(
+                    [distance for _, distance in samples],
+                    minimum_m=minimum,
+                    maximum_m=maximum,
+                )
+            ):
+                return last_distance
+            time.sleep(0.02)
+        raise RunStopped(
+            "retract did not reach and settle within 3+/-1mm: "
+            f"last={last_distance:.6f}m"
+        )
 
     def _restore_controllers(self) -> None:
         states = self._list_controllers()
