@@ -57,6 +57,7 @@ PASSTHROUGH_MIN_START_TIME_SEC = 0.1
 PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
 CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
+CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
 MAX_HANDWRITING_DIMENSION_M = 0.01
 MAX_AIR_PATH_LENGTH_M = 0.06
 MAX_CONTACT_PATH_LENGTH_M = 0.01
@@ -161,6 +162,19 @@ def path_contact_acquire_minimum(
     maximum_undershoot_n: float = CONTACT_PATH_MAX_UNDERSHOOT_N,
 ) -> float:
     return max(steady_force_min_n, target_force_n - maximum_undershoot_n)
+
+
+def contact_force_window_is_stable(
+    samples: list[float], *, minimum_mean_n: float, steady_min_n: float,
+    steady_max_n: float,
+    minimum_coverage: float = CONTACT_PATH_MIN_FORCE_COVERAGE,
+) -> bool:
+    if not samples:
+        return False
+    coverage = sum(
+        steady_min_n <= force <= steady_max_n for force in samples
+    ) / len(samples)
+    return statistics.fmean(samples) >= minimum_mean_n and coverage >= minimum_coverage
 
 
 def validate_single_contact_stroke(
@@ -916,7 +930,7 @@ class ZComplianceValidationNode(Node):
         self._start_force_mode(self.target_force_n)
         self._acquire_contact(
             contact_start,
-            minimum_force_n=path_contact_acquire_minimum(
+            minimum_mean_force_n=path_contact_acquire_minimum(
                 target_force_n=self.target_force_n,
                 steady_force_min_n=self.steady_force_min_n,
             ),
@@ -1023,21 +1037,31 @@ class ZComplianceValidationNode(Node):
         raise RunStopped("direction check timed out")
 
     def _acquire_contact(
-        self, start_tip: Point3, *, minimum_force_n: float | None = None
+        self, start_tip: Point3, *, minimum_mean_force_n: float | None = None
     ) -> None:
-        minimum_force_n = (
+        acquisition_minimum_n = (
             self.steady_force_min_n
-            if minimum_force_n is None
-            else max(self.steady_force_min_n, minimum_force_n)
+            if minimum_mean_force_n is None
+            else max(self.steady_force_min_n, minimum_mean_force_n)
         )
-        if minimum_force_n > self.steady_force_max_n:
+        if acquisition_minimum_n > self.steady_force_max_n:
             raise RunStopped("contact acquisition force band is invalid")
-        self._publish_status(
-            "CONTACT_ACQUIRE",
-            "approaching paper under Force Mode; stable band="
-            f"[{minimum_force_n:.3f}, {self.steady_force_max_n:.3f}]N",
-        )
+        if minimum_mean_force_n is None:
+            detail = (
+                "approaching paper under Force Mode; stable band="
+                f"[{acquisition_minimum_n:.3f}, {self.steady_force_max_n:.3f}]N"
+            )
+        else:
+            detail = (
+                "approaching paper under Force Mode; stable window mean>="
+                f"{acquisition_minimum_n:.3f}N coverage>="
+                f"{CONTACT_PATH_MIN_FORCE_COVERAGE:.0%} in "
+                f"[{self.steady_force_min_n:.3f}, "
+                f"{self.steady_force_max_n:.3f}]N"
+            )
+        self._publish_status("CONTACT_ACQUIRE", detail)
         stable_since = None
+        force_window: list[tuple[float, float]] = []
         deadline = (
             time.monotonic()
             + self.max_acquire_travel_m / self.max_z_speed_mps
@@ -1045,20 +1069,50 @@ class ZComplianceValidationNode(Node):
             + 2.0
         )
         while True:
-            if time.monotonic() > deadline:
+            now = time.monotonic()
+            if now > deadline:
                 raise RunStopped("contact acquisition timed out")
             force = self._assert_live_data(check_contact_force=True)
             current = self._current_tip()
             travel = start_tip.z - current.z
             if travel > self.max_acquire_travel_m or travel < -0.0005:
                 raise RunStopped(f"contact acquisition Z travel exceeded: {travel:.6f}m")
-            if minimum_force_n <= force <= self.steady_force_max_n:
-                stable_since = stable_since or time.monotonic()
-                if time.monotonic() - stable_since >= self.contact_settle_sec:
+            if minimum_mean_force_n is not None:
+                force_window.append((now, force))
+                force_window = [
+                    sample
+                    for sample in force_window
+                    if now - sample[0] <= self.contact_settle_sec
+                ]
+                window_forces = [sample[1] for sample in force_window]
+                window_span = now - force_window[0][0]
+                if (
+                    window_span >= self.contact_settle_sec * 0.9
+                    and contact_force_window_is_stable(
+                        window_forces,
+                        minimum_mean_n=acquisition_minimum_n,
+                        steady_min_n=self.steady_force_min_n,
+                        steady_max_n=self.steady_force_max_n,
+                    )
+                ):
+                    mean_force = statistics.fmean(window_forces)
+                    coverage = sum(
+                        self.steady_force_min_n <= sample <= self.steady_force_max_n
+                        for sample in window_forces
+                    ) / len(window_forces)
                     self._contact_tip = current
                     self._publish_status(
                         "CONTACT_STABLE",
-                        f"force={force:.3f}N minimum={minimum_force_n:.3f}N",
+                        f"window_mean={mean_force:.3f}N coverage={coverage:.1%}",
+                    )
+                    return
+            elif acquisition_minimum_n <= force <= self.steady_force_max_n:
+                stable_since = stable_since or now
+                if now - stable_since >= self.contact_settle_sec:
+                    self._contact_tip = current
+                    self._publish_status(
+                        "CONTACT_STABLE",
+                        f"force={force:.3f}N minimum={acquisition_minimum_n:.3f}N",
                     )
                     return
             else:

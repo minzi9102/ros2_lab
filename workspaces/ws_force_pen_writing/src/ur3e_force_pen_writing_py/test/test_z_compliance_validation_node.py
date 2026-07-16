@@ -13,6 +13,7 @@ from ur3e_force_pen_writing_py.geometry import Point3
 from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     anchored_tip_strokes,
     contact_lost,
+    contact_force_window_is_stable,
     controller_delta,
     controllers_match,
     duration_seconds,
@@ -233,6 +234,27 @@ def test_contact_path_requires_force_margin_above_steady_lower_bound():
     ) == pytest.approx(0.5)
 
 
+def test_contact_path_force_window_requires_mean_and_coverage():
+    assert contact_force_window_is_stable(
+        [0.60, 0.72, 0.78, 0.74, 0.70],
+        minimum_mean_n=0.7,
+        steady_min_n=0.5,
+        steady_max_n=1.1,
+    )
+    assert not contact_force_window_is_stable(
+        [0.60, 0.62, 0.64, 0.66, 0.68],
+        minimum_mean_n=0.7,
+        steady_min_n=0.5,
+        steady_max_n=1.1,
+    )
+    assert not contact_force_window_is_stable(
+        [0.80] * 8 + [0.20] * 2,
+        minimum_mean_n=0.7,
+        steady_min_n=0.5,
+        steady_max_n=1.1,
+    )
+
+
 def test_line_reverse_watchdog_cancels_goal_before_aborting():
     source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
     watchdog = source.index("if line_motion_reversed")
@@ -364,7 +386,7 @@ def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
     node._prepare_force_baseline = lambda: events.append("baseline")
     node._start_force_mode = lambda _force: events.append("force_start")
     node._acquire_contact = lambda _start, **kwargs: events.append(
-        f"contact:{kwargs['minimum_force_n']:.1f}"
+        f"contact:{kwargs['minimum_mean_force_n']:.1f}"
     )
     node._write_contact_path = lambda *_args: events.append("write")
 
