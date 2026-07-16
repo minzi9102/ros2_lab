@@ -52,6 +52,7 @@ RETRACT_STABLE_WINDOW_SEC = 0.2
 RETRACT_STABLE_SPAN_M = 0.0001
 PASSTHROUGH_MIN_START_TIME_SEC = 0.1
 PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
+LINE_REVERSE_TOLERANCE_M = 0.0001
 
 
 @dataclass(frozen=True)
@@ -93,7 +94,7 @@ def duration_seconds(duration) -> float:
 def retime_passthrough_trajectory(
     trajectory, *, distance_m: float, speed_mps: float,
     start_delay_sec: float = PASSTHROUGH_MIN_START_TIME_SEC,
-) -> float:
+) -> tuple[float, float]:
     if distance_m <= 0.0 or speed_mps <= 0.0:
         raise ValueError("trajectory distance and speed must be positive")
     if len(trajectory.points) < 2:
@@ -105,6 +106,7 @@ def retime_passthrough_trajectory(
     if original_duration <= 0.0:
         raise ValueError("trajectory duration must be positive")
     motion_duration = distance_m / speed_mps
+    time_scale = motion_duration / original_duration
     for point in trajectory.points:
         progress = (
             duration_seconds(point.time_from_start) - original_start
@@ -112,7 +114,16 @@ def retime_passthrough_trajectory(
         point.time_from_start = Duration(
             seconds=start_delay_sec + progress * motion_duration
         ).to_msg()
-    return motion_duration
+        if point.velocities:
+            point.velocities = [
+                velocity / time_scale for velocity in point.velocities
+            ]
+        if point.accelerations:
+            point.accelerations = [
+                acceleration / (time_scale * time_scale)
+                for acceleration in point.accelerations
+            ]
+    return motion_duration, time_scale
 
 
 def execution_completed_too_early(
@@ -120,6 +131,13 @@ def execution_completed_too_early(
     minimum_ratio: float = PASSTHROUGH_MIN_EXECUTION_RATIO,
 ) -> bool:
     return elapsed_sec < commanded_motion_sec * minimum_ratio
+
+
+def line_motion_reversed(
+    *, progress_m: float, furthest_progress_m: float,
+    tolerance_m: float = LINE_REVERSE_TOLERANCE_M,
+) -> bool:
+    return progress_m < furthest_progress_m - tolerance_m
 
 
 def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) -> str | None:
@@ -132,6 +150,12 @@ def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) ->
     for index, point in enumerate(trajectory.points):
         if len(point.positions) != len(trajectory.joint_names):
             return "trajectory point has incomplete joint positions"
+        if point.velocities and len(point.velocities) != len(trajectory.joint_names):
+            return "trajectory point has incomplete joint velocities"
+        if point.accelerations and len(point.accelerations) != len(
+            trajectory.joint_names
+        ):
+            return "trajectory point has incomplete joint accelerations"
         stamp = duration_seconds(point.time_from_start)
         if index == 0 and stamp <= 0.0:
             return "trajectory first time_from_start must be positive"
@@ -750,7 +774,7 @@ class ZComplianceValidationNode(Node):
         trajectory = result.solution.joint_trajectory
         distance = math.hypot(delta_x, delta_z)
         try:
-            motion_duration = retime_passthrough_trajectory(
+            motion_duration, time_scale = retime_passthrough_trajectory(
                 trajectory,
                 distance_m=distance,
                 speed_mps=self.line_speed_mps,
@@ -769,7 +793,8 @@ class ZComplianceValidationNode(Node):
         self.get_logger().info(
             "Retimed Cartesian trajectory: "
             f"distance={distance:.6f}m speed={self.line_speed_mps:.6f}m/s "
-            f"motion={motion_duration:.3f}s first={first_time:.3f}s "
+            f"motion={motion_duration:.3f}s scale={time_scale:.3f} "
+            f"first={first_time:.3f}s "
             f"final={final_time:.3f}s"
         )
         return trajectory
@@ -797,6 +822,7 @@ class ZComplianceValidationNode(Node):
         deadline = time.monotonic() + timeout
         below_since = None
         in_band = total = 0
+        furthest_line_progress = 0.0
         while not result_future.done():
             if time.monotonic() > deadline:
                 handle.cancel_goal_async()
@@ -815,6 +841,19 @@ class ZComplianceValidationNode(Node):
                 if lost:
                     handle.cancel_goal_async()
                     raise RunStopped("contact lost during line")
+                assert self._line_start_tip is not None
+                line_progress = self._current_tip().x - self._line_start_tip.x
+                if line_motion_reversed(
+                    progress_m=line_progress,
+                    furthest_progress_m=furthest_line_progress,
+                ):
+                    handle.cancel_goal_async()
+                    raise RunStopped(
+                        "line reversed beyond 0.1mm: "
+                        f"progress={line_progress:.6f}m "
+                        f"furthest={furthest_line_progress:.6f}m"
+                    )
+                furthest_line_progress = max(furthest_line_progress, line_progress)
                 self._assert_contact_z_offset()
             self._raise_if_stopped()
             time.sleep(0.01)

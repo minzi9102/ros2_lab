@@ -15,6 +15,7 @@ from ur3e_pen_writing_control_py.z_compliance_validation_node import (
     execution_completed_too_early,
     FORCE,
     force_mode_request,
+    line_motion_reversed,
     MOTION_CONTROLLERS,
     PASSTHROUGH,
     relative_normal_force,
@@ -120,6 +121,16 @@ def test_trajectory_requires_increasing_timestamps_and_bounded_joint_steps():
     assert "joint-space jump" in validate_joint_trajectory(
         _trajectory((0.1, zeros), (1.0, jump))
     )
+    incomplete_velocity = _trajectory((0.1, zeros), (1.0, safe_step))
+    incomplete_velocity.points[0].velocities = [0.0]
+    assert "incomplete joint velocities" in validate_joint_trajectory(
+        incomplete_velocity
+    )
+    incomplete_acceleration = _trajectory((0.1, zeros), (1.0, safe_step))
+    incomplete_acceleration.points[0].accelerations = [0.0]
+    assert "incomplete joint accelerations" in validate_joint_trajectory(
+        incomplete_acceleration
+    )
 
 
 def test_passthrough_retiming_enforces_distance_over_speed_and_preserves_path():
@@ -127,18 +138,27 @@ def test_passthrough_retiming_enforces_distance_over_speed_and_preserves_path():
     middle = (0.05,) + (0.0,) * 5
     safe_step = (0.1,) + (0.0,) * 5
     trajectory = _trajectory((0.0, zeros), (0.2, middle), (0.5, safe_step))
+    trajectory.points[1].velocities = [1.0] * 6
+    trajectory.points[1].accelerations = [2.0] * 6
+    trajectory.points[1].effort = [3.0] * 6
 
-    duration = retime_passthrough_trajectory(
+    duration, scale = retime_passthrough_trajectory(
         trajectory, distance_m=0.01, speed_mps=0.002
     )
 
     assert duration == pytest.approx(5.0)
+    assert scale == pytest.approx(10.0)
     assert [
         duration_seconds(point.time_from_start) for point in trajectory.points
     ] == pytest.approx([0.1, 2.1, 5.1])
     assert tuple(trajectory.points[0].positions) == zeros
     assert tuple(trajectory.points[1].positions) == middle
     assert tuple(trajectory.points[2].positions) == safe_step
+    assert trajectory.points[1].velocities == pytest.approx([0.1] * 6)
+    assert trajectory.points[1].accelerations == pytest.approx([0.02] * 6)
+    assert trajectory.points[1].effort == pytest.approx([3.0] * 6)
+    assert not trajectory.points[0].velocities
+    assert not trajectory.points[0].accelerations
     assert validate_joint_trajectory(trajectory) is None
 
 
@@ -150,7 +170,7 @@ def test_passthrough_retiming_matches_line_and_retract_duration(
 ):
     trajectory = _trajectory((0.0, (0.0,) * 6), (0.5, (0.1,) + (0.0,) * 5))
 
-    duration = retime_passthrough_trajectory(
+    duration, _ = retime_passthrough_trajectory(
         trajectory, distance_m=distance_m, speed_mps=0.002
     )
 
@@ -183,6 +203,24 @@ def test_passthrough_retiming_rejects_invalid_inputs_and_early_completion():
     assert not execution_completed_too_early(
         elapsed_sec=4.5, commanded_motion_sec=5.0
     )
+
+
+def test_line_reverse_watchdog_tolerates_noise_and_rejects_backtracking():
+    assert not line_motion_reversed(
+        progress_m=0.0019, furthest_progress_m=0.0020
+    )
+    assert line_motion_reversed(
+        progress_m=0.001899, furthest_progress_m=0.0020
+    )
+
+
+def test_line_reverse_watchdog_cancels_goal_before_aborting():
+    source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
+    watchdog = source.index("if line_motion_reversed")
+    cancel = source.index("handle.cancel_goal_async()", watchdog)
+    abort = source.index('"line reversed beyond 0.1mm', watchdog)
+
+    assert watchdog < cancel < abort
 
 
 def test_force_mode_request_commands_only_negative_base_z_compliance():
