@@ -12,6 +12,7 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from ur3e_force_pen_writing_py.geometry import Point3
 from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     anchored_tip_strokes,
+    baseline_compensated_force_target,
     contact_lost,
     contact_force_window_is_stable,
     controller_delta,
@@ -253,6 +254,23 @@ def test_contact_path_force_window_requires_mean_and_coverage():
         steady_min_n=0.5,
         steady_max_n=1.1,
     )
+
+
+def test_force_target_compensates_bounded_relative_baseline():
+    assert baseline_compensated_force_target(
+        relative_target_n=0.8, baseline_force_n=0.239
+    ) == pytest.approx(1.039)
+    assert baseline_compensated_force_target(
+        relative_target_n=0.8, baseline_force_n=-0.172
+    ) == pytest.approx(0.628)
+    with pytest.raises(ValueError, match="compensation limit"):
+        baseline_compensated_force_target(
+            relative_target_n=0.8, baseline_force_n=0.301
+        )
+    with pytest.raises(ValueError, match="must be positive"):
+        baseline_compensated_force_target(
+            relative_target_n=0.2, baseline_force_n=-0.2
+        )
 
 
 def test_line_reverse_watchdog_cancels_goal_before_aborting():
@@ -562,6 +580,7 @@ def test_force_start_rejection_does_not_arm_force_cleanup():
     node.max_rotation_error_rad = 0.02
     node._start_force_client = object()
     node._call = lambda *_args, **_kwargs: SimpleNamespace(success=False)
+    node._baseline_force_n = 0.0
     node._force_started = False
 
     with pytest.raises(RunStopped, match="start_force_mode failed"):

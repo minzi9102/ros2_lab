@@ -58,6 +58,7 @@ PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
 CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
+MAX_BASELINE_ABS_N = 0.3
 MAX_HANDWRITING_DIMENSION_M = 0.02
 MAX_AIR_PATH_LENGTH_M = 0.06
 MAX_CONTACT_PATH_LENGTH_M = 0.035
@@ -316,6 +317,18 @@ def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) ->
 
 def relative_normal_force(*, projected_force_n: float, baseline_force_n: float) -> float:
     return projected_force_n - baseline_force_n
+
+
+def baseline_compensated_force_target(
+    *, relative_target_n: float, baseline_force_n: float,
+    maximum_baseline_abs_n: float = MAX_BASELINE_ABS_N,
+) -> float:
+    if abs(baseline_force_n) > maximum_baseline_abs_n:
+        raise ValueError("force baseline exceeds compensation limit")
+    command_n = relative_target_n + baseline_force_n
+    if command_n <= 0.0:
+        raise ValueError("baseline-compensated force target must be positive")
+    return command_n
 
 
 def contact_lost(
@@ -1008,9 +1021,16 @@ class ZComplianceValidationNode(Node):
         assert self._paper_point is not None
         self._force_start_tip = self._current_tip()
         self._force_start_pose = self._current_tool_pose_stamped()
+        try:
+            command_force_n = baseline_compensated_force_target(
+                relative_target_n=force_n,
+                baseline_force_n=self._baseline_force_n,
+            )
+        except ValueError as exc:
+            raise RunStopped(str(exc)) from exc
         request = force_mode_request(
             paper_point=self._paper_point,
-            target_force_n=force_n,
+            target_force_n=command_force_n,
             speed_limit_mps=self.max_z_speed_mps,
             damping_factor=self.damping_factor,
             gain_scaling=self.gain_scaling,
