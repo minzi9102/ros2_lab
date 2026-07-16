@@ -56,3 +56,5 @@ def test_preview_node_has_no_motion_service_or_action_interface():
     assert "create_service" not in source
     assert "ActionClient" not in source
     assert "create_publisher(MarkerArray" in source
+    assert "create_timer(0.5, self._publish_preview)" in source
+    assert "if not self._anchor_ready" in source

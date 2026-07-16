@@ -153,9 +153,10 @@ class HandwritingPathPreviewNode(Node):
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.publisher = self.create_publisher(MarkerArray, marker_topic, latched)
-        if self.use_anchor_parameter:
-            self._publish_preview()
-        else:
+        self._anchor_ready = self.use_anchor_parameter
+        self._preview_announced = False
+        self.create_timer(0.5, self._publish_preview)
+        if not self.use_anchor_parameter:
             self.create_subscription(
                 PointStamped, detected_point_topic, self._on_detected_point, latched
             )
@@ -193,9 +194,12 @@ class HandwritingPathPreviewNode(Node):
             )
             return
         self.anchor_xyz = (message.point.x, message.point.y, message.point.z)
+        self._anchor_ready = True
         self._publish_preview()
 
     def _publish_preview(self) -> None:
+        if not self._anchor_ready:
+            return
         markers = make_preview_markers(
             self.strokes,
             anchor_xyz=self.anchor_xyz,
@@ -206,10 +210,12 @@ class HandwritingPathPreviewNode(Node):
             z_offset_m=self.z_offset_m,
         )
         self.publisher.publish(markers)
-        self.get_logger().info(
-            f"Published read-only handwriting preview: {len(self.strokes)} strokes, "
-            f"anchor={self.anchor_xyz}"
-        )
+        if not self._preview_announced:
+            self._preview_announced = True
+            self.get_logger().info(
+                "Publishing read-only handwriting preview every 0.5s: "
+                f"{len(self.strokes)} strokes, anchor={self.anchor_xyz}"
+            )
 
 
 def main(args=None) -> None:
