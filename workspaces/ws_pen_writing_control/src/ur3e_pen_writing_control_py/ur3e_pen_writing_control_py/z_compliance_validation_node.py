@@ -51,6 +51,7 @@ RETRACT_SETTLE_TIMEOUT_SEC = 2.0
 RETRACT_STABLE_WINDOW_SEC = 0.2
 RETRACT_STABLE_SPAN_M = 0.0001
 PASSTHROUGH_MIN_START_TIME_SEC = 0.1
+PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 
 
 @dataclass(frozen=True)
@@ -89,20 +90,36 @@ def duration_seconds(duration) -> float:
     return float(duration.sec) + float(duration.nanosec) * 1e-9
 
 
-def normalize_passthrough_trajectory_timing(
-    trajectory, *, minimum_start_time_sec: float = PASSTHROUGH_MIN_START_TIME_SEC,
-):
-    if not trajectory.points:
-        return trajectory
-    first_time = duration_seconds(trajectory.points[0].time_from_start)
-    shift = max(0.0, minimum_start_time_sec - first_time)
-    if shift == 0.0:
-        return trajectory
+def retime_passthrough_trajectory(
+    trajectory, *, distance_m: float, speed_mps: float,
+    start_delay_sec: float = PASSTHROUGH_MIN_START_TIME_SEC,
+) -> float:
+    if distance_m <= 0.0 or speed_mps <= 0.0:
+        raise ValueError("trajectory distance and speed must be positive")
+    if len(trajectory.points) < 2:
+        raise ValueError("trajectory must contain at least two points")
+    original_start = duration_seconds(trajectory.points[0].time_from_start)
+    original_duration = (
+        duration_seconds(trajectory.points[-1].time_from_start) - original_start
+    )
+    if original_duration <= 0.0:
+        raise ValueError("trajectory duration must be positive")
+    motion_duration = distance_m / speed_mps
     for point in trajectory.points:
+        progress = (
+            duration_seconds(point.time_from_start) - original_start
+        ) / original_duration
         point.time_from_start = Duration(
-            seconds=duration_seconds(point.time_from_start) + shift
+            seconds=start_delay_sec + progress * motion_duration
         ).to_msg()
-    return trajectory
+    return motion_duration
+
+
+def execution_completed_too_early(
+    *, elapsed_sec: float, commanded_motion_sec: float,
+    minimum_ratio: float = PASSTHROUGH_MIN_EXECUTION_RATIO,
+) -> bool:
+    return elapsed_sec < commanded_motion_sec * minimum_ratio
 
 
 def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) -> str | None:
@@ -730,12 +747,31 @@ class ZComplianceValidationNode(Node):
                 "Cartesian path incomplete: "
                 f"code={result.error_code.val} fraction={result.fraction:.3f}"
             )
-        trajectory = normalize_passthrough_trajectory_timing(
-            result.solution.joint_trajectory
-        )
+        trajectory = result.solution.joint_trajectory
+        distance = math.hypot(delta_x, delta_z)
+        try:
+            motion_duration = retime_passthrough_trajectory(
+                trajectory,
+                distance_m=distance,
+                speed_mps=self.line_speed_mps,
+            )
+        except ValueError as exc:
+            raise RunStopped(str(exc)) from exc
         error = validate_joint_trajectory(trajectory)
         if error:
             raise RunStopped(error)
+        first_time = duration_seconds(trajectory.points[0].time_from_start)
+        final_time = duration_seconds(trajectory.points[-1].time_from_start)
+        if not math.isclose(
+            final_time - first_time, motion_duration, abs_tol=1e-6
+        ):
+            raise RunStopped("Cartesian trajectory retiming failed")
+        self.get_logger().info(
+            "Retimed Cartesian trajectory: "
+            f"distance={distance:.6f}m speed={self.line_speed_mps:.6f}m/s "
+            f"motion={motion_duration:.3f}s first={first_time:.3f}s "
+            f"final={final_time:.3f}s"
+        )
         return trajectory
 
     def _execute_trajectory(
@@ -750,6 +786,7 @@ class ZComplianceValidationNode(Node):
             raise RunStopped("passthrough trajectory action is unavailable")
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = trajectory
+        execution_started = time.monotonic()
         handle = self._wait_future(
             self._trajectory_client.send_goal_async(goal), 3.0, "trajectory goal"
         )
@@ -787,6 +824,19 @@ class ZComplianceValidationNode(Node):
             raise RunStopped(f"trajectory action failed with status {wrapped.status}")
         if wrapped.result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
             raise RunStopped(f"trajectory controller error {wrapped.result.error_code}")
+        elapsed = time.monotonic() - execution_started
+        if not allow_single_point:
+            commanded_motion = (
+                duration_seconds(trajectory.points[-1].time_from_start)
+                - duration_seconds(trajectory.points[0].time_from_start)
+            )
+            if execution_completed_too_early(
+                elapsed_sec=elapsed, commanded_motion_sec=commanded_motion
+            ):
+                raise RunStopped(
+                    "trajectory completed too early: "
+                    f"elapsed={elapsed:.3f}s commanded_motion={commanded_motion:.3f}s"
+                )
         if monitor_contact and (total == 0 or in_band / total < 0.9):
             raise RunStopped(f"steady-force coverage below 90%: {in_band}/{total}")
 

@@ -12,12 +12,13 @@ from ur3e_pen_writing_control_py.z_compliance_validation_node import (
     controller_delta,
     controllers_match,
     duration_seconds,
+    execution_completed_too_early,
     FORCE,
     force_mode_request,
     MOTION_CONTROLLERS,
-    normalize_passthrough_trajectory_timing,
     PASSTHROUGH,
     relative_normal_force,
+    retime_passthrough_trajectory,
     retract_distance_is_stable,
     RunStopped,
     validate_joint_trajectory,
@@ -121,32 +122,67 @@ def test_trajectory_requires_increasing_timestamps_and_bounded_joint_steps():
     )
 
 
-def test_passthrough_timing_normalization_shifts_zero_start_and_preserves_path():
+def test_passthrough_retiming_enforces_distance_over_speed_and_preserves_path():
     zeros = (0.0,) * 6
+    middle = (0.05,) + (0.0,) * 5
     safe_step = (0.1,) + (0.0,) * 5
-    trajectory = _trajectory((0.0, zeros), (5.0, safe_step))
+    trajectory = _trajectory((0.0, zeros), (0.2, middle), (0.5, safe_step))
 
-    result = normalize_passthrough_trajectory_timing(trajectory)
+    duration = retime_passthrough_trajectory(
+        trajectory, distance_m=0.01, speed_mps=0.002
+    )
 
-    assert result is trajectory
-    assert result.points[0].time_from_start.sec == 0
-    assert result.points[0].time_from_start.nanosec == 100_000_000
-    assert result.points[1].time_from_start.sec == 5
-    assert result.points[1].time_from_start.nanosec == 100_000_000
-    assert tuple(result.points[0].positions) == zeros
-    assert tuple(result.points[1].positions) == safe_step
-    assert validate_joint_trajectory(result) is None
-
-
-def test_passthrough_timing_normalization_keeps_positive_start_unchanged():
-    trajectory = _trajectory((0.5, (0.0,) * 6), (1.0, (0.1,) + (0.0,) * 5))
-
-    before = [duration_seconds(point.time_from_start) for point in trajectory.points]
-    normalize_passthrough_trajectory_timing(trajectory)
-
+    assert duration == pytest.approx(5.0)
     assert [
         duration_seconds(point.time_from_start) for point in trajectory.points
-    ] == before
+    ] == pytest.approx([0.1, 2.1, 5.1])
+    assert tuple(trajectory.points[0].positions) == zeros
+    assert tuple(trajectory.points[1].positions) == middle
+    assert tuple(trajectory.points[2].positions) == safe_step
+    assert validate_joint_trajectory(trajectory) is None
+
+
+@pytest.mark.parametrize(
+    ("distance_m", "expected_duration"), ((0.01, 5.0), (0.003, 1.5))
+)
+def test_passthrough_retiming_matches_line_and_retract_duration(
+    distance_m, expected_duration
+):
+    trajectory = _trajectory((0.0, (0.0,) * 6), (0.5, (0.1,) + (0.0,) * 5))
+
+    duration = retime_passthrough_trajectory(
+        trajectory, distance_m=distance_m, speed_mps=0.002
+    )
+
+    first = duration_seconds(trajectory.points[0].time_from_start)
+    final = duration_seconds(trajectory.points[-1].time_from_start)
+    assert duration == pytest.approx(expected_duration)
+    assert final - first == pytest.approx(expected_duration)
+
+
+def test_passthrough_retiming_rejects_invalid_inputs_and_early_completion():
+    trajectory = _trajectory((0.0, (0.0,) * 6), (1.0, (0.1,) + (0.0,) * 5))
+
+    with pytest.raises(ValueError, match="distance and speed must be positive"):
+        retime_passthrough_trajectory(
+            trajectory, distance_m=0.01, speed_mps=0.0
+        )
+    with pytest.raises(ValueError, match="distance and speed must be positive"):
+        retime_passthrough_trajectory(
+            trajectory, distance_m=0.0, speed_mps=0.002
+        )
+    with pytest.raises(ValueError, match="duration must be positive"):
+        retime_passthrough_trajectory(
+            _trajectory((0.0, (0.0,) * 6), (0.0, (0.1,) + (0.0,) * 5)),
+            distance_m=0.01,
+            speed_mps=0.002,
+        )
+    assert execution_completed_too_early(
+        elapsed_sec=0.7, commanded_motion_sec=5.0
+    )
+    assert not execution_completed_too_early(
+        elapsed_sec=4.5, commanded_motion_sec=5.0
+    )
 
 
 def test_force_mode_request_commands_only_negative_base_z_compliance():
