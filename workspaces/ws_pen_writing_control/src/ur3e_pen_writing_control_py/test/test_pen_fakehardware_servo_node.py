@@ -7,10 +7,7 @@ from ur3e_pen_writing_control_py.joy_mapping import JoyControl
 from ur3e_pen_writing_control_py.pen_math import PenPose2D, PlanarVelocity
 from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     AlignmentErrorCsvLogger,
-    PAPER_SEEK_CONTACT_FOUND,
-    PAPER_SEEK_DESCENDING,
     ToolAlignmentError,
-    contact_force_from_baseline,
     configured_initial_tip_xy,
     fixed_vertical_pen_orientation,
     has_planar_motion_intent,
@@ -19,17 +16,9 @@ from ur3e_pen_writing_control_py.pen_fakehardware_servo_node import (
     is_servo_status_fresh,
     is_tool_pose_aligned,
     is_virtual_pen_settling,
-    lowpass_force_z,
-    next_paper_seek_offset,
-    paper_seek_baseline_stats,
-    paper_seek_dynamic_threshold,
-    paper_seek_controller_error,
-    paper_seek_tf_progressed,
-    paper_seek_tool_pose_target,
     paper_origin_from_current_tool0,
     pose_mode_became_ready,
     pose_axis_points,
-    projected_force_z_in_base,
     should_publish_pose_command,
     should_publish_constant_linear_twist,
     should_switch_linear_only_to_twist,
@@ -298,90 +287,6 @@ def test_paper_origin_uses_current_tool_xy_but_fixed_configured_z():
     assert estimated_tip_z == pytest.approx(0.64)
 
 
-def test_paper_seek_target_locks_captured_tip_xy_and_tool_orientation():
-    orientation = Quaternion(
-        x=0.0,
-        y=math.sin(math.pi / 8.0),
-        z=0.0,
-        w=math.cos(math.pi / 8.0),
-    )
-    tool_offset = Point3(x=0.00079, y=-0.00076, z=0.15172)
-
-    target_a = paper_seek_tool_pose_target(
-        captured_tip_xy=(0.412, -0.087),
-        target_tip_z=0.123,
-        captured_tool_orientation=orientation,
-        tool0_to_pen_tip=tool_offset,
-    )
-    target_b = paper_seek_tool_pose_target(
-        captured_tip_xy=(0.412, -0.087),
-        target_tip_z=0.119,
-        captured_tool_orientation=orientation,
-        tool0_to_pen_tip=tool_offset,
-    )
-
-    tip_a = tool_tip_point_from_tool_pose(
-        tool_pose=target_a,
-        tool0_to_pen_tip=tool_offset,
-    )
-    tip_b = tool_tip_point_from_tool_pose(
-        tool_pose=target_b,
-        tool0_to_pen_tip=tool_offset,
-    )
-    assert (tip_a.x, tip_a.y) == pytest.approx((0.412, -0.087))
-    assert (tip_b.x, tip_b.y) == pytest.approx((0.412, -0.087))
-    assert tip_a.z == pytest.approx(0.123)
-    assert tip_b.z == pytest.approx(0.119)
-    assert target_a.orientation == orientation
-    assert target_b.orientation == orientation
-
-
-def test_paper_seek_target_is_independent_of_virtual_paper_target():
-    captured_orientation = Quaternion(x=0.2, y=-0.3, z=0.1, w=0.9)
-    tool_offset = Point3(x=0.001, y=-0.002, z=0.15)
-    expected = paper_seek_tool_pose_target(
-        captured_tip_xy=(0.31, 0.04),
-        target_tip_z=-0.08,
-        captured_tool_orientation=captured_orientation,
-        tool0_to_pen_tip=tool_offset,
-    )
-
-    virtual_targets = (
-        tool_pose_from_pen_tip_pose(
-            pen_pose=PenPose2D(
-                tip_x=-0.1,
-                tip_y=0.2,
-                yaw=0.0,
-                tilt_rad=0.0,
-            ),
-            paper_origin=Point3(x=0.0, y=0.0, z=0.5),
-            pen_length=0.15,
-            tool0_to_pen_tip_xyz=tool_offset,
-        ),
-        tool_pose_from_pen_tip_pose(
-            pen_pose=PenPose2D(
-                tip_x=0.25,
-                tip_y=-0.3,
-                yaw=math.pi / 2.0,
-                tilt_rad=math.radians(20.0),
-            ),
-            paper_origin=Point3(x=0.7, y=-0.4, z=-0.2),
-            pen_length=0.15,
-            tool0_to_pen_tip_xyz=tool_offset,
-        ),
-    )
-
-    assert virtual_targets[0] != virtual_targets[1]
-    for _virtual_target in virtual_targets:
-        actual = paper_seek_tool_pose_target(
-            captured_tip_xy=(0.31, 0.04),
-            target_tip_z=-0.08,
-            captured_tool_orientation=captured_orientation,
-            tool0_to_pen_tip=tool_offset,
-        )
-        assert actual == expected
-
-
 def test_servo_status_fresh_requires_seen_recent_status():
     assert is_servo_status_fresh(
         status_seen=True,
@@ -422,157 +327,6 @@ def test_session_timeout_triggers_after_configured_duration():
         session_started_at_sec=10.0,
         now_sec=40.0,
     )
-
-
-def test_paper_seek_lowpass_uses_first_sample_as_initial_value():
-    assert lowpass_force_z(
-        previous_fz_n=0.0,
-        sample_fz_n=10.0,
-        alpha=0.1,
-        initialized=False,
-    ) == pytest.approx(10.0)
-    assert lowpass_force_z(
-        previous_fz_n=10.0,
-        sample_fz_n=0.0,
-        alpha=0.1,
-        initialized=True,
-    ) == pytest.approx(9.0)
-
-
-def test_paper_seek_contact_force_uses_calibrated_axis_sign():
-    assert contact_force_from_baseline(
-        filtered_fz_n=3.0,
-        baseline_fz_n=1.0,
-        force_axis_sign=1.0,
-    ) == pytest.approx(2.0)
-    assert contact_force_from_baseline(
-        filtered_fz_n=-3.0,
-        baseline_fz_n=-1.0,
-        force_axis_sign=-1.0,
-    ) == pytest.approx(2.0)
-
-
-def test_paper_seek_offset_descends_at_limited_speed():
-    assert next_paper_seek_offset(
-        current_offset_m=-0.001,
-        down_speed_mps=0.002,
-        dt_sec=0.5,
-    ) == pytest.approx(-0.002)
-    assert next_paper_seek_offset(
-        current_offset_m=-0.001,
-        down_speed_mps=0.002,
-        dt_sec=-1.0,
-    ) == pytest.approx(-0.001)
-
-
-def test_paper_seek_controller_precheck_requires_jtc_without_force_pair():
-    assert paper_seek_controller_error(
-        {
-            "joint_trajectory_controller": "active",
-            "passthrough_trajectory_controller": "inactive",
-            "force_mode_controller": "inactive",
-        }
-    ) is None
-    assert "joint_trajectory_controller is not active" in paper_seek_controller_error(
-        {
-            "joint_trajectory_controller": "inactive",
-            "passthrough_trajectory_controller": "active",
-            "force_mode_controller": "active",
-        }
-    )
-    assert "passthrough_trajectory_controller" in paper_seek_controller_error(
-        {
-            "joint_trajectory_controller": "active",
-            "passthrough_trajectory_controller": "active",
-            "force_mode_controller": "active",
-        }
-    )
-
-
-def test_paper_seek_tf_progress_requires_real_fifty_micron_descent():
-    assert paper_seek_tf_progressed(
-        previous_descent_m=0.00010,
-        actual_descent_m=0.000151,
-    )
-    assert not paper_seek_tf_progressed(
-        previous_descent_m=0.00010,
-        actual_descent_m=0.00014,
-    )
-
-
-def test_paper_seek_confirm_samples_gate_contact_detection():
-    threshold = 0.5
-    confirm_samples = 3
-    contact_count = 0
-    state = PAPER_SEEK_DESCENDING
-    for force in (0.6, 0.7):
-        contact_count = contact_count + 1 if force >= threshold else 0
-        if contact_count >= confirm_samples:
-            state = PAPER_SEEK_CONTACT_FOUND
-
-    assert state == PAPER_SEEK_DESCENDING
-
-    contact_count += 1
-    if contact_count >= confirm_samples:
-        state = PAPER_SEEK_CONTACT_FOUND
-
-    assert state == PAPER_SEEK_CONTACT_FOUND
-
-
-def test_paper_seek_max_down_limit_aborts_before_next_target():
-    max_down_m = 0.005
-    next_offset = next_paper_seek_offset(
-        current_offset_m=-0.0049,
-        down_speed_mps=0.001,
-        dt_sec=0.2,
-    )
-
-    assert abs(next_offset) > max_down_m
-
-
-def test_paper_seek_detected_z_uses_start_tip_plus_offset():
-    start_tip_z = 0.123
-    offset_m = -0.002
-    paper_origin = Point3(x=0.4, y=0.1, z=start_tip_z + offset_m)
-
-    assert paper_origin.z == pytest.approx(0.121)
-    assert start_tip_z + offset_m == pytest.approx(0.121)
-
-
-def test_paper_seek_projects_full_force_into_base_z():
-    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-    rotate_tool_z_to_base_x = Quaternion(
-        x=0.0,
-        y=math.sin(math.pi / 4.0),
-        z=0.0,
-        w=math.cos(math.pi / 4.0),
-    )
-
-    assert projected_force_z_in_base(
-        force_xyz=(0.0, 0.0, 2.0),
-        source_orientation_in_base=identity,
-    ) == pytest.approx(2.0)
-    assert projected_force_z_in_base(
-        force_xyz=(0.0, 0.0, 2.0),
-        source_orientation_in_base=rotate_tool_z_to_base_x,
-    ) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_paper_seek_threshold_is_six_sigma_with_half_newton_floor():
-    mean, standard_deviation = paper_seek_baseline_stats([0.8, 1.0, 1.2])
-
-    assert mean == pytest.approx(1.0)
-    assert standard_deviation == pytest.approx(math.sqrt(0.08 / 3.0))
-    assert paper_seek_dynamic_threshold(
-        minimum_threshold_n=0.5,
-        baseline_standard_deviation_n=standard_deviation,
-        sigma_multiplier=6.0,
-    ) == pytest.approx(6.0 * standard_deviation)
-    assert paper_seek_dynamic_threshold(
-        minimum_threshold_n=0.5,
-        baseline_standard_deviation_n=0.01,
-        sigma_multiplier=6.0,
-    ) == pytest.approx(0.5)
 
 
 def test_pose_command_publishes_only_after_arm():

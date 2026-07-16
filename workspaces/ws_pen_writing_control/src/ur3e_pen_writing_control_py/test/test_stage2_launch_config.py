@@ -41,6 +41,7 @@ REAL_BENCHMARK_LAUNCH_PATH = (
     / "launch"
     / "stage3_real_tracking_benchmark.launch.py"
 )
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_stage2_launch_module():
@@ -580,13 +581,21 @@ def test_stage3_real_air_pen_parameters_match_fakehardware_motion_strategy():
     assert parameters["max_session_duration_sec"] == 30.0
 
 
-def test_stage3_real_air_paper_seek_requires_tool_payload_configuration():
+def test_stage3_real_air_launch_does_not_export_migrated_paper_seek():
     source = REAL_AIR_LAUNCH_PATH.read_text(encoding="utf-8")
 
-    assert '"paper_seek_payload_mass_kg"' in source
-    assert 'default_value="-1.0"' in source
-    assert '"paper_seek_configure_payload": True' in source
-    assert '"paper_seek_zero_ft_before_start": True' in source
+    assert "paper_seek" not in source
+    assert "/pen_writing/start_paper_seek" not in source
+
+
+def test_old_package_does_not_export_migrated_force_control_chain():
+    setup_source = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
+    launch_names = {path.name for path in (PACKAGE_ROOT / "launch").glob("*.py")}
+
+    assert "force_mode_validation_node" not in setup_source
+    assert "z_compliance_validation_node" not in setup_source
+    assert "real_force_mode_validation.launch.py" not in launch_names
+    assert "real_force_pen_writing.launch.py" not in launch_names
 
 
 def test_stage3_real_air_pen_can_use_configured_paper_origin_exactly():

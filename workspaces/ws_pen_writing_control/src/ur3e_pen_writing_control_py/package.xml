@@ -7,8 +7,6 @@
   <maintainer email="chenmj75@mail2.sysu.edu.cn">minzi</maintainer>
   <license>Apache-2.0</license>
 
-  <depend>action_msgs</depend>
-  <depend>control_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>controller_manager_msgs</depend>
   <depend>moveit_msgs</depend>
@@ -19,7 +17,6 @@
   <depend>tf2_ros</depend>
   <depend>trajectory_msgs</depend>
   <depend>ur_dashboard_msgs</depend>
-  <depend>ur_msgs</depend>
   <depend>visualization_msgs</depend>
 
   <exec_depend>ament_index_python</exec_depend>
