@@ -25,6 +25,8 @@ setup(
         "console_scripts": [
             "mouse_handwriting_gui = "
             "ur3e_force_pen_writing_py.mouse_handwriting_gui:main",
+            "handwriting_path_preview_node = "
+            "ur3e_force_pen_writing_py.handwriting_path_preview_node:main",
             "force_mode_validation_node = "
             "ur3e_force_pen_writing_py.force_mode_validation_node:main",
             "paper_seek_servo_node = "
