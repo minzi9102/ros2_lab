@@ -22,6 +22,7 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     line_motion_reversed,
     MOTION_CONTROLLERS,
     PASSTHROUGH,
+    path_contact_acquire_minimum,
     polyline_tracking,
     relative_normal_force,
     retime_passthrough_trajectory,
@@ -223,6 +224,15 @@ def test_line_reverse_watchdog_tolerates_noise_and_rejects_backtracking():
     )
 
 
+def test_contact_path_requires_force_margin_above_steady_lower_bound():
+    assert path_contact_acquire_minimum(
+        target_force_n=0.8, steady_force_min_n=0.5
+    ) == pytest.approx(0.7)
+    assert path_contact_acquire_minimum(
+        target_force_n=0.55, steady_force_min_n=0.5
+    ) == pytest.approx(0.5)
+
+
 def test_line_reverse_watchdog_cancels_goal_before_aborting():
     source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
     watchdog = source.index("if line_motion_reversed")
@@ -341,6 +351,7 @@ def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
     orientation.w = 1.0
     events = []
     node.target_force_n = 0.8
+    node.steady_force_min_n = 0.5
     node._compile_contact_stroke = lambda: stroke
     node._current_tool_pose_stamped = lambda: SimpleNamespace(
         pose=SimpleNamespace(orientation=orientation)
@@ -352,7 +363,9 @@ def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
     node._execute_air_tip_targets = lambda *_args: events.append("air_move")
     node._prepare_force_baseline = lambda: events.append("baseline")
     node._start_force_mode = lambda _force: events.append("force_start")
-    node._acquire_contact = lambda _start: events.append("contact")
+    node._acquire_contact = lambda _start, **kwargs: events.append(
+        f"contact:{kwargs['minimum_force_n']:.1f}"
+    )
     node._write_contact_path = lambda *_args: events.append("write")
 
     node._run_contact_path()
@@ -363,7 +376,7 @@ def test_contact_path_moves_to_start_before_zeroing_and_force_mode():
         "air_move",
         "baseline",
         "force_start",
-        "contact",
+        "contact:0.7",
         "write",
     ]
 

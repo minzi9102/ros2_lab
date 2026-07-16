@@ -56,6 +56,7 @@ RETRACT_STABLE_SPAN_M = 0.0001
 PASSTHROUGH_MIN_START_TIME_SEC = 0.1
 PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
+CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 MAX_HANDWRITING_DIMENSION_M = 0.01
 MAX_AIR_PATH_LENGTH_M = 0.06
 MAX_CONTACT_PATH_LENGTH_M = 0.01
@@ -153,6 +154,13 @@ def line_motion_reversed(
     tolerance_m: float = LINE_REVERSE_TOLERANCE_M,
 ) -> bool:
     return progress_m < furthest_progress_m - tolerance_m
+
+
+def path_contact_acquire_minimum(
+    *, target_force_n: float, steady_force_min_n: float,
+    maximum_undershoot_n: float = CONTACT_PATH_MAX_UNDERSHOOT_N,
+) -> float:
+    return max(steady_force_min_n, target_force_n - maximum_undershoot_n)
 
 
 def validate_single_contact_stroke(
@@ -906,7 +914,13 @@ class ZComplianceValidationNode(Node):
         self._prepare_force_baseline()
         contact_start = self._current_tip()
         self._start_force_mode(self.target_force_n)
-        self._acquire_contact(contact_start)
+        self._acquire_contact(
+            contact_start,
+            minimum_force_n=path_contact_acquire_minimum(
+                target_force_n=self.target_force_n,
+                steady_force_min_n=self.steady_force_min_n,
+            ),
+        )
         self._write_contact_path(stroke, start_orientation)
 
     def _write_contact_path(self, stroke: list[Point3], orientation) -> None:
@@ -1008,8 +1022,21 @@ class ZComplianceValidationNode(Node):
             time.sleep(0.01)
         raise RunStopped("direction check timed out")
 
-    def _acquire_contact(self, start_tip: Point3) -> None:
-        self._publish_status("CONTACT_ACQUIRE", "approaching paper under Force Mode")
+    def _acquire_contact(
+        self, start_tip: Point3, *, minimum_force_n: float | None = None
+    ) -> None:
+        minimum_force_n = (
+            self.steady_force_min_n
+            if minimum_force_n is None
+            else max(self.steady_force_min_n, minimum_force_n)
+        )
+        if minimum_force_n > self.steady_force_max_n:
+            raise RunStopped("contact acquisition force band is invalid")
+        self._publish_status(
+            "CONTACT_ACQUIRE",
+            "approaching paper under Force Mode; stable band="
+            f"[{minimum_force_n:.3f}, {self.steady_force_max_n:.3f}]N",
+        )
         stable_since = None
         deadline = (
             time.monotonic()
@@ -1025,11 +1052,14 @@ class ZComplianceValidationNode(Node):
             travel = start_tip.z - current.z
             if travel > self.max_acquire_travel_m or travel < -0.0005:
                 raise RunStopped(f"contact acquisition Z travel exceeded: {travel:.6f}m")
-            if self.steady_force_min_n <= force <= self.steady_force_max_n:
+            if minimum_force_n <= force <= self.steady_force_max_n:
                 stable_since = stable_since or time.monotonic()
                 if time.monotonic() - stable_since >= self.contact_settle_sec:
                     self._contact_tip = current
-                    self._publish_status("CONTACT_STABLE", f"force={force:.3f}N")
+                    self._publish_status(
+                        "CONTACT_STABLE",
+                        f"force={force:.3f}N minimum={minimum_force_n:.3f}N",
+                    )
                     return
             else:
                 stable_since = None
