@@ -541,6 +541,18 @@ def test_stage3_real_air_launch_rejects_session_duration_over_hard_limit():
     assert "max_session_duration_sec" in error
 
 
+def test_stage3_real_air_launch_allows_zero_to_disable_session_timeout():
+    module = _load_stage3_real_air_launch_module()
+
+    assert (
+        module.validate_real_air_configuration(
+            human_confirmation=module.REQUIRED_REAL_AIR_CONFIRMATION,
+            max_session_duration_sec=0.0,
+        )
+        is None
+    )
+
+
 def test_stage3_real_air_launch_uses_real_robot_driver_defaults():
     module = _load_stage3_real_air_launch_module()
 

@@ -58,7 +58,6 @@ def _valid_configuration(module):
         "contact_settle_sec": 1.0,
         "hold_duration_sec": 5.0,
         "air_hold_duration_sec": 2.0,
-        "max_session_duration_sec": 60.0,
     }
 
 
@@ -121,6 +120,13 @@ def test_z_compliance_launch_does_not_start_motion_automatically():
     assert "ExecuteProcess" not in source
 
 
+def test_z_compliance_launch_disables_automatic_session_timeout():
+    source = LAUNCH_PATH.read_text(encoding="utf-8")
+
+    assert '"max_session_duration_sec": "0.0"' in source
+    assert 'DeclareLaunchArgument("max_session_duration_sec"' not in source
+
+
 def test_z_compliance_launch_matches_node_safety_parameter_interface():
     launch_source = LAUNCH_PATH.read_text(encoding="utf-8")
     node_source = NODE_PATH.read_text(encoding="utf-8")
@@ -152,7 +158,6 @@ def test_z_compliance_launch_matches_node_safety_parameter_interface():
         "contact_settle_sec",
         "hold_duration_sec",
         "air_hold_duration_sec",
-        "max_session_duration_sec",
     ):
         assert f'"{name}"' in node_source
         assert launch_source.count(f'"{name}"') >= 2

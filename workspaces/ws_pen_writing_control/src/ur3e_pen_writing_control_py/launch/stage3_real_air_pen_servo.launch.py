@@ -60,7 +60,7 @@ def load_yaml(package_name: str, file_path: str):
         return yaml.safe_load(file)
 
 
-def parse_positive_bounded_float(
+def parse_nonnegative_bounded_float(
     *,
     context: LaunchContext,
     argument_name: str,
@@ -72,8 +72,8 @@ def parse_positive_bounded_float(
     except ValueError:
         return None, f"{argument_name} must be a number, got {raw_value!r}"
 
-    if value <= 0.0:
-        return None, f"{argument_name} must be greater than 0.0, got {value}"
+    if value < 0.0:
+        return None, f"{argument_name} must be non-negative, got {value}"
     if value > max_value:
         return None, f"{argument_name} must be <= {max_value}, got {value}"
     return value, None
@@ -107,8 +107,8 @@ def validate_real_air_configuration(
             "missing real robot pen air-motion confirmation; pass "
             f"human_confirmation:={REQUIRED_REAL_AIR_CONFIRMATION}"
         )
-    if max_session_duration_sec <= 0.0:
-        return "max_session_duration_sec must be greater than 0.0"
+    if max_session_duration_sec < 0.0:
+        return "max_session_duration_sec must be non-negative"
     if max_session_duration_sec > STAGE3_REAL_MAX_SESSION_DURATION_SEC:
         return (
             "max_session_duration_sec must be <= "
@@ -341,7 +341,7 @@ def generate_launch_description() -> LaunchDescription:
 
 
 def launch_setup(context: LaunchContext, *_args, **_kwargs):
-    max_session_duration_sec, error = parse_positive_bounded_float(
+    max_session_duration_sec, error = parse_nonnegative_bounded_float(
         context=context,
         argument_name="max_session_duration_sec",
         max_value=STAGE3_REAL_MAX_SESSION_DURATION_SEC,

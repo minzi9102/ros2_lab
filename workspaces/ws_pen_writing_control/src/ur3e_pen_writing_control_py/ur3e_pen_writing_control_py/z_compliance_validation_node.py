@@ -212,10 +212,6 @@ class ZComplianceValidationNode(Node):
         self.contact_settle_sec = self._float_parameter("contact_settle_sec", 1.0)
         self.hold_duration_sec = self._float_parameter("hold_duration_sec", 5.0)
         self.air_hold_duration_sec = self._float_parameter("air_hold_duration_sec", 2.0)
-        self.max_session_duration_sec = self._float_parameter(
-            "max_session_duration_sec", 60.0
-        )
-        self.cleanup_margin_sec = self._float_parameter("cleanup_margin_sec", 15.0)
         self._validate_parameters()
 
         log_directory = str(self.declare_parameter("log_directory", "").value)
@@ -232,7 +228,6 @@ class ZComplianceValidationNode(Node):
         self._abort_event = threading.Event()
         self._abort_reason = "manual stop requested"
         self._worker: threading.Thread | None = None
-        self._session_started_at = time.monotonic()
         self._state = "IDLE"
         self._detail = "ready"
         self._paper_point: PointStamped | None = None
@@ -322,7 +317,6 @@ class ZComplianceValidationNode(Node):
             )
         self.create_service(Trigger, "/pen_writing/z_compliance/stop", self._stop)
         self.create_timer(0.02, self._publish_measurements)
-        self.create_timer(0.1, self._session_watchdog)
         self._publish_status("IDLE", "ready; no motion starts until a start service is called")
 
     def _float_parameter(self, name: str, default: float) -> float:
@@ -368,10 +362,6 @@ class ZComplianceValidationNode(Node):
             raise ValueError("line_speed_mps must be in (0, 0.002]")
         if not 0.0 < self.cartesian_step_m <= 0.0005:
             raise ValueError("cartesian_step_m must be in (0, 0.0005]")
-        if self.max_session_duration_sec < 30.0:
-            raise ValueError("max_session_duration_sec must be at least 30 seconds")
-        if not 5.0 <= self.cleanup_margin_sec < self.max_session_duration_sec:
-            raise ValueError("cleanup_margin_sec must leave at least 5 seconds")
 
     def _on_paper_point(self, message: PointStamped) -> None:
         self._paper_point = message
@@ -415,15 +405,6 @@ class ZComplianceValidationNode(Node):
         if self._worker is not None and self._worker.is_alive():
             response.success = False
             response.message = f"already running: {self._state}"
-            return response
-        remaining = self.max_session_duration_sec - (
-            time.monotonic() - self._session_started_at
-        )
-        if remaining < 25.0:
-            response.success = False
-            response.message = (
-                f"only {remaining:.1f}s remain in the bounded real session; relaunch"
-            )
             return response
         self._abort_event.clear()
         self._abort_reason = "manual stop requested"
@@ -1064,15 +1045,6 @@ class ZComplianceValidationNode(Node):
             except (TransformException, RunStopped):
                 pass
         self._offset_pub.publish(Float64(data=offset))
-
-    def _session_watchdog(self) -> None:
-        worker = self._worker
-        if worker is None or not worker.is_alive():
-            return
-        elapsed = time.monotonic() - self._session_started_at
-        if elapsed >= self.max_session_duration_sec - self.cleanup_margin_sec:
-            self._abort_reason = "bounded session cleanup margin reached"
-            self._abort_event.set()
 
     def _publish_status(self, state: str, detail: str) -> None:
         self._state = state

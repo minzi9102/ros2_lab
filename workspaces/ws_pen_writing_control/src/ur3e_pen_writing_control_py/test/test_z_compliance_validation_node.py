@@ -268,16 +268,3 @@ def test_force_stop_failure_skips_blind_retract_and_restore():
     error = node._safe_cleanup(allow_retract=True)
 
     assert "stop force failed; use robot stop" in error
-
-
-def test_session_watchdog_reserves_cleanup_margin():
-    node = object.__new__(ZComplianceValidationNode)
-    node._worker = SimpleNamespace(is_alive=lambda: True)
-    node._abort_event = threading.Event()
-    node.max_session_duration_sec = 60.0
-    node.cleanup_margin_sec = 15.0
-    node._session_started_at = time.monotonic() - 45.0
-
-    node._session_watchdog()
-
-    assert node._abort_event.is_set()

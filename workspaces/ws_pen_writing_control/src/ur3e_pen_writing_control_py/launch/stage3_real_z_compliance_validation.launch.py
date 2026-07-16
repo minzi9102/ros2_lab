@@ -71,7 +71,6 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
         "contact_settle_sec": (0.0, 2.0),
         "hold_duration_sec": (0.0, 5.0),
         "air_hold_duration_sec": (0.0, 2.0),
-        "max_session_duration_sec": (29.999, 60.0),
     }
     for name, (lower, upper) in bounds.items():
         value = float(values[name])
@@ -126,7 +125,6 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         "contact_settle_sec",
         "hold_duration_sec",
         "air_hold_duration_sec",
-        "max_session_duration_sec",
     )
     values: dict[str, float | str] = {
         "human_confirmation": context.perform_substitution(
@@ -179,7 +177,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             "paper_seek_payload_cog_xyz": str(payload_cog_xyz),
             "tool0_to_pen_tip_xyz": str(tool0_to_pen_tip_xyz),
             "start_from_current_tool0": "true",
-            "max_session_duration_sec": str(values["max_session_duration_sec"]),
+            "max_session_duration_sec": "0.0",
         }.items(),
     )
 
@@ -227,7 +225,6 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("robot_ip"),
             DeclareLaunchArgument("reverse_ip", default_value="192.168.56.2"),
             DeclareLaunchArgument("human_confirmation", default_value=""),
-            DeclareLaunchArgument("max_session_duration_sec", default_value="60.0"),
             DeclareLaunchArgument(
                 "wrench_topic",
                 default_value="/force_torque_sensor_broadcaster/wrench",
