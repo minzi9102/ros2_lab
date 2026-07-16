@@ -23,6 +23,8 @@ setup(
     extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
+            "mouse_handwriting_gui = "
+            "ur3e_force_pen_writing_py.mouse_handwriting_gui:main",
             "force_mode_validation_node = "
             "ur3e_force_pen_writing_py.force_mode_validation_node:main",
             "paper_seek_servo_node = "
