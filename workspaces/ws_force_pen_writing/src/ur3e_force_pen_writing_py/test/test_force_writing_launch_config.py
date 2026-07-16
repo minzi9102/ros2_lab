@@ -6,11 +6,11 @@ from pathlib import Path
 LAUNCH_PATH = (
     Path(__file__).resolve().parents[1]
     / "launch"
-    / "stage3_real_z_compliance_validation.launch.py"
+    / "real_force_pen_writing.launch.py"
 )
 NODE_PATH = (
     Path(__file__).resolve().parents[1]
-    / "ur3e_pen_writing_control_py"
+    / "ur3e_force_pen_writing_py"
     / "z_compliance_validation_node.py"
 )
 SETUP_PATH = Path(__file__).resolve().parents[1] / "setup.py"
@@ -19,7 +19,7 @@ PACKAGE_PATH = Path(__file__).resolve().parents[1] / "package.xml"
 
 def _load_launch_module():
     spec = importlib.util.spec_from_file_location(
-        "stage3_real_z_compliance_validation_launch",
+        "real_force_pen_writing_launch",
         LAUNCH_PATH,
     )
     module = importlib.util.module_from_spec(spec)
@@ -102,12 +102,16 @@ def test_z_compliance_launch_exposes_bounded_safety_parameters():
 
 def test_z_compliance_launch_reuses_seek_bringup_without_joy_or_rviz():
     source = LAUNCH_PATH.read_text(encoding="utf-8")
+    bringup_source = (
+        LAUNCH_PATH.parent / "real_force_writing_bringup.launch.py"
+    ).read_text(encoding="utf-8")
 
-    assert "stage3_real_air_pen_servo.launch.py" in source
+    assert "real_force_writing_bringup.launch.py" in source
     assert '"launch_rviz": "false"' in source
-    assert '"launch_joy_node": "false"' in source
-    assert '"launch_pen_node": "true"' in source
-    assert '"paper_seek_enabled": "true"' in source
+    assert '"launch_paper_seek": "true"' in source
+    assert 'executable="paper_seek_servo_node"' in bringup_source
+    assert "joy_node" not in bringup_source
+    assert "pen_fakehardware_servo_node" not in bringup_source
     assert "z_compliance_validation_node" in source
     assert "I_CONFIRM_REAL_Z_COMPLIANCE_TEST" in source
 
@@ -120,11 +124,11 @@ def test_z_compliance_launch_does_not_start_motion_automatically():
     assert "ExecuteProcess" not in source
 
 
-def test_z_compliance_launch_disables_automatic_session_timeout():
+def test_z_compliance_launch_uses_independent_session_log_directory():
     source = LAUNCH_PATH.read_text(encoding="utf-8")
 
-    assert '"max_session_duration_sec": "0.0"' in source
-    assert 'DeclareLaunchArgument("max_session_duration_sec"' not in source
+    assert '"force_pen_writing"' in source
+    assert 'DeclareLaunchArgument("log_directory", default_value="")' in source
 
 
 def test_z_compliance_launch_matches_node_safety_parameter_interface():
@@ -170,3 +174,27 @@ def test_z_compliance_executable_and_ros_message_dependencies_are_packaged():
     assert "z_compliance_validation_node:main" in setup_source
     for dependency in ("action_msgs", "control_msgs", "trajectory_msgs"):
         assert f"<depend>{dependency}</depend>" in package_source
+
+
+def test_force_mode_launch_uses_new_package_and_confirmation():
+    source = (LAUNCH_PATH.parent / "real_force_mode_validation.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "I_CONFIRM_REAL_FORCE_MODE_TEST" in source
+    assert 'package="ur3e_force_pen_writing_py"' in source
+    assert '"launch_paper_seek": "false"' in source
+    old_package = "ur3e_" + "pen_writing_control_py"
+    assert old_package not in source
+
+
+def test_new_workspace_has_no_runtime_dependency_on_old_pen_package():
+    package_root = Path(__file__).resolve().parents[1]
+    sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in package_root.rglob("*")
+        if path.is_file() and path.suffix in {".py", ".xml"}
+    )
+
+    old_package = "ur3e_" + "pen_writing_control_py"
+    assert old_package not in sources

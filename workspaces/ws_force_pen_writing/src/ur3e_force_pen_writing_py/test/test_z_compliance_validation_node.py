@@ -8,7 +8,7 @@ from geometry_msgs.msg import PointStamped, WrenchStamped
 import pytest
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from ur3e_pen_writing_control_py.z_compliance_validation_node import (
+from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     contact_lost,
     controller_delta,
     controllers_match,

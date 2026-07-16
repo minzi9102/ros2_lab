@@ -30,11 +30,13 @@ from ur_dashboard_msgs.msg import RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_msgs.srv import SetForceMode, SetPayload
 
-from .pen_fakehardware_servo_node import (
+from .geometry import (
+    Point3,
+    Quaternion,
     pose_target_from_transform,
     projected_force_z_in_base,
+    transform_point,
 )
-from .pose_math import Point3, Quaternion, transform_point
 
 
 CONFIRMATION = "I_CONFIRM_REAL_Z_COMPLIANCE_TEST"
@@ -287,12 +289,14 @@ class ZComplianceValidationNode(Node):
         self._validate_parameters()
 
         log_directory = str(self.declare_parameter("log_directory", "").value)
-        root = (
+        self._run_directory = (
             Path(log_directory)
             if log_directory
-            else Path.cwd() / "logs" / "stage3_real_z_compliance"
+            else Path.cwd()
+            / "logs"
+            / "force_pen_writing"
+            / datetime.now().strftime("%Y%m%d-%H%M%S")
         )
-        self._run_directory = root / datetime.now().strftime("%Y%m%d-%H%M%S")
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)

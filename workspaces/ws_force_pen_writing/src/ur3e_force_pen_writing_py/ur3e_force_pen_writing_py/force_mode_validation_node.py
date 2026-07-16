@@ -19,7 +19,7 @@ from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_msgs.srv import SetForceMode, SetPayload
 from visualization_msgs.msg import Marker
 
-from .pose_math import Point3, PoseTarget, Quaternion, rotate_vector
+from .geometry import Point3, PoseTarget, Quaternion, rotate_vector
 
 
 REQUIRED_CONFIRMATION = "I_CONFIRM_REAL_FORCE_MODE_TEST"
@@ -553,7 +553,10 @@ class ForceModeValidationNode(Node):
             self._publish_status(
                 "start_force_mode failed; position controller restored"
                 if success
-                else "start_force_mode failed and position controller restore failed; use robot stop"
+                else (
+                    "start_force_mode failed and position controller restore failed; "
+                    "use robot stop"
+                )
             )
 
         self._restore_position_controller(done)

@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from ur3e_pen_writing_control_py.force_mode_validation_node import (
+from ur3e_force_pen_writing_py.force_mode_validation_node import (
     controller_switch_request,
     controller_switch_verified,
     FORCE_CONTROLLER,
@@ -16,7 +16,7 @@ from ur3e_pen_writing_control_py.force_mode_validation_node import (
     quaternion_distance,
     retracted_pose,
 )
-from ur3e_pen_writing_control_py.pose_math import Point3, PoseTarget, Quaternion
+from ur3e_force_pen_writing_py.geometry import Point3, PoseTarget, Quaternion
 
 
 def test_force_profiles_keep_hard_safety_limits():

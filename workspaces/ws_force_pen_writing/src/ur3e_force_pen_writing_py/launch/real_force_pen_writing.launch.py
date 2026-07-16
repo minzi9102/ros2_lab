@@ -1,4 +1,6 @@
 import math
+from datetime import datetime
+from pathlib import Path
 
 from launch import LaunchContext, LaunchDescription
 from launch.actions import (
@@ -7,6 +9,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     LogInfo,
     OpaqueFunction,
+    SetEnvironmentVariable,
 )
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -153,13 +156,24 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             EmitEvent(event=Shutdown(reason="Invalid real Z-compliance safety argument")),
         ]
 
-    real_pen_bringup = IncludeLaunchDescription(
+    configured_log_directory = context.perform_substitution(
+        LaunchConfiguration("log_directory")
+    )
+    session_log_directory = Path(configured_log_directory) if configured_log_directory else (
+        Path.cwd()
+        / "logs"
+        / "force_pen_writing"
+        / datetime.now().strftime("%Y%m%d-%H%M%S")
+    )
+    session_log_directory.mkdir(parents=True, exist_ok=True)
+
+    force_writing_bringup = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
                 [
-                    FindPackageShare("ur3e_pen_writing_control_py"),
+                    FindPackageShare("ur3e_force_pen_writing_py"),
                     "launch",
-                    "stage3_real_air_pen_servo.launch.py",
+                    "real_force_writing_bringup.launch.py",
                 ]
             )
         ),
@@ -167,22 +181,18 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
             "ur_type": "ur3e",
             "robot_ip": LaunchConfiguration("robot_ip"),
             "reverse_ip": LaunchConfiguration("reverse_ip"),
-            "human_confirmation": "I_CONFIRM_REAL_PEN_AIR_MOTION",
             "launch_rviz": "false",
-            "launch_joy_node": "false",
-            "launch_pen_node": "true",
-            "launch_pen_tip_plane_monitor": "false",
-            "paper_seek_enabled": "true",
-            "paper_seek_payload_mass_kg": str(values["payload_mass_kg"]),
-            "paper_seek_payload_cog_xyz": str(payload_cog_xyz),
+            "launch_paper_seek": "true",
+            "payload_mass_kg": str(values["payload_mass_kg"]),
+            "payload_cog_xyz": str(payload_cog_xyz),
             "tool0_to_pen_tip_xyz": str(tool0_to_pen_tip_xyz),
-            "start_from_current_tool0": "true",
-            "max_session_duration_sec": "0.0",
+            "wrench_topic": LaunchConfiguration("wrench_topic"),
+            "log_directory": str(session_log_directory),
         }.items(),
     )
 
     validator = Node(
-        package="ur3e_pen_writing_control_py",
+        package="ur3e_force_pen_writing_py",
         executable="z_compliance_validation_node",
         name="z_compliance_validation",
         output="screen",
@@ -198,7 +208,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "payload_mass_kg": values["payload_mass_kg"],
                 "payload_cog_xyz": payload_cog_xyz,
                 "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
-                "log_directory": LaunchConfiguration("log_directory"),
+                "log_directory": str(session_log_directory),
                 **{
                     name: values[name]
                     for name in scalar_names
@@ -214,7 +224,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "until a /pen_writing/z_compliance/start_* service is called."
             )
         ),
-        real_pen_bringup,
+        SetEnvironmentVariable(name="ROS_LOG_DIR", value=str(session_log_directory)),
+        LogInfo(msg=f"Force-writing logs: {session_log_directory}"),
+        force_writing_bringup,
         validator,
     ]
 
