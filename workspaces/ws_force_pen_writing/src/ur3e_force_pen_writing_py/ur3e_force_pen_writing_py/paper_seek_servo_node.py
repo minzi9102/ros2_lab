@@ -28,12 +28,19 @@ from .geometry import (
 
 IDLE = "IDLE"
 ZEROING = "ZEROING"
+WAITING_FOR_WRENCH = "WAITING_FOR_WRENCH"
 BASELINING = "BASELINING"
 DESCENDING = "DESCENDING"
 RETRACTING = "RETRACTING"
 SUCCEEDED = "SUCCEEDED"
 ABORTED = "ABORTED"
-ACTIVE_STATES = (ZEROING, BASELINING, DESCENDING, RETRACTING)
+ACTIVE_STATES = (
+    ZEROING,
+    WAITING_FOR_WRENCH,
+    BASELINING,
+    DESCENDING,
+    RETRACTING,
+)
 
 
 def paper_seek_controller_error(states: dict[str, str]) -> str | None:
@@ -285,6 +292,9 @@ class PaperSeekServoNode(Node):
             ),
             source_orientation_in_base=orientation,
         )
+        self._record_wrench(sample, time.monotonic())
+
+    def _record_wrench(self, sample: float, now: float) -> None:
         self._filtered_force = lowpass_force_z(
             previous_fz_n=self._filtered_force,
             sample_fz_n=sample,
@@ -292,9 +302,16 @@ class PaperSeekServoNode(Node):
             initialized=self._filter_initialized,
         )
         self._filter_initialized = True
-        self._last_wrench_time = time.monotonic()
+        self._last_wrench_time = now
         self._wrench_sequence += 1
-        if self._state == BASELINING:
+        if self._state == WAITING_FOR_WRENCH:
+            self._state = BASELINING
+            self._state_started = now
+            self._baseline_samples = [self._filtered_force]
+            self._publish_status(
+                "first post-zero wrench received; collecting baseline"
+            )
+        elif self._state == BASELINING:
             self._baseline_samples.append(self._filtered_force)
 
     def _current_tool(self) -> PoseTarget | None:
@@ -402,12 +419,12 @@ class PaperSeekServoNode(Node):
         if result is None or not result.success:
             self._abort("zero_ftsensor failed")
             return
-        self._state = BASELINING
+        self._state = WAITING_FOR_WRENCH
         self._state_started = time.monotonic()
         self._baseline_samples = []
         self._filter_initialized = False
         self._last_wrench_time = 0.0
-        self._publish_status("preparation complete; collecting baseline")
+        self._publish_status("preparation complete; waiting for post-zero wrench")
 
     def _ensure_pose_mode(self) -> None:
         if self._command_ready:
@@ -435,7 +452,11 @@ class PaperSeekServoNode(Node):
         if not self._servo_healthy(now):
             self._abort("MoveIt Servo status timed out")
             return
-        if self._state != ZEROING and (
+        if self._state == WAITING_FOR_WRENCH:
+            if now - self._state_started > self.wrench_timeout_sec:
+                self._abort("post-zero wrench data timed out")
+                return
+        elif self._state != ZEROING and (
             self._last_wrench_time == 0.0
             or now - self._last_wrench_time > self.wrench_timeout_sec
         ):
@@ -578,9 +599,10 @@ class PaperSeekServoNode(Node):
     def _publish_status(self, detail: str, *, error: bool = False) -> None:
         message = f"{self._state}: {detail}"
         self._status_pub.publish(String(data=message))
-        (self.get_logger().error if error else self.get_logger().info)(
-            f"Paper seek {message}"
-        )
+        if error:
+            self.get_logger().error(f"Paper seek {message}")
+        else:
+            self.get_logger().info(f"Paper seek {message}")
 
 
 def main(args=None) -> None:
