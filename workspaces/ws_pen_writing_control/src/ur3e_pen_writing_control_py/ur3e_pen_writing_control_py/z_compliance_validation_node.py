@@ -50,6 +50,7 @@ FORCE = "force_mode_controller"
 RETRACT_SETTLE_TIMEOUT_SEC = 2.0
 RETRACT_STABLE_WINDOW_SEC = 0.2
 RETRACT_STABLE_SPAN_M = 0.0001
+PASSTHROUGH_MIN_START_TIME_SEC = 0.1
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,22 @@ def duration_seconds(duration) -> float:
     return float(duration.sec) + float(duration.nanosec) * 1e-9
 
 
+def normalize_passthrough_trajectory_timing(
+    trajectory, *, minimum_start_time_sec: float = PASSTHROUGH_MIN_START_TIME_SEC,
+):
+    if not trajectory.points:
+        return trajectory
+    first_time = duration_seconds(trajectory.points[0].time_from_start)
+    shift = max(0.0, minimum_start_time_sec - first_time)
+    if shift == 0.0:
+        return trajectory
+    for point in trajectory.points:
+        point.time_from_start = Duration(
+            seconds=duration_seconds(point.time_from_start) + shift
+        ).to_msg()
+    return trajectory
+
+
 def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) -> str | None:
     if len(trajectory.joint_names) != 6:
         return "trajectory must contain six UR joints"
@@ -95,10 +112,12 @@ def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) ->
         return "trajectory must contain at least two points"
     previous_time = -1.0
     previous_positions = None
-    for point in trajectory.points:
+    for index, point in enumerate(trajectory.points):
         if len(point.positions) != len(trajectory.joint_names):
             return "trajectory point has incomplete joint positions"
         stamp = duration_seconds(point.time_from_start)
+        if index == 0 and stamp <= 0.0:
+            return "trajectory first time_from_start must be positive"
         if stamp <= previous_time:
             return "trajectory time_from_start must be strictly increasing"
         if previous_positions is not None and any(
@@ -711,7 +730,9 @@ class ZComplianceValidationNode(Node):
                 "Cartesian path incomplete: "
                 f"code={result.error_code.val} fraction={result.fraction:.3f}"
             )
-        trajectory = result.solution.joint_trajectory
+        trajectory = normalize_passthrough_trajectory_timing(
+            result.solution.joint_trajectory
+        )
         error = validate_joint_trajectory(trajectory)
         if error:
             raise RunStopped(error)

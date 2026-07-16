@@ -11,9 +11,11 @@ from ur3e_pen_writing_control_py.z_compliance_validation_node import (
     contact_lost,
     controller_delta,
     controllers_match,
+    duration_seconds,
     FORCE,
     force_mode_request,
     MOTION_CONTROLLERS,
+    normalize_passthrough_trajectory_timing,
     PASSTHROUGH,
     relative_normal_force,
     retract_distance_is_stable,
@@ -105,15 +107,46 @@ def test_trajectory_requires_increasing_timestamps_and_bounded_joint_steps():
     jump = (0.21,) + (0.0,) * 5
 
     assert (
-        validate_joint_trajectory(_trajectory((0.0, zeros), (1.0, safe_step)))
+        validate_joint_trajectory(_trajectory((0.1, zeros), (1.0, safe_step)))
         is None
     )
+    assert "first time_from_start must be positive" in validate_joint_trajectory(
+        _trajectory((0.0, zeros), (1.0, safe_step))
+    )
     assert "strictly increasing" in validate_joint_trajectory(
-        _trajectory((0.0, zeros), (0.0, safe_step))
+        _trajectory((0.1, zeros), (0.1, safe_step))
     )
     assert "joint-space jump" in validate_joint_trajectory(
-        _trajectory((0.0, zeros), (1.0, jump))
+        _trajectory((0.1, zeros), (1.0, jump))
     )
+
+
+def test_passthrough_timing_normalization_shifts_zero_start_and_preserves_path():
+    zeros = (0.0,) * 6
+    safe_step = (0.1,) + (0.0,) * 5
+    trajectory = _trajectory((0.0, zeros), (5.0, safe_step))
+
+    result = normalize_passthrough_trajectory_timing(trajectory)
+
+    assert result is trajectory
+    assert result.points[0].time_from_start.sec == 0
+    assert result.points[0].time_from_start.nanosec == 100_000_000
+    assert result.points[1].time_from_start.sec == 5
+    assert result.points[1].time_from_start.nanosec == 100_000_000
+    assert tuple(result.points[0].positions) == zeros
+    assert tuple(result.points[1].positions) == safe_step
+    assert validate_joint_trajectory(result) is None
+
+
+def test_passthrough_timing_normalization_keeps_positive_start_unchanged():
+    trajectory = _trajectory((0.5, (0.0,) * 6), (1.0, (0.1,) + (0.0,) * 5))
+
+    before = [duration_seconds(point.time_from_start) for point in trajectory.points]
+    normalize_passthrough_trajectory_timing(trajectory)
+
+    assert [
+        duration_seconds(point.time_from_start) for point in trajectory.points
+    ] == before
 
 
 def test_force_mode_request_commands_only_negative_base_z_compliance():
