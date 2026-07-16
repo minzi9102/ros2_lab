@@ -324,6 +324,7 @@ class ZComplianceValidationNode(Node):
         self._line_max_lateral_error_m = 0.0
         self._csv_file = None
         self._csv_writer = None
+        self._csv_run_index = 0
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._status_pub = self.create_publisher(
@@ -1209,9 +1210,19 @@ class ZComplianceValidationNode(Node):
 
     def _open_csv(self, profile: str) -> None:
         self._run_directory.mkdir(parents=True, exist_ok=True)
-        self._csv_file = (self._run_directory / f"{profile}.csv").open(
-            "w", newline="", encoding="utf-8", buffering=1
-        )
+        while True:
+            self._csv_run_index += 1
+            csv_path = (
+                self._run_directory / f"{profile}_{self._csv_run_index:03d}.csv"
+            )
+            try:
+                self._csv_file = csv_path.open(
+                    "x", newline="", encoding="utf-8", buffering=1
+                )
+                break
+            except FileExistsError:
+                continue
+        self.get_logger().info(f"Z compliance recording started: {csv_path}")
         self._csv_writer = csv.writer(self._csv_file)
         self._csv_writer.writerow(
             (

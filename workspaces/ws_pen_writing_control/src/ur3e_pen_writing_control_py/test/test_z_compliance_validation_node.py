@@ -1,4 +1,5 @@
 import inspect
+from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
@@ -221,6 +222,31 @@ def test_line_reverse_watchdog_cancels_goal_before_aborting():
     abort = source.index('"line reversed beyond 0.1mm', watchdog)
 
     assert watchdog < cancel < abort
+
+
+def test_csv_logging_uses_unique_run_numbers_without_overwriting(tmp_path: Path):
+    existing = tmp_path / "line_001.csv"
+    existing.write_text("existing\n", encoding="utf-8")
+    messages = []
+    node = object.__new__(ZComplianceValidationNode)
+    node._run_directory = tmp_path
+    node._csv_run_index = 0
+    node._csv_file = None
+    node._csv_writer = None
+    node.get_logger = lambda: SimpleNamespace(info=messages.append)
+
+    node._open_csv("line")
+    node._close_csv()
+    node._open_csv("line")
+    node._close_csv()
+
+    assert existing.read_text(encoding="utf-8") == "existing\n"
+    assert sorted(path.name for path in tmp_path.glob("line_*.csv")) == [
+        "line_001.csv",
+        "line_002.csv",
+        "line_003.csv",
+    ]
+    assert messages[-1].endswith("line_003.csv")
 
 
 def test_force_mode_request_commands_only_negative_base_z_compliance():
