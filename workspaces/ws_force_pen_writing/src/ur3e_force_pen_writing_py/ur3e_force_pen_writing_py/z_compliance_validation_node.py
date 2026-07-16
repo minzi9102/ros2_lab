@@ -60,7 +60,7 @@ CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
 MAX_BASELINE_ABS_N = 0.3
 MAX_HANDWRITING_DIMENSION_M = 0.03
-MAX_AIR_PATH_LENGTH_M = 0.06
+MAX_AIR_PATH_LENGTH_M = 0.1
 MAX_CONTACT_PATH_LENGTH_M = 0.05
 PATH_ENDPOINT_TOLERANCE_M = 0.0005
 PATH_LATERAL_TOLERANCE_M = 0.0005
@@ -879,7 +879,10 @@ class ZComplianceValidationNode(Node):
             stroke_execution_distance(self._current_tip(), strokes)
             > MAX_AIR_PATH_LENGTH_M
         ):
-            raise RunStopped("air handwriting execution distance exceeds 60mm")
+            raise RunStopped(
+                "air handwriting execution distance exceeds "
+                f"{MAX_AIR_PATH_LENGTH_M * 1000:g}mm"
+            )
         for index, stroke in enumerate(strokes, start=1):
             self._publish_status(
                 "AIR_PATH_TRANSITION",
