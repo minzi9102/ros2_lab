@@ -1,14 +1,17 @@
 import inspect
+import math
 from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
 
-from geometry_msgs.msg import PointStamped, WrenchStamped
+from geometry_msgs.msg import PointStamped, Pose, WrenchStamped
 import pytest
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+from ur3e_force_pen_writing_py.geometry import Point3
 from ur3e_force_pen_writing_py.z_compliance_validation_node import (
+    anchored_tip_strokes,
     contact_lost,
     controller_delta,
     controllers_match,
@@ -23,6 +26,9 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     retime_passthrough_trajectory,
     retract_distance_is_stable,
     RunStopped,
+    stroke_execution_distance,
+    tip_path_distance,
+    tool_waypoints_for_tip_targets,
     validate_joint_trajectory,
     ZComplianceValidationNode,
 )
@@ -96,7 +102,7 @@ def test_controller_delta_only_switches_states_that_need_changing():
 
 
 def test_cartesian_plan_rejects_incomplete_fraction_before_execution():
-    source = inspect.getsource(ZComplianceValidationNode._plan_cartesian)
+    source = inspect.getsource(ZComplianceValidationNode._plan_tip_targets)
 
     assert "result.fraction < 0.999" in source
     assert source.index("result.fraction < 0.999") < source.index(
@@ -224,6 +230,81 @@ def test_line_reverse_watchdog_cancels_goal_before_aborting():
     assert watchdog < cancel < abort
 
 
+def test_handwriting_strokes_are_centered_on_anchor_at_fixed_air_gap():
+    strokes = anchored_tip_strokes(
+        [[(-0.005, 0.005), (0.005, -0.005)]],
+        anchor=Point3(0.4, 0.1, 0.2),
+        tip_z=0.203,
+    )
+
+    assert (strokes[0][0].x, strokes[0][0].y, strokes[0][0].z) == pytest.approx(
+        (0.395, 0.105, 0.203)
+    )
+    assert (strokes[0][1].x, strokes[0][1].y, strokes[0][1].z) == pytest.approx(
+        (0.405, 0.095, 0.203)
+    )
+
+
+def test_tip_targets_translate_tool_pose_without_rotating_it():
+    pose = Pose()
+    pose.position.x, pose.position.y, pose.position.z = (0.3, 0.2, 0.1)
+    pose.orientation.x, pose.orientation.w = (0.2, 0.98)
+    start = Point3(0.4, 0.1, 0.05)
+    targets = [Point3(0.405, 0.095, 0.053), Point3(0.41, 0.1, 0.053)]
+
+    waypoints = tool_waypoints_for_tip_targets(pose, start, targets)
+
+    assert tip_path_distance(start, targets) == pytest.approx(
+        (0.005**2 + 0.005**2 + 0.003**2) ** 0.5
+        + (0.005**2 + 0.005**2) ** 0.5
+    )
+    assert (waypoints[0].position.x, waypoints[0].position.y, waypoints[0].position.z) == pytest.approx(
+        (0.305, 0.195, 0.103)
+    )
+    assert waypoints[0].orientation == pose.orientation
+    assert waypoints[1].orientation == pose.orientation
+
+
+def test_air_execution_distance_includes_pen_up_transitions():
+    strokes = [
+        [Point3(0.001, 0.0, 0.003), Point3(0.002, 0.0, 0.003)],
+        [Point3(0.002, 0.003, 0.003), Point3(0.004, 0.003, 0.003)],
+    ]
+
+    distance = stroke_execution_distance(Point3(0.0, 0.0, 0.0), strokes)
+
+    assert distance == pytest.approx(
+        math.sqrt(0.001**2 + 0.003**2) + 0.001 + 0.003 + 0.002
+    )
+
+
+def test_tip_waypoints_can_lock_one_orientation_across_segments():
+    pose = Pose()
+    pose.orientation.w = 1.0
+    fixed = Pose().orientation
+    fixed.z, fixed.w = (0.2, 0.98)
+
+    waypoints = tool_waypoints_for_tip_targets(
+        pose,
+        Point3(0.0, 0.0, 0.0),
+        [Point3(0.001, 0.0, 0.0)],
+        fixed,
+    )
+
+    assert waypoints[0].orientation == fixed
+
+
+def test_air_path_profile_skips_force_mode_and_monitors_live_data():
+    run_source = inspect.getsource(ZComplianceValidationNode._run_profile)
+    execute_source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
+
+    assert 'profile not in ("switch_hold", "path_air")' in run_source
+    assert 'elif profile == "path_air"' in run_source
+    assert 'allow_retract=profile not in ("switch_hold", "path_air")' in run_source
+    assert "elif monitor_live" in execute_source
+    assert "self._assert_live_data()" in execute_source
+
+
 def test_csv_logging_uses_unique_run_numbers_without_overwriting(tmp_path: Path):
     existing = tmp_path / "line_001.csv"
     existing.write_text("existing\n", encoding="utf-8")
@@ -307,6 +388,7 @@ def test_service_interface_names_are_stable_and_manual_only():
         "start_direction",
         "start_contact_hold",
         "start_line",
+        "start_path_air",
     ):
         assert f'(\"{name}\",' in source
     assert 'f"/pen_writing/z_compliance/{service_name}"' in source
@@ -332,7 +414,7 @@ def test_cleanup_order_is_cancel_hold_stop_force_retract_restore():
 def test_switch_hold_cleanup_explicitly_disables_retraction():
     source = inspect.getsource(ZComplianceValidationNode._run_profile)
 
-    assert 'allow_retract=profile != "switch_hold"' in source
+    assert 'allow_retract=profile not in ("switch_hold", "path_air")' in source
 
 
 def test_controller_verification_failure_keeps_restore_flag_armed():

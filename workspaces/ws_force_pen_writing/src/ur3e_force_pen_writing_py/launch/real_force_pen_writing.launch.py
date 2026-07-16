@@ -66,6 +66,8 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
         "line_length_m": (0.0, 0.01),
         "line_speed_mps": (0.0, 0.002),
         "cartesian_step_m": (0.0, 0.0005),
+        "writing_width_m": (0.0, 0.01),
+        "writing_height_m": (0.0, 0.01),
         "data_timeout_sec": (0.0, 1.0),
         "lost_contact_duration_sec": (0.0, 1.0),
         "baseline_duration_sec": (0.0, 5.0),
@@ -82,6 +84,8 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
 
     if not 0.0 <= float(values["damping_factor"]) <= 1.0:
         return "damping_factor must be in [0, 1]"
+    if not 0.0 <= float(values["path_simplify_tolerance_m"]) <= 0.001:
+        return "path_simplify_tolerance_m must be in [0, 0.001]"
     if not 0.0 < float(values["gain_scaling"]) <= 1.0:
         return "gain_scaling must be in (0, 1]"
     if not (
@@ -121,6 +125,9 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         "line_length_m",
         "line_speed_mps",
         "cartesian_step_m",
+        "writing_width_m",
+        "writing_height_m",
+        "path_simplify_tolerance_m",
         "data_timeout_sec",
         "baseline_duration_sec",
         "baseline_settle_sec",
@@ -209,6 +216,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "payload_cog_xyz": payload_cog_xyz,
                 "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
                 "log_directory": str(session_log_directory),
+                "trajectory_file": LaunchConfiguration("trajectory_file"),
                 **{
                     name: values[name]
                     for name in scalar_names
@@ -281,6 +289,12 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("line_length_m", default_value="0.01"),
             DeclareLaunchArgument("line_speed_mps", default_value="0.002"),
             DeclareLaunchArgument("cartesian_step_m", default_value="0.0005"),
+            DeclareLaunchArgument("trajectory_file", default_value=""),
+            DeclareLaunchArgument("writing_width_m", default_value="0.01"),
+            DeclareLaunchArgument("writing_height_m", default_value="0.01"),
+            DeclareLaunchArgument(
+                "path_simplify_tolerance_m", default_value="0.00025"
+            ),
             DeclareLaunchArgument("data_timeout_sec", default_value="0.2"),
             DeclareLaunchArgument("baseline_duration_sec", default_value="1.0"),
             DeclareLaunchArgument("baseline_settle_sec", default_value="0.5"),

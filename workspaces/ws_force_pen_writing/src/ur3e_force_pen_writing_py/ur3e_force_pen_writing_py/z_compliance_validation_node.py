@@ -37,6 +37,7 @@ from .geometry import (
     projected_force_z_in_base,
     transform_point,
 )
+from .handwriting_path import compile_strokes, load_handwriting
 
 
 CONFIRMATION = "I_CONFIRM_REAL_Z_COMPLIANCE_TEST"
@@ -55,6 +56,9 @@ RETRACT_STABLE_SPAN_M = 0.0001
 PASSTHROUGH_MIN_START_TIME_SEC = 0.1
 PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
+MAX_HANDWRITING_DIMENSION_M = 0.01
+MAX_AIR_PATH_LENGTH_M = 0.06
+PATH_ENDPOINT_TOLERANCE_M = 0.0005
 
 
 @dataclass(frozen=True)
@@ -140,6 +144,66 @@ def line_motion_reversed(
     tolerance_m: float = LINE_REVERSE_TOLERANCE_M,
 ) -> bool:
     return progress_m < furthest_progress_m - tolerance_m
+
+
+def anchored_tip_strokes(
+    strokes,
+    *,
+    anchor: Point3,
+    tip_z: float,
+) -> list[list[Point3]]:
+    return [
+        [Point3(anchor.x + x, anchor.y + y, tip_z) for x, y in stroke]
+        for stroke in strokes
+    ]
+
+
+def tip_path_distance(start: Point3, targets: list[Point3]) -> float:
+    points = [start, *targets]
+    return sum(
+        math.dist((a.x, a.y, a.z), (b.x, b.y, b.z))
+        for a, b in zip(points, points[1:])
+    )
+
+
+def stroke_execution_distance(start: Point3, strokes: list[list[Point3]]) -> float:
+    distance = 0.0
+    current = start
+    for stroke in strokes:
+        distance += tip_path_distance(current, stroke)
+        current = stroke[-1]
+    return distance
+
+
+def tool_waypoints_for_tip_targets(
+    current_pose: Pose,
+    current_tip: Point3,
+    targets: list[Point3],
+    fixed_orientation=None,
+) -> list[Pose]:
+    waypoints = []
+    for target in targets:
+        waypoint = Pose()
+        waypoint.position.x = current_pose.position.x + target.x - current_tip.x
+        waypoint.position.y = current_pose.position.y + target.y - current_tip.y
+        waypoint.position.z = current_pose.position.z + target.z - current_tip.z
+        waypoint.orientation = (
+            fixed_orientation
+            if fixed_orientation is not None
+            else current_pose.orientation
+        )
+        waypoints.append(waypoint)
+    return waypoints
+
+
+def pose_rotation_distance(first, second) -> float:
+    dot = abs(
+        first.x * second.x
+        + first.y * second.y
+        + first.z * second.z
+        + first.w * second.w
+    )
+    return 2.0 * math.acos(min(1.0, max(-1.0, dot)))
 
 
 def validate_joint_trajectory(trajectory, *, max_joint_step_rad: float = 0.2) -> str | None:
@@ -279,6 +343,14 @@ class ZComplianceValidationNode(Node):
         self.line_length_m = self._float_parameter("line_length_m", 0.01)
         self.line_speed_mps = self._float_parameter("line_speed_mps", 0.002)
         self.cartesian_step_m = self._float_parameter("cartesian_step_m", 0.0005)
+        self.trajectory_file = str(
+            self.declare_parameter("trajectory_file", "").value
+        )
+        self.writing_width_m = self._float_parameter("writing_width_m", 0.01)
+        self.writing_height_m = self._float_parameter("writing_height_m", 0.01)
+        self.path_simplify_tolerance_m = self._float_parameter(
+            "path_simplify_tolerance_m", 0.00025
+        )
         self.data_timeout_sec = self._float_parameter("data_timeout_sec", 0.2)
         self.baseline_duration_sec = self._float_parameter("baseline_duration_sec", 1.0)
         self.baseline_settle_sec = self._float_parameter("baseline_settle_sec", 0.5)
@@ -384,6 +456,7 @@ class ZComplianceValidationNode(Node):
             ("start_direction", "direction"),
             ("start_contact_hold", "contact_hold"),
             ("start_line", "line"),
+            ("start_path_air", "path_air"),
         ):
             self.create_service(
                 Trigger,
@@ -439,6 +512,12 @@ class ZComplianceValidationNode(Node):
             raise ValueError("line_speed_mps must be in (0, 0.002]")
         if not 0.0 < self.cartesian_step_m <= 0.0005:
             raise ValueError("cartesian_step_m must be in (0, 0.0005]")
+        if not 0.0 < self.writing_width_m <= MAX_HANDWRITING_DIMENSION_M:
+            raise ValueError("writing_width_m must be in (0, 0.01]")
+        if not 0.0 < self.writing_height_m <= MAX_HANDWRITING_DIMENSION_M:
+            raise ValueError("writing_height_m must be in (0, 0.01]")
+        if not 0.0 <= self.path_simplify_tolerance_m <= 0.001:
+            raise ValueError("path_simplify_tolerance_m must be in [0, 0.001]")
 
     def _on_paper_point(self, message: PointStamped) -> None:
         self._paper_point = message
@@ -506,17 +585,20 @@ class ZComplianceValidationNode(Node):
 
     def _run_profile(self, profile: str) -> None:
         self._profile = profile
+        self._reset_run_tracking()
         succeeded = False
         failure = ""
         try:
             self._open_csv(profile)
             start_tip = self._precheck()
-            if profile != "switch_hold":
+            if profile not in ("switch_hold", "path_air"):
                 self._prepare_force_baseline()
             self._switch_to_passthrough_force()
             self._send_hold_current_joints()
             if profile == "switch_hold":
                 self._air_hold(start_tip)
+            elif profile == "path_air":
+                self._run_air_path()
             else:
                 force = self.direction_force_n if profile == "direction" else self.target_force_n
                 self._start_force_mode(force)
@@ -533,7 +615,9 @@ class ZComplianceValidationNode(Node):
             failure = str(exc)
             self.get_logger().error(f"Z-compliance {profile} failed: {failure}")
         finally:
-            cleanup_error = self._safe_cleanup(allow_retract=profile != "switch_hold")
+            cleanup_error = self._safe_cleanup(
+                allow_retract=profile not in ("switch_hold", "path_air")
+            )
             if cleanup_error:
                 failure = f"{failure}; {cleanup_error}" if failure else cleanup_error
                 succeeded = False
@@ -542,6 +626,15 @@ class ZComplianceValidationNode(Node):
                 f"{profile} complete" if succeeded else failure or "stopped",
             )
             self._close_csv()
+
+    def _reset_run_tracking(self) -> None:
+        self._baseline_force_n = 0.0
+        self._active_target_force_n = 0.0
+        self._force_start_tip = None
+        self._force_start_pose = None
+        self._contact_tip = None
+        self._line_start_tip = None
+        self._line_max_lateral_error_m = 0.0
 
     def _precheck(self) -> Point3:
         self._publish_status("PRECHECK", "checking paper, TF, robot and controllers")
@@ -658,6 +751,76 @@ class ZComplianceValidationNode(Node):
                 raise RunStopped("air hold translation exceeded 1mm")
             time.sleep(0.02)
 
+    def _run_air_path(self) -> None:
+        if not self.trajectory_file:
+            raise RunStopped("trajectory_file is required for path_air")
+        assert self._paper_point is not None
+        compiled = compile_strokes(
+            load_handwriting(self.trajectory_file),
+            writing_width_m=self.writing_width_m,
+            writing_height_m=self.writing_height_m,
+            simplify_tolerance_m=self.path_simplify_tolerance_m,
+            cartesian_step_m=self.cartesian_step_m,
+        )
+        paper = self._paper_point.point
+        strokes = anchored_tip_strokes(
+            compiled,
+            anchor=Point3(paper.x, paper.y, paper.z),
+            tip_z=paper.z + self.retract_distance_m,
+        )
+        start_orientation = self._current_tool_pose_stamped().pose.orientation
+        if (
+            stroke_execution_distance(self._current_tip(), strokes)
+            > MAX_AIR_PATH_LENGTH_M
+        ):
+            raise RunStopped("air handwriting execution distance exceeds 60mm")
+        for index, stroke in enumerate(strokes, start=1):
+            self._publish_status(
+                "AIR_PATH_TRANSITION",
+                f"moving above stroke {index}/{len(strokes)} start",
+            )
+            self._execute_air_tip_targets([stroke[0]], start_orientation)
+            self._publish_status(
+                "AIR_PATH_STROKE",
+                f"executing stroke {index}/{len(strokes)} without contact",
+            )
+            self._execute_air_tip_targets(stroke[1:], start_orientation)
+            rotation_error = pose_rotation_distance(
+                self._current_tool_pose_stamped().pose.orientation,
+                start_orientation,
+            )
+            if rotation_error > math.radians(1.0):
+                raise RunStopped(
+                    "air path rotation error exceeded 1deg: "
+                    f"{rotation_error:.6f}rad"
+                )
+
+    def _execute_air_tip_targets(self, targets: list[Point3], orientation) -> None:
+        if not targets:
+            return
+        start = self._current_tip()
+        distance = tip_path_distance(start, targets)
+        if distance <= 0.00005:
+            self._assert_tip_endpoint(targets[-1])
+            return
+        trajectory = self._plan_tip_targets(targets, fixed_orientation=orientation)
+        timeout = max(10.0, distance / self.line_speed_mps + 5.0)
+        self._execute_trajectory(
+            trajectory,
+            timeout=timeout,
+            monitor_live=True,
+        )
+        self._assert_tip_endpoint(targets[-1])
+
+    def _assert_tip_endpoint(self, target: Point3) -> None:
+        current = self._current_tip()
+        error = math.dist(
+            (current.x, current.y, current.z),
+            (target.x, target.y, target.z),
+        )
+        if error > PATH_ENDPOINT_TOLERANCE_M:
+            raise RunStopped(f"path endpoint error exceeded: {error:.6f}m")
+
     def _start_force_mode(self, force_n: float) -> None:
         assert self._paper_point is not None
         self._force_start_tip = self._current_tip()
@@ -751,18 +914,38 @@ class ZComplianceValidationNode(Node):
             )
 
     def _plan_cartesian(self, *, delta_x: float, delta_z: float):
+        tip = self._current_tip()
+        return self._plan_tip_targets(
+            [Point3(tip.x + delta_x, tip.y, tip.z + delta_z)],
+            current_tip=tip,
+        )
+
+    def _plan_tip_targets(
+        self,
+        targets: list[Point3],
+        *,
+        fixed_orientation=None,
+        current_tip: Point3 | None = None,
+    ):
+        if not targets:
+            raise RunStopped("Cartesian target list must not be empty")
         pose = self._current_tool_pose_stamped()
-        target = Pose()
-        target.position.x = pose.pose.position.x + delta_x
-        target.position.y = pose.pose.position.y
-        target.position.z = pose.pose.position.z + delta_z
-        target.orientation = pose.pose.orientation
+        if current_tip is None:
+            current_tip = self._current_tip()
+        distance = tip_path_distance(current_tip, targets)
+        if distance <= 0.0:
+            raise RunStopped("Cartesian path distance must be positive")
         request = GetCartesianPath.Request()
         request.header.frame_id = self.base_frame
         request.group_name = "ur_manipulator"
         request.link_name = self.tool_frame
         request.start_state = RobotState(joint_state=self._fresh_joint_state())
-        request.waypoints = [target]
+        request.waypoints = tool_waypoints_for_tip_targets(
+            pose.pose,
+            current_tip,
+            targets,
+            fixed_orientation,
+        )
         request.max_step = self.cartesian_step_m
         request.jump_threshold = 2.0
         request.revolute_jump_threshold = 0.2
@@ -777,7 +960,6 @@ class ZComplianceValidationNode(Node):
                 f"code={result.error_code.val} fraction={result.fraction:.3f}"
             )
         trajectory = result.solution.joint_trajectory
-        distance = math.hypot(delta_x, delta_z)
         try:
             motion_duration, time_scale = retime_passthrough_trajectory(
                 trajectory,
@@ -806,7 +988,7 @@ class ZComplianceValidationNode(Node):
 
     def _execute_trajectory(
         self, trajectory, *, timeout: float, monitor_contact: bool = False,
-        allow_single_point: bool = False,
+        monitor_live: bool = False, allow_single_point: bool = False,
     ) -> None:
         if not allow_single_point:
             error = validate_joint_trajectory(trajectory)
@@ -860,6 +1042,8 @@ class ZComplianceValidationNode(Node):
                     )
                 furthest_line_progress = max(furthest_line_progress, line_progress)
                 self._assert_contact_z_offset()
+            elif monitor_live:
+                self._assert_live_data()
             self._raise_if_stopped()
             time.sleep(0.01)
         wrapped = result_future.result()
@@ -977,13 +1161,7 @@ class ZComplianceValidationNode(Node):
             )
         current = self._current_tool_pose_stamped().pose.orientation
         start = self._force_start_pose.pose.orientation
-        dot = abs(
-            current.x * start.x
-            + current.y * start.y
-            + current.z * start.z
-            + current.w * start.w
-        )
-        rotation_error = 2.0 * math.acos(min(1.0, max(-1.0, dot)))
+        rotation_error = pose_rotation_distance(current, start)
         return xy_error, rotation_error
 
     def _assert_contact_z_offset(self) -> None:
