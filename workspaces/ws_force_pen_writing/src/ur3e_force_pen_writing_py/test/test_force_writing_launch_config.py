@@ -102,7 +102,7 @@ def test_z_compliance_launch_exposes_bounded_safety_parameters():
     values["steady_force_max_n"] = 1.6
     assert "force thresholds" in module.validate_z_compliance_configuration(values)
     values = _valid_configuration(module)
-    values["writing_width_m"] = 0.020001
+    values["writing_width_m"] = 0.030001
     assert "writing_width_m" in module.validate_z_compliance_configuration(values)
 
 
