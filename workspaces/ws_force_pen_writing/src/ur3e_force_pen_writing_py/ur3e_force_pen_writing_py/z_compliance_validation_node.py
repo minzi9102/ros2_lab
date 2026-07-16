@@ -58,9 +58,9 @@ PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
 CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
-MAX_HANDWRITING_DIMENSION_M = 0.01
+MAX_HANDWRITING_DIMENSION_M = 0.02
 MAX_AIR_PATH_LENGTH_M = 0.06
-MAX_CONTACT_PATH_LENGTH_M = 0.01
+MAX_CONTACT_PATH_LENGTH_M = 0.035
 PATH_ENDPOINT_TOLERANCE_M = 0.0005
 PATH_LATERAL_TOLERANCE_M = 0.0005
 
@@ -593,9 +593,13 @@ class ZComplianceValidationNode(Node):
         if not 0.0 < self.cartesian_step_m <= 0.0005:
             raise ValueError("cartesian_step_m must be in (0, 0.0005]")
         if not 0.0 < self.writing_width_m <= MAX_HANDWRITING_DIMENSION_M:
-            raise ValueError("writing_width_m must be in (0, 0.01]")
+            raise ValueError(
+                f"writing_width_m must be in (0, {MAX_HANDWRITING_DIMENSION_M}]"
+            )
         if not 0.0 < self.writing_height_m <= MAX_HANDWRITING_DIMENSION_M:
-            raise ValueError("writing_height_m must be in (0, 0.01]")
+            raise ValueError(
+                f"writing_height_m must be in (0, {MAX_HANDWRITING_DIMENSION_M}]"
+            )
         if not 0.0 <= self.path_simplify_tolerance_m <= 0.001:
             raise ValueError("path_simplify_tolerance_m must be in [0, 0.001]")
 

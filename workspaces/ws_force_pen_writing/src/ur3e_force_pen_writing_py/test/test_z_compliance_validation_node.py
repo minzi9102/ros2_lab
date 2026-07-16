@@ -281,14 +281,14 @@ def test_polyline_tracking_reports_progress_and_lateral_error_across_v_corner():
     assert second.total_length_m == pytest.approx(0.01)
 
 
-def test_contact_path_requires_exactly_one_stroke_no_longer_than_10mm():
-    valid = [[(0.0, 0.0), (0.006, 0.0), (0.006, 0.004)]]
+def test_contact_path_requires_exactly_one_stroke_no_longer_than_35mm():
+    valid = [[(0.0, 0.0), (0.020, 0.0), (0.020, 0.015)]]
 
     assert validate_single_contact_stroke(valid) == valid[0]
     with pytest.raises(ValueError, match="exactly one stroke"):
         validate_single_contact_stroke([valid[0], valid[0]])
-    with pytest.raises(ValueError, match="exceeds 10mm"):
-        validate_single_contact_stroke([[(0.0, 0.0), (0.010001, 0.0)]])
+    with pytest.raises(ValueError, match="exceeds 35mm"):
+        validate_single_contact_stroke([[(0.0, 0.0), (0.035001, 0.0)]])
 
 
 def test_handwriting_strokes_are_centered_on_anchor_at_fixed_air_gap():
