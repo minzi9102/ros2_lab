@@ -35,6 +35,7 @@ from .geometry import (
     Quaternion,
     pose_target_from_transform,
     projected_force_z_in_base,
+    rotate_vector,
     transform_point,
 )
 from .handwriting_path import compile_strokes, load_handwriting, path_length
@@ -81,6 +82,23 @@ class PathTracking:
     progress_m: float
     lateral_error_m: float
     total_length_m: float
+
+
+def pen_axis_in_base_and_tilt(
+    orientation: Quaternion,
+    axis_tool: tuple[float, float, float],
+) -> tuple[tuple[float, float, float], float]:
+    axis_norm = math.sqrt(sum(value * value for value in axis_tool))
+    if not math.isfinite(axis_norm) or axis_norm <= 1e-12:
+        raise ValueError("pen_axis_tool_xyz must be finite and nonzero")
+    unit_axis_tool = tuple(value / axis_norm for value in axis_tool)
+    axis_base = rotate_vector(orientation, unit_axis_tool)
+    rotated_norm = math.sqrt(sum(value * value for value in axis_base))
+    if not math.isfinite(rotated_norm) or rotated_norm <= 1e-12:
+        raise ValueError("tool orientation produced an invalid pen axis")
+    unit_axis_base = tuple(value / rotated_norm for value in axis_base)
+    alignment_with_base_down = max(-1.0, min(1.0, -unit_axis_base[2]))
+    return unit_axis_base, math.acos(alignment_with_base_down)
 
 
 def controller_delta(
@@ -426,6 +444,15 @@ class ZComplianceValidationNode(Node):
                 ).value
             )
         )
+        self.pen_axis_tool_xyz = tuple(
+            float(value)
+            for value in self.declare_parameter(
+                "pen_axis_tool_xyz", [0.0, 0.0, 1.0]
+            ).value
+        )
+        self.max_pen_tilt_rad = self._float_parameter(
+            "max_pen_tilt_rad", math.radians(1.0)
+        )
         self.target_force_n = self._float_parameter("target_force_n", 0.8)
         self.direction_force_n = self._float_parameter("direction_force_n", 0.2)
         self.max_force_filtered_n = self._float_parameter("max_force_filtered_n", 1.5)
@@ -605,6 +632,13 @@ class ZComplianceValidationNode(Node):
             raise ValueError("gain_scaling must be in (0, 1]")
         if len(self.payload_cog_xyz) != 3:
             raise ValueError("payload_cog_xyz must contain three values")
+        if len(self.pen_axis_tool_xyz) != 3:
+            raise ValueError("pen_axis_tool_xyz must contain three values")
+        pen_axis_in_base_and_tilt(
+            Quaternion(0.0, 0.0, 0.0, 1.0), self.pen_axis_tool_xyz
+        )
+        if not 0.0 < self.max_pen_tilt_rad <= math.radians(2.0):
+            raise ValueError("max_pen_tilt_rad must be in (0, 2deg]")
         if not 0.0 < self.direction_force_n <= 0.5:
             raise ValueError("direction_force_n must be in (0, 0.5]")
         if not (
@@ -786,12 +820,41 @@ class ZComplianceValidationNode(Node):
             raise RunStopped("wrench data is stale")
         if self._latest_joint_state is None or now - self._last_joint_time > self.data_timeout_sec:
             raise RunStopped("joint state is stale")
+        if self._profile != "switch_hold":
+            self._assert_pen_axis_tilt()
         tip = self._current_tip()
         gap = tip.z - self._paper_point.point.z
         if not 0.002 <= gap <= 0.004:
             raise RunStopped(f"pen-tip air gap must be 2-4mm, got {gap:.6f}m")
         self._assert_dashboard_safe(force=True)
         return tip
+
+    def _assert_pen_axis_tilt(self) -> None:
+        pose = self._current_tool_pose_stamped().pose
+        orientation = Quaternion(
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        )
+        axis_base, tilt_rad = pen_axis_in_base_and_tilt(
+            orientation, self.pen_axis_tool_xyz
+        )
+        tilt_deg = math.degrees(tilt_rad)
+        limit_deg = math.degrees(self.max_pen_tilt_rad)
+        if tilt_rad > self.max_pen_tilt_rad + 1e-12:
+            raise RunStopped(
+                "pen axis tilt exceeds absolute limit: "
+                f"tilt={tilt_deg:.3f}deg limit={limit_deg:.3f}deg "
+                f"axis_base=({axis_base[0]:.6f}, {axis_base[1]:.6f}, "
+                f"{axis_base[2]:.6f})"
+            )
+        self.get_logger().info(
+            "Pen-axis precheck passed: "
+            f"tilt={tilt_deg:.3f}deg limit={limit_deg:.3f}deg "
+            f"axis_base=({axis_base[0]:.6f}, {axis_base[1]:.6f}, "
+            f"{axis_base[2]:.6f})"
+        )
 
     def _prepare_force_baseline(self) -> None:
         self._publish_status("AIR_ZERO", "setting payload and zeroing F/T in air")

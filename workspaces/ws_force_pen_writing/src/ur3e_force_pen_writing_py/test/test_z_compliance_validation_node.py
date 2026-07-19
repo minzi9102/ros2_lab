@@ -26,6 +26,7 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     MOTION_CONTROLLERS,
     PASSTHROUGH,
     path_contact_acquire_minimum,
+    pen_axis_in_base_and_tilt,
     polyline_tracking,
     relative_normal_force,
     retime_passthrough_trajectory,
@@ -97,7 +98,6 @@ def test_controller_delta_only_switches_states_that_need_changing():
         activate=(PASSTHROUGH, FORCE),
         deactivate=MOTION_CONTROLLERS,
     )
-
     assert delta.activate == (PASSTHROUGH,)
     assert delta.deactivate == ("joint_trajectory_controller",)
     assert controllers_match(
@@ -106,6 +106,56 @@ def test_controller_delta_only_switches_states_that_need_changing():
         inactive=MOTION_CONTROLLERS,
     )
 
+
+def test_pen_axis_tilt_is_measured_absolutely_from_base_down():
+    axis_base, tilt = pen_axis_in_base_and_tilt(
+        validation_module.Quaternion(1.0, 0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+    )
+    assert axis_base == pytest.approx((0.0, 0.0, -1.0))
+    assert tilt == pytest.approx(0.0)
+
+    three_degrees = math.radians(3.0)
+    orientation = validation_module.Quaternion(
+        math.sin((math.pi - three_degrees) / 2.0),
+        0.0,
+        0.0,
+        math.cos((math.pi - three_degrees) / 2.0),
+    )
+    _, tilt = pen_axis_in_base_and_tilt(orientation, (0.0, 0.0, 2.0))
+    assert math.degrees(tilt) == pytest.approx(3.0)
+
+
+def test_pen_axis_tilt_rejects_invalid_axis_and_upward_pen():
+    with pytest.raises(ValueError, match="finite and nonzero"):
+        pen_axis_in_base_and_tilt(
+            validation_module.Quaternion(0.0, 0.0, 0.0, 1.0),
+            (0.0, 0.0, 0.0),
+        )
+    _, tilt = pen_axis_in_base_and_tilt(
+        validation_module.Quaternion(0.0, 0.0, 0.0, 1.0),
+        (0.0, 0.0, 1.0),
+    )
+    assert math.degrees(tilt) == pytest.approx(180.0)
+
+
+def test_absolute_pen_tilt_precheck_rejects_before_controller_switch():
+    node = object.__new__(ZComplianceValidationNode)
+    node.pen_axis_tool_xyz = (0.0, 0.0, 1.0)
+    node.max_pen_tilt_rad = math.radians(1.0)
+    pose = Pose()
+    three_degrees = math.radians(3.0)
+    pose.orientation.x = math.sin((math.pi - three_degrees) / 2.0)
+    pose.orientation.w = math.cos((math.pi - three_degrees) / 2.0)
+    node._current_tool_pose_stamped = lambda: SimpleNamespace(pose=pose)
+
+    with pytest.raises(RunStopped, match="tilt=3.000deg limit=1.000deg"):
+        node._assert_pen_axis_tilt()
+
+    run_source = inspect.getsource(ZComplianceValidationNode._run_profile)
+    assert run_source.index("self._precheck()") < run_source.index(
+        "self._switch_to_passthrough_force()"
+    )
 
 def test_cartesian_plan_rejects_incomplete_fraction_before_execution():
     source = inspect.getsource(ZComplianceValidationNode._plan_tip_targets)

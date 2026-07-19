@@ -43,6 +43,7 @@ def _valid_configuration(module):
         "max_contact_z_offset_m": 0.0015,
         "max_xy_error_m": 0.003,
         "max_rotation_error_rad": math.radians(2.0),
+        "max_pen_tilt_rad": math.radians(1.0),
         "steady_force_min_n": 0.5,
         "steady_force_max_n": 1.1,
         "lost_contact_force_n": 0.2,
@@ -87,6 +88,7 @@ def test_z_compliance_launch_uses_calibrated_tool_and_payload_defaults():
     ]
     assert module.DEFAULT_PAYLOAD_MASS_KG == 0.085
     assert module.DEFAULT_PAYLOAD_COG_XYZ == [0.0, 0.0, 0.0]
+    assert module.DEFAULT_PEN_AXIS_TOOL_XYZ == [0.0, 0.0, 1.0]
 
 
 def test_z_compliance_launch_exposes_bounded_safety_parameters():
@@ -118,6 +120,9 @@ def test_z_compliance_launch_exposes_bounded_safety_parameters():
     values = _valid_configuration(module)
     values["retract_distance_m"] = 0.0015
     assert "must not exceed" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["max_pen_tilt_rad"] = math.radians(2.01)
+    assert "max_pen_tilt_rad" in module.validate_z_compliance_configuration(values)
 
 
 def test_z_compliance_launch_reuses_seek_bringup_without_joy_or_rviz():
@@ -167,6 +172,7 @@ def test_z_compliance_launch_matches_node_safety_parameter_interface():
         "max_contact_z_offset_m",
         "max_xy_error_m",
         "max_rotation_error_rad",
+        "max_pen_tilt_rad",
         "steady_force_min_n",
         "steady_force_max_n",
         "lost_contact_force_n",
@@ -187,6 +193,7 @@ def test_z_compliance_launch_matches_node_safety_parameter_interface():
         "contact_settle_sec",
         "hold_duration_sec",
         "air_hold_duration_sec",
+        "pen_axis_tool_xyz",
     ):
         assert f'"{name}"' in node_source
         assert launch_source.count(f'"{name}"') >= 2

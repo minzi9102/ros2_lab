@@ -21,6 +21,7 @@ import yaml
 
 REQUIRED_Z_COMPLIANCE_CONFIRMATION = "I_CONFIRM_REAL_Z_COMPLIANCE_TEST"
 DEFAULT_TOOL0_TO_PEN_TIP_XYZ = [0.00079, -0.00076, 0.15172]
+DEFAULT_PEN_AXIS_TOOL_XYZ = [0.0, 0.0, 1.0]
 DEFAULT_PAYLOAD_MASS_KG = 0.085
 DEFAULT_PAYLOAD_COG_XYZ = [0.0, 0.0, 0.0]
 
@@ -62,6 +63,7 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
         "max_contact_z_offset_m": (0.0, 0.0015),
         "max_xy_error_m": (0.0, 0.003),
         "max_rotation_error_rad": (0.0, math.radians(2.0)),
+        "max_pen_tilt_rad": (0.0, math.radians(2.0)),
         "retract_distance_m": (0.0, 0.003),
         "contact_clearance_m": (0.0, 0.003),
         "line_length_m": (0.0, 0.01),
@@ -122,6 +124,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         "max_contact_z_offset_m",
         "max_xy_error_m",
         "max_rotation_error_rad",
+        "max_pen_tilt_rad",
         "steady_force_min_n",
         "steady_force_max_n",
         "lost_contact_force_n",
@@ -156,11 +159,16 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
 
     payload_cog_xyz = None
     tool0_to_pen_tip_xyz = None
+    pen_axis_tool_xyz = None
     if error is None:
         payload_cog_xyz, error = _parse_float_list(context, "payload_cog_xyz", 3)
     if error is None:
         tool0_to_pen_tip_xyz, error = _parse_float_list(
             context, "tool0_to_pen_tip_xyz", 3
+        )
+    if error is None:
+        pen_axis_tool_xyz, error = _parse_float_list(
+            context, "pen_axis_tool_xyz", 3
         )
     if error is None:
         error = validate_z_compliance_configuration(values)
@@ -222,6 +230,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "payload_mass_kg": values["payload_mass_kg"],
                 "payload_cog_xyz": payload_cog_xyz,
                 "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
+                "pen_axis_tool_xyz": pen_axis_tool_xyz,
                 "log_directory": str(session_log_directory),
                 "trajectory_file": LaunchConfiguration("trajectory_file"),
                 **{
@@ -270,6 +279,10 @@ def generate_launch_description() -> LaunchDescription:
                 "tool0_to_pen_tip_xyz",
                 default_value=str(DEFAULT_TOOL0_TO_PEN_TIP_XYZ),
             ),
+            DeclareLaunchArgument(
+                "pen_axis_tool_xyz",
+                default_value=str(DEFAULT_PEN_AXIS_TOOL_XYZ),
+            ),
             DeclareLaunchArgument("log_directory", default_value=""),
             DeclareLaunchArgument("target_force_n", default_value="0.8"),
             DeclareLaunchArgument("direction_force_n", default_value="0.2"),
@@ -285,6 +298,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("max_xy_error_m", default_value="0.003"),
             DeclareLaunchArgument(
                 "max_rotation_error_rad", default_value=str(math.radians(2.0))
+            ),
+            DeclareLaunchArgument(
+                "max_pen_tilt_rad", default_value=str(math.radians(1.0))
             ),
             DeclareLaunchArgument("steady_force_min_n", default_value="0.5"),
             DeclareLaunchArgument("steady_force_max_n", default_value="1.1"),
