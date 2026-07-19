@@ -502,6 +502,17 @@ def test_contact_path_refreshes_air_baseline_before_each_stroke():
     ]
 
 
+def test_contact_path_uses_shorter_clearance_without_reducing_final_retract():
+    compile_source = inspect.getsource(ZComplianceValidationNode._compile_contact_strokes)
+    lift_source = inspect.getsource(ZComplianceValidationNode._lift_between_contact_strokes)
+    cleanup_source = inspect.getsource(ZComplianceValidationNode._safe_cleanup)
+
+    assert "paper.z + self.contact_clearance_m" in compile_source
+    assert "delta_z=self.contact_clearance_m" in lift_source
+    assert "expected_distance_m=self.contact_clearance_m" in lift_source
+    assert "delta_z=self.retract_distance_m" in cleanup_source
+
+
 def test_pen_up_between_strokes_holds_stops_force_then_retracts():
     node = object.__new__(ZComplianceValidationNode)
     events = []
@@ -511,6 +522,7 @@ def test_pen_up_between_strokes_holds_stops_force_then_retracts():
     node._active_target_force_n = 0.8
     node._pen_state = "pen_down"
     node.retract_distance_m = 0.003
+    node.contact_clearance_m = 0.002
     node.air_speed_mps = 0.005
     node._stop_force_client = object()
     node._publish_status = lambda *_args: events.append("status")
@@ -526,7 +538,9 @@ def test_pen_up_between_strokes_holds_stops_force_then_retracts():
 
     node._plan_cartesian = plan
     node._execute_trajectory = lambda *_args, **_kwargs: events.append("retract")
-    node._wait_for_stable_retract = lambda *_args: events.append("stable")
+    node._wait_for_stable_retract = (
+        lambda *_args, **_kwargs: events.append("stable")
+    )
     node._contact_tip = Point3(0.0, 0.0, 0.0)
     node._force_start_tip = Point3(0.0, 0.0, 0.003)
     node._force_start_pose = object()

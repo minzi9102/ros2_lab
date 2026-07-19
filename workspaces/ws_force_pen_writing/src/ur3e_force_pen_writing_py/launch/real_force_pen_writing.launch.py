@@ -63,6 +63,7 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
         "max_xy_error_m": (0.0, 0.003),
         "max_rotation_error_rad": (0.0, math.radians(2.0)),
         "retract_distance_m": (0.0, 0.003),
+        "contact_clearance_m": (0.0, 0.003),
         "line_length_m": (0.0, 0.01),
         "line_speed_mps": (0.0, 0.004),
         "air_speed_mps": (0.0, 0.01),
@@ -82,6 +83,9 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
         value = float(values[name])
         if not lower < value <= upper:
             return f"{name} must be in ({lower}, {upper}], got {value}"
+
+    if float(values["contact_clearance_m"]) > float(values["retract_distance_m"]):
+        return "contact_clearance_m must not exceed retract_distance_m"
 
     if not 0.0 <= float(values["damping_factor"]) <= 1.0:
         return "damping_factor must be in [0, 1]"
@@ -123,6 +127,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         "lost_contact_force_n",
         "lost_contact_duration_sec",
         "retract_distance_m",
+        "contact_clearance_m",
         "line_length_m",
         "line_speed_mps",
         "air_speed_mps",
@@ -288,6 +293,7 @@ def generate_launch_description() -> LaunchDescription:
                 "lost_contact_duration_sec", default_value="0.3"
             ),
             DeclareLaunchArgument("retract_distance_m", default_value="0.003"),
+            DeclareLaunchArgument("contact_clearance_m", default_value="0.002"),
             DeclareLaunchArgument("line_length_m", default_value="0.01"),
             DeclareLaunchArgument("line_speed_mps", default_value="0.003"),
             DeclareLaunchArgument("air_speed_mps", default_value="0.005"),

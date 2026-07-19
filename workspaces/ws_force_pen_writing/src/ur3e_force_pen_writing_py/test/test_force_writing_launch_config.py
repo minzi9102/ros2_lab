@@ -48,6 +48,7 @@ def _valid_configuration(module):
         "lost_contact_force_n": 0.2,
         "lost_contact_duration_sec": 0.3,
         "retract_distance_m": 0.003,
+        "contact_clearance_m": 0.002,
         "line_length_m": 0.01,
         "line_speed_mps": 0.003,
         "air_speed_mps": 0.005,
@@ -111,6 +112,12 @@ def test_z_compliance_launch_exposes_bounded_safety_parameters():
     values = _valid_configuration(module)
     values["air_speed_mps"] = 0.0101
     assert "air_speed_mps" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["contact_clearance_m"] = 0.0031
+    assert "contact_clearance_m" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["retract_distance_m"] = 0.0015
+    assert "must not exceed" in module.validate_z_compliance_configuration(values)
 
 
 def test_z_compliance_launch_reuses_seek_bringup_without_joy_or_rviz():
@@ -165,6 +172,7 @@ def test_z_compliance_launch_matches_node_safety_parameter_interface():
         "lost_contact_force_n",
         "lost_contact_duration_sec",
         "retract_distance_m",
+        "contact_clearance_m",
         "line_length_m",
         "line_speed_mps",
         "air_speed_mps",

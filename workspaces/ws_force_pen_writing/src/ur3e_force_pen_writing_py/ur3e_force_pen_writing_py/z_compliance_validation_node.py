@@ -448,6 +448,9 @@ class ZComplianceValidationNode(Node):
             "lost_contact_duration_sec", 0.3
         )
         self.retract_distance_m = self._float_parameter("retract_distance_m", 0.003)
+        self.contact_clearance_m = self._float_parameter(
+            "contact_clearance_m", 0.002
+        )
         self.line_length_m = self._float_parameter("line_length_m", 0.01)
         self.line_speed_mps = self._float_parameter("line_speed_mps", 0.003)
         self.air_speed_mps = self._float_parameter("air_speed_mps", 0.005)
@@ -621,6 +624,10 @@ class ZComplianceValidationNode(Node):
             raise ValueError("max_rotation_error_rad must be in (0, 2deg]")
         if not 0.0 < self.retract_distance_m <= 0.003:
             raise ValueError("retract_distance_m must be in (0, 0.003]")
+        if not 0.0 < self.contact_clearance_m <= self.retract_distance_m:
+            raise ValueError(
+                "contact_clearance_m must be in (0, retract_distance_m]"
+            )
         if not 0.0 < self.line_length_m <= 0.01:
             raise ValueError("line_length_m must be in (0, 0.01]")
         if not 0.0 < self.line_speed_mps <= 0.004:
@@ -952,7 +959,7 @@ class ZComplianceValidationNode(Node):
         return anchored_tip_strokes(
             strokes,
             anchor=Point3(paper.x, paper.y, paper.z),
-            tip_z=paper.z + self.retract_distance_m,
+            tip_z=paper.z + self.contact_clearance_m,
         )
 
     def _run_contact_path(self) -> None:
@@ -1050,11 +1057,13 @@ class ZComplianceValidationNode(Node):
         retract_start = self._current_tip()
         trajectory = self._plan_cartesian(
             delta_x=0.0,
-            delta_z=self.retract_distance_m,
+            delta_z=self.contact_clearance_m,
             speed_mps=self.air_speed_mps,
         )
         self._execute_trajectory(trajectory, timeout=6.0)
-        self._wait_for_stable_retract(retract_start)
+        self._wait_for_stable_retract(
+            retract_start, expected_distance_m=self.contact_clearance_m
+        )
         self._contact_tip = None
         self._force_start_tip = None
         self._force_start_pose = None
@@ -1607,9 +1616,19 @@ class ZComplianceValidationNode(Node):
                 errors.append(f"controller restore failed; use robot stop: {exc}")
         return "; ".join(errors)
 
-    def _wait_for_stable_retract(self, retract_start: Point3) -> float:
-        minimum = max(0.0, self.retract_distance_m - 0.001)
-        maximum = self.retract_distance_m + 0.001
+    def _wait_for_stable_retract(
+        self,
+        retract_start: Point3,
+        *,
+        expected_distance_m: float | None = None,
+    ) -> float:
+        expected = (
+            self.retract_distance_m
+            if expected_distance_m is None
+            else expected_distance_m
+        )
+        minimum = max(0.0, expected - 0.001)
+        maximum = expected + 0.001
         deadline = time.monotonic() + RETRACT_SETTLE_TIMEOUT_SEC
         samples: list[tuple[float, float]] = []
         last_distance = 0.0
@@ -1619,7 +1638,8 @@ class ZComplianceValidationNode(Node):
             last_distance = self._current_tip().z - retract_start.z
             if last_distance > maximum:
                 raise RunStopped(
-                    f"retract distance exceeded 3+/-1mm: {last_distance:.6f}m"
+                    "retract distance exceeded expected+/-1mm: "
+                    f"expected={expected:.6f}m actual={last_distance:.6f}m"
                 )
             samples.append((now, last_distance))
             samples = [
@@ -1638,8 +1658,8 @@ class ZComplianceValidationNode(Node):
                 return last_distance
             time.sleep(0.02)
         raise RunStopped(
-            "retract did not reach and settle within 3+/-1mm: "
-            f"last={last_distance:.6f}m"
+            "retract did not reach and settle within expected+/-1mm: "
+            f"expected={expected:.6f}m last={last_distance:.6f}m"
         )
 
     def _restore_controllers(self) -> None:
