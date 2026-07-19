@@ -573,6 +573,10 @@ def test_contact_writing_reuses_acquisition_gate_for_single_goal_entry():
     assert "CONTACT_ENTRY" in write_source
     assert "CONTACT_STEADY_WRITE" in execute_source
     assert "contact entry stayed below steady force for 0.3s" in execute_source
+    assert "self._assert_tip_endpoint(endpoint, monitor_contact=True)" in write_source
+    assert "self._assert_tip_endpoint(endpoint, monitor_contact=True)" in inspect.getsource(
+        ZComplianceValidationNode._write_line
+    )
 
 
 def test_air_endpoint_waits_for_transient_tracking_lag(monkeypatch):
@@ -616,6 +620,50 @@ def test_air_endpoint_settle_wait_propagates_live_safety_failure():
 
     with pytest.raises(RunStopped, match="joint state timed out"):
         node._assert_tip_endpoint(Point3(0.0, 0.0, 0.0))
+
+
+def test_contact_endpoint_wait_keeps_force_and_path_safety_active(monkeypatch):
+    monkeypatch.setattr(validation_module, "PATH_ENDPOINT_SETTLE_TIMEOUT_SEC", 0.08)
+    monkeypatch.setattr(validation_module, "PATH_ENDPOINT_STABLE_WINDOW_SEC", 0.02)
+    node = object.__new__(ZComplianceValidationNode)
+    target = Point3(0.0, 0.0, 0.0)
+    calls = []
+    samples = iter([Point3(0.000798, 0.0, 0.0), target])
+    node.lost_contact_force_n = 0.2
+    node.lost_contact_duration_sec = 0.3
+    node._assert_live_data = lambda **kwargs: (
+        calls.append(("live", kwargs)) or 0.8
+    )
+    node._assert_contact_z_offset = lambda: calls.append(("z", {}))
+    node._tracking_errors = lambda _point: (0.0, 0.0)
+    node._current_tip = lambda: next(samples, target)
+    node.get_logger = lambda: SimpleNamespace(
+        info=lambda message: calls.append(("log", message))
+    )
+
+    node._assert_tip_endpoint(target, monitor_contact=True)
+
+    assert all(
+        kwargs == {"check_contact_force": True}
+        for kind, kwargs in calls
+        if kind == "live"
+    )
+    assert any(kind == "z" for kind, _value in calls)
+    assert any(
+        kind == "log" and "Contact path endpoint settled" in message
+        for kind, message in calls
+    )
+
+
+def test_contact_endpoint_wait_propagates_force_safety_failure():
+    node = object.__new__(ZComplianceValidationNode)
+    node._assert_live_data = lambda **_kwargs: (_ for _ in ()).throw(
+        RunStopped("filtered force limit exceeded")
+    )
+    node._current_tip = lambda: pytest.fail("endpoint read after force failure")
+
+    with pytest.raises(RunStopped, match="filtered force limit exceeded"):
+        node._assert_tip_endpoint(Point3(0.0, 0.0, 0.0), monitor_contact=True)
 
 
 def test_contact_path_refreshes_air_baseline_before_each_stroke():

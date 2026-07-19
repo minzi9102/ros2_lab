@@ -1282,13 +1282,9 @@ class ZComplianceValidationNode(Node):
             monitor_contact=True,
             steady_force_start_progress_m=steady_start_m,
         )
-        current = self._current_tip()
         endpoint = self._contact_path[-1]
-        endpoint_error = math.hypot(current.x - endpoint.x, current.y - endpoint.y)
-        if endpoint_error > PATH_ENDPOINT_TOLERANCE_M:
-            raise RunStopped(
-                f"contact path endpoint error exceeded: {endpoint_error:.6f}m"
-            )
+        self._assert_tip_endpoint(endpoint, monitor_contact=True)
+        current = self._current_tip()
         if self._path_max_lateral_error_m > PATH_LATERAL_TOLERANCE_M:
             raise RunStopped(
                 "contact path lateral error exceeded: "
@@ -1348,20 +1344,45 @@ class ZComplianceValidationNode(Node):
         )
         self._assert_tip_endpoint(targets[-1])
 
-    def _assert_tip_endpoint(self, target: Point3) -> None:
+    def _assert_tip_endpoint(
+        self, target: Point3, *, monitor_contact: bool = False
+    ) -> None:
         started = time.monotonic()
         deadline = started + PATH_ENDPOINT_SETTLE_TIMEOUT_SEC
         stable_since = None
+        below_since = None
         initial_error = None
         error = math.inf
         while True:
-            self._assert_live_data()
             now = time.monotonic()
+            if monitor_contact:
+                force = self._assert_live_data(check_contact_force=True)
+                lost, below_since = contact_lost(
+                    force_n=force,
+                    threshold_n=self.lost_contact_force_n,
+                    below_since=below_since,
+                    now=now,
+                    duration=self.lost_contact_duration_sec,
+                )
+                if lost:
+                    raise RunStopped("contact lost while settling path endpoint")
+                self._assert_contact_z_offset()
+            else:
+                self._assert_live_data()
             current = self._current_tip()
-            error = math.dist(
-                (current.x, current.y, current.z),
-                (target.x, target.y, target.z),
-            )
+            if monitor_contact:
+                lateral_error, _ = self._tracking_errors(current)
+                if lateral_error > PATH_LATERAL_TOLERANCE_M:
+                    raise RunStopped(
+                        "contact path lateral error exceeded while settling: "
+                        f"{lateral_error:.6f}m"
+                    )
+                error = math.hypot(current.x - target.x, current.y - target.y)
+            else:
+                error = math.dist(
+                    (current.x, current.y, current.z),
+                    (target.x, target.y, target.z),
+                )
             if initial_error is None:
                 initial_error = error
             if error <= PATH_ENDPOINT_TOLERANCE_M:
@@ -1370,7 +1391,8 @@ class ZComplianceValidationNode(Node):
                 elif now - stable_since >= PATH_ENDPOINT_STABLE_WINDOW_SEC:
                     if initial_error > PATH_ENDPOINT_TOLERANCE_M:
                         self.get_logger().info(
-                            "Air path endpoint settled: "
+                            f"{'Contact' if monitor_contact else 'Air'} path "
+                            "endpoint settled: "
                             f"initial_error={initial_error:.6f}m "
                             f"final_error={error:.6f}m "
                             f"wait={now - started:.3f}s"
@@ -1380,7 +1402,8 @@ class ZComplianceValidationNode(Node):
                 stable_since = None
             if now >= deadline:
                 raise RunStopped(
-                    "path endpoint error exceeded after settling: "
+                    f"{'contact ' if monitor_contact else ''}path endpoint "
+                    "error exceeded after settling: "
                     f"{error:.6f}m"
                 )
             time.sleep(0.01)
@@ -1535,13 +1558,13 @@ class ZComplianceValidationNode(Node):
             monitor_contact=True,
             steady_force_start_progress_m=steady_start_m,
         )
-        current = self._current_tip()
-        endpoint_error = math.hypot(
-            current.x - (self._line_start_tip.x + self.line_length_m),
-            current.y - self._line_start_tip.y,
+        endpoint = Point3(
+            self._line_start_tip.x + self.line_length_m,
+            self._line_start_tip.y,
+            self._line_start_tip.z,
         )
-        if endpoint_error > 0.0005:
-            raise RunStopped(f"line endpoint error exceeded: {endpoint_error:.6f}m")
+        self._assert_tip_endpoint(endpoint, monitor_contact=True)
+        current = self._current_tip()
         if self._line_max_lateral_error_m > 0.0005:
             raise RunStopped(
                 "line lateral error exceeded: "
