@@ -61,9 +61,12 @@ CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
 MAX_BASELINE_ABS_N = 0.3
 MAX_HANDWRITING_DIMENSION_M = 0.03
-MAX_AIR_PATH_LENGTH_M = 0.1
-MAX_CONTACT_PATH_LENGTH_M = 0.05
-MAX_CONTACT_TOTAL_LENGTH_M = 0.06
+MAX_AIR_PATH_LENGTH_M = 0.2
+MAX_CONTACT_PATH_LENGTH_M = 0.075
+MAX_CONTACT_TOTAL_LENGTH_M = 0.12
+MAX_CONTACT_EXECUTION_DISTANCE_M = 0.2
+MAX_CONTACT_STROKE_COUNT = 12
+MAX_CONTACT_RUN_SEC = 180.0
 MAX_CONTACT_WRITING_SEC = 60.0
 PATH_ENDPOINT_TOLERANCE_M = 0.0005
 PATH_ENDPOINT_SETTLE_TIMEOUT_SEC = 0.5
@@ -206,8 +209,13 @@ def validate_contact_strokes(
     speed_mps: float,
     maximum_stroke_length_m: float = MAX_CONTACT_PATH_LENGTH_M,
     maximum_total_length_m: float = MAX_CONTACT_TOTAL_LENGTH_M,
+    maximum_stroke_count: int = MAX_CONTACT_STROKE_COUNT,
     maximum_writing_sec: float = MAX_CONTACT_WRITING_SEC,
 ):
+    if len(strokes) > maximum_stroke_count:
+        raise ValueError(
+            f"contact stroke count exceeds {maximum_stroke_count}: {len(strokes)}"
+        )
     for index, stroke in enumerate(strokes, start=1):
         length = path_length([stroke])
         if length > maximum_stroke_length_m + 1e-12:
@@ -226,6 +234,41 @@ def validate_contact_strokes(
             f"estimated contact writing time exceeds {maximum_writing_sec:g}s"
         )
     return strokes
+
+
+def estimate_contact_run_sec(
+    *,
+    pen_down_length_m: float,
+    execution_distance_m: float,
+    stroke_count: int,
+    contact_speed_mps: float,
+    air_speed_mps: float,
+    contact_clearance_m: float,
+    retract_distance_m: float,
+    max_z_speed_mps: float,
+    baseline_settle_sec: float,
+    baseline_duration_sec: float,
+    contact_settle_sec: float,
+) -> float:
+    writing_sec = pen_down_length_m / contact_speed_mps
+    planar_air_sec = max(0.0, execution_distance_m - pen_down_length_m) / air_speed_mps
+    per_stroke_sec = (
+        baseline_settle_sec
+        + baseline_duration_sec
+        + contact_clearance_m / max_z_speed_mps
+        + contact_settle_sec
+        + 2.0
+    )
+    vertical_air_sec = (
+        max(0, stroke_count - 1) * contact_clearance_m + retract_distance_m
+    ) / air_speed_mps
+    return (
+        writing_sec
+        + planar_air_sec
+        + stroke_count * per_stroke_sec
+        + vertical_air_sec
+        + 3.0
+    )
 
 
 def polyline_tracking(point: Point3, path: list[Point3]) -> PathTracking:
@@ -481,6 +524,26 @@ class ZComplianceValidationNode(Node):
         self.line_length_m = self._float_parameter("line_length_m", 0.01)
         self.line_speed_mps = self._float_parameter("line_speed_mps", 0.003)
         self.air_speed_mps = self._float_parameter("air_speed_mps", 0.005)
+        self.max_air_path_length_m = self._float_parameter(
+            "max_air_path_length_m", MAX_AIR_PATH_LENGTH_M
+        )
+        self.max_contact_stroke_length_m = self._float_parameter(
+            "max_contact_stroke_length_m", MAX_CONTACT_PATH_LENGTH_M
+        )
+        self.max_contact_total_length_m = self._float_parameter(
+            "max_contact_total_length_m", MAX_CONTACT_TOTAL_LENGTH_M
+        )
+        self.max_contact_execution_distance_m = self._float_parameter(
+            "max_contact_execution_distance_m", MAX_CONTACT_EXECUTION_DISTANCE_M
+        )
+        self.max_contact_stroke_count = int(
+            self.declare_parameter(
+                "max_contact_stroke_count", MAX_CONTACT_STROKE_COUNT
+            ).value
+        )
+        self.max_contact_run_sec = self._float_parameter(
+            "max_contact_run_sec", MAX_CONTACT_RUN_SEC
+        )
         self.cartesian_step_m = self._float_parameter("cartesian_step_m", 0.0005)
         self.trajectory_file = str(
             self.declare_parameter("trajectory_file", "").value
@@ -542,6 +605,7 @@ class ZComplianceValidationNode(Node):
         self._active_stroke_index = 0
         self._stroke_count = 0
         self._pen_state = "pen_up"
+        self._contact_run_deadline: float | None = None
         self._csv_file = None
         self._csv_writer = None
         self._csv_run_index = 0
@@ -668,6 +732,24 @@ class ZComplianceValidationNode(Node):
             raise ValueError("line_speed_mps must be in (0, 0.004]")
         if not 0.0 < self.air_speed_mps <= 0.01:
             raise ValueError("air_speed_mps must be in (0, 0.01]")
+        if not 0.0 < self.max_air_path_length_m <= MAX_AIR_PATH_LENGTH_M:
+            raise ValueError("max_air_path_length_m must be in (0, 0.2]")
+        if not 0.0 < self.max_contact_stroke_length_m <= MAX_CONTACT_PATH_LENGTH_M:
+            raise ValueError("max_contact_stroke_length_m must be in (0, 0.075]")
+        if not 0.0 < self.max_contact_total_length_m <= MAX_CONTACT_TOTAL_LENGTH_M:
+            raise ValueError("max_contact_total_length_m must be in (0, 0.12]")
+        if not (
+            0.0
+            < self.max_contact_execution_distance_m
+            <= MAX_CONTACT_EXECUTION_DISTANCE_M
+        ):
+            raise ValueError(
+                "max_contact_execution_distance_m must be in (0, 0.2]"
+            )
+        if not 1 <= self.max_contact_stroke_count <= MAX_CONTACT_STROKE_COUNT:
+            raise ValueError("max_contact_stroke_count must be in [1, 12]")
+        if not 0.0 < self.max_contact_run_sec <= MAX_CONTACT_RUN_SEC:
+            raise ValueError("max_contact_run_sec must be in (0, 180]")
         if not 0.0 < self.cartesian_step_m <= 0.0005:
             raise ValueError("cartesian_step_m must be in (0, 0.0005]")
         if not 0.0 < self.writing_width_m <= MAX_HANDWRITING_DIMENSION_M:
@@ -784,6 +866,7 @@ class ZComplianceValidationNode(Node):
             failure = str(exc)
             self.get_logger().error(f"Z-compliance {profile} failed: {failure}")
         finally:
+            self._contact_run_deadline = None
             cleanup_error = self._safe_cleanup(
                 allow_retract=profile not in ("switch_hold", "path_air")
             )
@@ -809,6 +892,7 @@ class ZComplianceValidationNode(Node):
         self._active_stroke_index = 0
         self._stroke_count = 0
         self._pen_state = "pen_up"
+        self._contact_run_deadline = None
 
     def _precheck(self) -> Point3:
         self._publish_status("PRECHECK", "checking paper, TF, robot and controllers")
@@ -974,11 +1058,11 @@ class ZComplianceValidationNode(Node):
         start_orientation = self._current_tool_pose_stamped().pose.orientation
         if (
             stroke_execution_distance(self._current_tip(), strokes)
-            > MAX_AIR_PATH_LENGTH_M
+            > self.max_air_path_length_m
         ):
             raise RunStopped(
                 "air handwriting execution distance exceeds "
-                f"{MAX_AIR_PATH_LENGTH_M * 1000:g}mm"
+                f"{self.max_air_path_length_m * 1000:g}mm"
             )
         for index, stroke in enumerate(strokes, start=1):
             self._publish_status(
@@ -1014,7 +1098,11 @@ class ZComplianceValidationNode(Node):
                 cartesian_step_m=self.cartesian_step_m,
             )
             strokes = validate_contact_strokes(
-                compiled, speed_mps=self.line_speed_mps
+                compiled,
+                speed_mps=self.line_speed_mps,
+                maximum_stroke_length_m=self.max_contact_stroke_length_m,
+                maximum_total_length_m=self.max_contact_total_length_m,
+                maximum_stroke_count=self.max_contact_stroke_count,
             )
         except (OSError, ValueError) as exc:
             raise RunStopped(f"invalid contact path: {exc}") from exc
@@ -1027,6 +1115,40 @@ class ZComplianceValidationNode(Node):
 
     def _run_contact_path(self) -> None:
         strokes = self._compile_contact_strokes()
+        pen_down_length = sum(
+            tip_path_distance(stroke[0], stroke[1:]) for stroke in strokes
+        )
+        execution_distance = stroke_execution_distance(self._current_tip(), strokes)
+        if execution_distance > self.max_contact_execution_distance_m + 1e-12:
+            raise RunStopped(
+                "contact handwriting execution distance exceeds "
+                f"{self.max_contact_execution_distance_m * 1000:g}mm: "
+                f"{execution_distance:.6f}m"
+            )
+        estimated_run_sec = estimate_contact_run_sec(
+            pen_down_length_m=pen_down_length,
+            execution_distance_m=execution_distance,
+            stroke_count=len(strokes),
+            contact_speed_mps=self.line_speed_mps,
+            air_speed_mps=self.air_speed_mps,
+            contact_clearance_m=self.contact_clearance_m,
+            retract_distance_m=self.retract_distance_m,
+            max_z_speed_mps=self.max_z_speed_mps,
+            baseline_settle_sec=self.baseline_settle_sec,
+            baseline_duration_sec=self.baseline_duration_sec,
+            contact_settle_sec=self.contact_settle_sec,
+        )
+        if estimated_run_sec > self.max_contact_run_sec + 1e-12:
+            raise RunStopped(
+                "estimated contact run time exceeds "
+                f"{self.max_contact_run_sec:g}s: {estimated_run_sec:.1f}s"
+            )
+        self._contact_run_deadline = time.monotonic() + self.max_contact_run_sec
+        self._publish_status(
+            "CONTACT_PATH_READY",
+            f"{len(strokes)} strokes, pen-down={pen_down_length:.3f}m, "
+            f"route={execution_distance:.3f}m, estimate={estimated_run_sec:.1f}s",
+        )
         start_orientation = self._current_tool_pose_stamped().pose.orientation
         self._stroke_count = len(strokes)
         self._switch_to_passthrough_force()
@@ -1829,6 +1951,11 @@ class ZComplianceValidationNode(Node):
     def _raise_if_stopped(self) -> None:
         if self._abort_event.is_set():
             raise RunStopped(self._abort_reason)
+        contact_deadline = getattr(self, "_contact_run_deadline", None)
+        if contact_deadline is not None and time.monotonic() > contact_deadline:
+            raise RunStopped(
+                f"contact run time exceeded {self.max_contact_run_sec:g}s"
+            )
 
     def _cancel_active_goal(self, *, wait: bool = False) -> None:
         handle = self._active_goal_handle

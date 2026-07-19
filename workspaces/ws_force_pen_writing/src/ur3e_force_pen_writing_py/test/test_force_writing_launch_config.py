@@ -53,6 +53,12 @@ def _valid_configuration(module):
         "line_length_m": 0.01,
         "line_speed_mps": 0.003,
         "air_speed_mps": 0.005,
+        "max_air_path_length_m": 0.2,
+        "max_contact_stroke_length_m": 0.075,
+        "max_contact_total_length_m": 0.12,
+        "max_contact_execution_distance_m": 0.2,
+        "max_contact_stroke_count": 12,
+        "max_contact_run_sec": 180.0,
         "cartesian_step_m": 0.0005,
         "writing_width_m": 0.01,
         "writing_height_m": 0.01,
@@ -123,6 +129,12 @@ def test_z_compliance_launch_exposes_bounded_safety_parameters():
     values = _valid_configuration(module)
     values["max_pen_tilt_rad"] = math.radians(2.01)
     assert "max_pen_tilt_rad" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["max_contact_total_length_m"] = 0.120001
+    assert "max_contact_total_length_m" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["max_contact_stroke_count"] = 13
+    assert "max_contact_stroke_count" in module.validate_z_compliance_configuration(values)
 
 
 def test_z_compliance_launch_reuses_seek_bringup_without_joy_or_rviz():
@@ -182,6 +194,12 @@ def test_z_compliance_launch_matches_node_safety_parameter_interface():
         "line_length_m",
         "line_speed_mps",
         "air_speed_mps",
+        "max_air_path_length_m",
+        "max_contact_stroke_length_m",
+        "max_contact_total_length_m",
+        "max_contact_execution_distance_m",
+        "max_contact_stroke_count",
+        "max_contact_run_sec",
         "cartesian_step_m",
         "writing_width_m",
         "writing_height_m",

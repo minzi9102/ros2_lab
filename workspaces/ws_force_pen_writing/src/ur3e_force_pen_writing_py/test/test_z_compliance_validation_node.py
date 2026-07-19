@@ -20,6 +20,7 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     controllers_match,
     duration_seconds,
     execution_completed_too_early,
+    estimate_contact_run_sec,
     FORCE,
     force_mode_request,
     line_motion_reversed,
@@ -49,6 +50,19 @@ JOINT_NAMES = (
     "wrist_2_joint",
     "wrist_3_joint",
 )
+
+
+def _configure_contact_capacity(node):
+    node.max_contact_execution_distance_m = 0.2
+    node.max_contact_run_sec = 180.0
+    node.line_speed_mps = 0.004
+    node.air_speed_mps = 0.01
+    node.contact_clearance_m = 0.002
+    node.retract_distance_m = 0.003
+    node.max_z_speed_mps = 0.0005
+    node.baseline_settle_sec = 0.5
+    node.baseline_duration_sec = 1.0
+    node.contact_settle_sec = 1.0
 
 
 def _trajectory(*samples: tuple[float, tuple[float, ...]]) -> JointTrajectory:
@@ -350,27 +364,67 @@ def test_polyline_tracking_reports_progress_and_lateral_error_across_v_corner():
     assert second.total_length_m == pytest.approx(0.01)
 
 
-def test_contact_path_allows_multiple_strokes_with_stage_five_limits():
+def test_contact_path_allows_multiple_strokes_with_first_complexity_tier():
     valid = [
         [(0.0, 0.0), (0.020, 0.0)],
         [(0.0, 0.010), (0.030, 0.010)],
     ]
 
     assert validate_contact_strokes(valid, speed_mps=0.002) == valid
-    with pytest.raises(ValueError, match="exceeds 50mm"):
+    with pytest.raises(ValueError, match="exceeds 75mm"):
         validate_contact_strokes(
-            [[(0.0, 0.0), (0.050001, 0.0)]], speed_mps=0.002
+            [[(0.0, 0.0), (0.075001, 0.0)]], speed_mps=0.002
         )
-    with pytest.raises(ValueError, match="total contact path length exceeds 60mm"):
+    with pytest.raises(ValueError, match="total contact path length exceeds 120mm"):
         validate_contact_strokes(
             [
-                [(0.0, 0.0), (0.031, 0.0)],
-                [(0.0, 0.010), (0.031, 0.010)],
+                [(0.0, 0.0), (0.061, 0.0)],
+                [(0.0, 0.010), (0.061, 0.010)],
             ],
             speed_mps=0.002,
         )
+    with pytest.raises(ValueError, match="stroke count exceeds 12"):
+        validate_contact_strokes(
+            [[(0.0, 0.0), (0.001, 0.0)]] * 13, speed_mps=0.002
+        )
     with pytest.raises(ValueError, match="writing time exceeds 60s"):
         validate_contact_strokes(valid, speed_mps=0.0005)
+
+
+def test_contact_run_estimate_includes_writing_air_and_per_stroke_overhead():
+    estimate = estimate_contact_run_sec(
+        pen_down_length_m=0.08,
+        execution_distance_m=0.12,
+        stroke_count=4,
+        contact_speed_mps=0.004,
+        air_speed_mps=0.01,
+        contact_clearance_m=0.002,
+        retract_distance_m=0.003,
+        max_z_speed_mps=0.0005,
+        baseline_settle_sec=0.5,
+        baseline_duration_sec=1.0,
+        contact_settle_sec=1.0,
+    )
+
+    assert estimate == pytest.approx(61.9)
+
+
+def test_contact_path_capacity_checks_precede_controller_switch():
+    source = inspect.getsource(ZComplianceValidationNode._run_contact_path)
+
+    switch = source.index("self._switch_to_passthrough_force()")
+    assert source.index("execution distance exceeds") < switch
+    assert source.index("estimated contact run time exceeds") < switch
+
+
+def test_contact_run_deadline_aborts_active_character():
+    node = object.__new__(ZComplianceValidationNode)
+    node._abort_event = threading.Event()
+    node._contact_run_deadline = time.monotonic() - 1.0
+    node.max_contact_run_sec = 180.0
+
+    with pytest.raises(RunStopped, match="contact run time exceeded 180s"):
+        node._raise_if_stopped()
 
 
 def test_handwriting_strokes_are_centered_on_anchor_at_fixed_air_gap():
@@ -507,6 +561,7 @@ def test_air_endpoint_settle_wait_propagates_live_safety_failure():
 
 def test_contact_path_refreshes_air_baseline_before_each_stroke():
     node = object.__new__(ZComplianceValidationNode)
+    _configure_contact_capacity(node)
     strokes = [
         [Point3(0.0, 0.0, 0.003), Point3(0.005, 0.0, 0.003)],
         [Point3(0.0, 0.005, 0.003), Point3(0.005, 0.005, 0.003)],
@@ -606,6 +661,7 @@ def test_pen_up_between_strokes_holds_stops_force_then_retracts():
 
 def test_contact_path_stops_entire_character_when_a_stroke_fails():
     node = object.__new__(ZComplianceValidationNode)
+    _configure_contact_capacity(node)
     strokes = [
         [Point3(0.0, y, 0.003), Point3(0.005, y, 0.003)]
         for y in (0.0, 0.005, 0.010)

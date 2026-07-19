@@ -24,6 +24,7 @@ DEFAULT_TOOL0_TO_PEN_TIP_XYZ = [0.00079, -0.00076, 0.15172]
 DEFAULT_PEN_AXIS_TOOL_XYZ = [0.0, 0.0, 1.0]
 DEFAULT_PAYLOAD_MASS_KG = 0.085
 DEFAULT_PAYLOAD_COG_XYZ = [0.0, 0.0, 0.0]
+MAX_CONTACT_STROKE_COUNT = 12
 
 
 def _parse_float(context: LaunchContext, name: str):
@@ -45,7 +46,17 @@ def _parse_float_list(context: LaunchContext, name: str, size: int):
     return values, None
 
 
-def validate_z_compliance_configuration(values: dict[str, float | str]) -> str | None:
+def _parse_int(context: LaunchContext, name: str):
+    raw_value = context.perform_substitution(LaunchConfiguration(name))
+    try:
+        return int(raw_value), None
+    except ValueError:
+        return None, f"{name} must be an integer, got {raw_value!r}"
+
+
+def validate_z_compliance_configuration(
+    values: dict[str, float | int | str],
+) -> str | None:
     if values["human_confirmation"] != REQUIRED_Z_COMPLIANCE_CONFIRMATION:
         return (
             "missing real Z-compliance confirmation; pass "
@@ -69,6 +80,11 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
         "line_length_m": (0.0, 0.01),
         "line_speed_mps": (0.0, 0.004),
         "air_speed_mps": (0.0, 0.01),
+        "max_air_path_length_m": (0.0, 0.2),
+        "max_contact_stroke_length_m": (0.0, 0.075),
+        "max_contact_total_length_m": (0.0, 0.12),
+        "max_contact_execution_distance_m": (0.0, 0.2),
+        "max_contact_run_sec": (0.0, 180.0),
         "cartesian_step_m": (0.0, 0.0005),
         "writing_width_m": (0.0, 0.03),
         "writing_height_m": (0.0, 0.03),
@@ -88,6 +104,8 @@ def validate_z_compliance_configuration(values: dict[str, float | str]) -> str |
 
     if float(values["contact_clearance_m"]) > float(values["retract_distance_m"]):
         return "contact_clearance_m must not exceed retract_distance_m"
+    if not 1 <= int(values["max_contact_stroke_count"]) <= MAX_CONTACT_STROKE_COUNT:
+        return f"max_contact_stroke_count must be in [1, {MAX_CONTACT_STROKE_COUNT}]"
 
     if not 0.0 <= float(values["damping_factor"]) <= 1.0:
         return "damping_factor must be in [0, 1]"
@@ -134,6 +152,11 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         "line_length_m",
         "line_speed_mps",
         "air_speed_mps",
+        "max_air_path_length_m",
+        "max_contact_stroke_length_m",
+        "max_contact_total_length_m",
+        "max_contact_execution_distance_m",
+        "max_contact_run_sec",
         "cartesian_step_m",
         "writing_width_m",
         "writing_height_m",
@@ -146,7 +169,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         "hold_duration_sec",
         "air_hold_duration_sec",
     )
-    values: dict[str, float | str] = {
+    values: dict[str, float | int | str] = {
         "human_confirmation": context.perform_substitution(
             LaunchConfiguration("human_confirmation")
         )
@@ -156,6 +179,11 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         values[name], error = _parse_float(context, name)
         if error is not None:
             break
+
+    if error is None:
+        values["max_contact_stroke_count"], error = _parse_int(
+            context, "max_contact_stroke_count"
+        )
 
     payload_cog_xyz = None
     tool0_to_pen_tip_xyz = None
@@ -231,6 +259,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
                 "payload_cog_xyz": payload_cog_xyz,
                 "tool0_to_pen_tip_xyz": tool0_to_pen_tip_xyz,
                 "pen_axis_tool_xyz": pen_axis_tool_xyz,
+                "max_contact_stroke_count": values["max_contact_stroke_count"],
                 "log_directory": str(session_log_directory),
                 "trajectory_file": LaunchConfiguration("trajectory_file"),
                 **{
@@ -313,6 +342,20 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("line_length_m", default_value="0.01"),
             DeclareLaunchArgument("line_speed_mps", default_value="0.003"),
             DeclareLaunchArgument("air_speed_mps", default_value="0.005"),
+            DeclareLaunchArgument("max_air_path_length_m", default_value="0.2"),
+            DeclareLaunchArgument(
+                "max_contact_stroke_length_m", default_value="0.075"
+            ),
+            DeclareLaunchArgument(
+                "max_contact_total_length_m", default_value="0.12"
+            ),
+            DeclareLaunchArgument(
+                "max_contact_execution_distance_m", default_value="0.2"
+            ),
+            DeclareLaunchArgument(
+                "max_contact_stroke_count", default_value="12"
+            ),
+            DeclareLaunchArgument("max_contact_run_sec", default_value="180.0"),
             DeclareLaunchArgument("cartesian_step_m", default_value="0.0005"),
             DeclareLaunchArgument("trajectory_file", default_value=""),
             DeclareLaunchArgument("writing_width_m", default_value="0.01"),
