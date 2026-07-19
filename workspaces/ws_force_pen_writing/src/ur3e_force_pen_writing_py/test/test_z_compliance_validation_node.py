@@ -397,6 +397,20 @@ def test_air_path_profile_skips_force_mode_and_monitors_live_data():
     assert "self._assert_live_data()" in execute_source
 
 
+def test_contact_and_air_motion_use_independent_speeds():
+    air_source = inspect.getsource(ZComplianceValidationNode._execute_air_tip_targets)
+    contact_source = inspect.getsource(ZComplianceValidationNode._write_contact_path)
+    lift_source = inspect.getsource(ZComplianceValidationNode._lift_between_contact_strokes)
+    cleanup_source = inspect.getsource(ZComplianceValidationNode._safe_cleanup)
+
+    assert "speed_mps=self.air_speed_mps" in air_source
+    assert "distance / self.air_speed_mps" in air_source
+    assert "speed_mps=self.line_speed_mps" in contact_source
+    assert "distance / self.line_speed_mps" in contact_source
+    assert "speed_mps=self.air_speed_mps" in lift_source
+    assert "speed_mps=self.air_speed_mps" in cleanup_source
+
+
 def test_contact_path_refreshes_air_baseline_before_each_stroke():
     node = object.__new__(ZComplianceValidationNode)
     strokes = [
@@ -453,6 +467,7 @@ def test_pen_up_between_strokes_holds_stops_force_then_retracts():
     node._active_target_force_n = 0.8
     node._pen_state = "pen_down"
     node.retract_distance_m = 0.003
+    node.air_speed_mps = 0.005
     node._stop_force_client = object()
     node._publish_status = lambda *_args: events.append("status")
     node._send_hold_current_joints = lambda **_kwargs: events.append("hold")
@@ -740,6 +755,7 @@ def test_retract_failure_still_restores_original_controllers():
     node._controllers_switched = True
     node._force_started = True
     node.retract_distance_m = 0.003
+    node.air_speed_mps = 0.005
     node._publish_status = lambda *_args: None
     node._cancel_active_goal = lambda **_kwargs: None
     node._send_hold_current_joints = lambda **_kwargs: None

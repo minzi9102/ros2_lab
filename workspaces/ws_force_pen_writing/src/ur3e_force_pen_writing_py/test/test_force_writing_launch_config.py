@@ -49,7 +49,8 @@ def _valid_configuration(module):
         "lost_contact_duration_sec": 0.3,
         "retract_distance_m": 0.003,
         "line_length_m": 0.01,
-        "line_speed_mps": 0.002,
+        "line_speed_mps": 0.003,
+        "air_speed_mps": 0.005,
         "cartesian_step_m": 0.0005,
         "writing_width_m": 0.01,
         "writing_height_m": 0.01,
@@ -104,6 +105,12 @@ def test_z_compliance_launch_exposes_bounded_safety_parameters():
     values = _valid_configuration(module)
     values["writing_width_m"] = 0.030001
     assert "writing_width_m" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["line_speed_mps"] = 0.0041
+    assert "line_speed_mps" in module.validate_z_compliance_configuration(values)
+    values = _valid_configuration(module)
+    values["air_speed_mps"] = 0.0101
+    assert "air_speed_mps" in module.validate_z_compliance_configuration(values)
 
 
 def test_z_compliance_launch_reuses_seek_bringup_without_joy_or_rviz():
@@ -160,6 +167,7 @@ def test_z_compliance_launch_matches_node_safety_parameter_interface():
         "retract_distance_m",
         "line_length_m",
         "line_speed_mps",
+        "air_speed_mps",
         "cartesian_step_m",
         "writing_width_m",
         "writing_height_m",

@@ -447,7 +447,8 @@ class ZComplianceValidationNode(Node):
         )
         self.retract_distance_m = self._float_parameter("retract_distance_m", 0.003)
         self.line_length_m = self._float_parameter("line_length_m", 0.01)
-        self.line_speed_mps = self._float_parameter("line_speed_mps", 0.002)
+        self.line_speed_mps = self._float_parameter("line_speed_mps", 0.003)
+        self.air_speed_mps = self._float_parameter("air_speed_mps", 0.005)
         self.cartesian_step_m = self._float_parameter("cartesian_step_m", 0.0005)
         self.trajectory_file = str(
             self.declare_parameter("trajectory_file", "").value
@@ -620,8 +621,10 @@ class ZComplianceValidationNode(Node):
             raise ValueError("retract_distance_m must be in (0, 0.003]")
         if not 0.0 < self.line_length_m <= 0.01:
             raise ValueError("line_length_m must be in (0, 0.01]")
-        if not 0.0 < self.line_speed_mps <= 0.002:
-            raise ValueError("line_speed_mps must be in (0, 0.002]")
+        if not 0.0 < self.line_speed_mps <= 0.004:
+            raise ValueError("line_speed_mps must be in (0, 0.004]")
+        if not 0.0 < self.air_speed_mps <= 0.01:
+            raise ValueError("air_speed_mps must be in (0, 0.01]")
         if not 0.0 < self.cartesian_step_m <= 0.0005:
             raise ValueError("cartesian_step_m must be in (0, 0.0005]")
         if not 0.0 < self.writing_width_m <= MAX_HANDWRITING_DIMENSION_M:
@@ -1000,7 +1003,9 @@ class ZComplianceValidationNode(Node):
             f"executing stroke {self._active_stroke_index}/{self._stroke_count}",
         )
         trajectory = self._plan_tip_targets(
-            self._contact_path[1:], fixed_orientation=orientation
+            self._contact_path[1:],
+            fixed_orientation=orientation,
+            speed_mps=self.line_speed_mps,
         )
         distance = path_length(
             [[(point.x, point.y) for point in self._contact_path]]
@@ -1042,7 +1047,9 @@ class ZComplianceValidationNode(Node):
         self._pen_state = "pen_up"
         retract_start = self._current_tip()
         trajectory = self._plan_cartesian(
-            delta_x=0.0, delta_z=self.retract_distance_m
+            delta_x=0.0,
+            delta_z=self.retract_distance_m,
+            speed_mps=self.air_speed_mps,
         )
         self._execute_trajectory(trajectory, timeout=6.0)
         self._wait_for_stable_retract(retract_start)
@@ -1058,8 +1065,12 @@ class ZComplianceValidationNode(Node):
         if distance <= 0.00005:
             self._assert_tip_endpoint(targets[-1])
             return
-        trajectory = self._plan_tip_targets(targets, fixed_orientation=orientation)
-        timeout = max(10.0, distance / self.line_speed_mps + 5.0)
+        trajectory = self._plan_tip_targets(
+            targets,
+            fixed_orientation=orientation,
+            speed_mps=self.air_speed_mps,
+        )
+        timeout = max(10.0, distance / self.air_speed_mps + 5.0)
         self._execute_trajectory(
             trajectory,
             timeout=timeout,
@@ -1210,7 +1221,11 @@ class ZComplianceValidationNode(Node):
         self._publish_status("WRITING", "planning 10mm +X line")
         self._line_start_tip = self._current_tip()
         self._line_max_lateral_error_m = 0.0
-        trajectory = self._plan_cartesian(delta_x=self.line_length_m, delta_z=0.0)
+        trajectory = self._plan_cartesian(
+            delta_x=self.line_length_m,
+            delta_z=0.0,
+            speed_mps=self.line_speed_mps,
+        )
         timeout = max(10.0, self.line_length_m / self.line_speed_mps + 5.0)
         self._execute_trajectory(trajectory, timeout=timeout, monitor_contact=True)
         current = self._current_tip()
@@ -1231,11 +1246,14 @@ class ZComplianceValidationNode(Node):
                 f"line final rotation error exceeded 1deg: {rotation_error:.6f}rad"
             )
 
-    def _plan_cartesian(self, *, delta_x: float, delta_z: float):
+    def _plan_cartesian(
+        self, *, delta_x: float, delta_z: float, speed_mps: float
+    ):
         tip = self._current_tip()
         return self._plan_tip_targets(
             [Point3(tip.x + delta_x, tip.y, tip.z + delta_z)],
             current_tip=tip,
+            speed_mps=speed_mps,
         )
 
     def _plan_tip_targets(
@@ -1244,6 +1262,7 @@ class ZComplianceValidationNode(Node):
         *,
         fixed_orientation=None,
         current_tip: Point3 | None = None,
+        speed_mps: float,
     ):
         if not targets:
             raise RunStopped("Cartesian target list must not be empty")
@@ -1270,7 +1289,7 @@ class ZComplianceValidationNode(Node):
         request.max_velocity_scaling_factor = 0.1
         request.max_acceleration_scaling_factor = 0.05
         request.cartesian_speed_limited_link = self.tool_frame
-        request.max_cartesian_speed = self.line_speed_mps
+        request.max_cartesian_speed = speed_mps
         result = self._call(self._cartesian_client, request, 5.0)
         if result.error_code.val != MoveItErrorCodes.SUCCESS or result.fraction < 0.999:
             raise RunStopped(
@@ -1282,7 +1301,7 @@ class ZComplianceValidationNode(Node):
             motion_duration, time_scale = retime_passthrough_trajectory(
                 trajectory,
                 distance_m=distance,
-                speed_mps=self.line_speed_mps,
+                speed_mps=speed_mps,
             )
         except ValueError as exc:
             raise RunStopped(str(exc)) from exc
@@ -1297,7 +1316,7 @@ class ZComplianceValidationNode(Node):
             raise RunStopped("Cartesian trajectory retiming failed")
         self.get_logger().info(
             "Retimed Cartesian trajectory: "
-            f"distance={distance:.6f}m speed={self.line_speed_mps:.6f}m/s "
+            f"distance={distance:.6f}m speed={speed_mps:.6f}m/s "
             f"motion={motion_duration:.3f}s scale={time_scale:.3f} "
             f"first={first_time:.3f}s "
             f"final={final_time:.3f}s"
@@ -1539,7 +1558,9 @@ class ZComplianceValidationNode(Node):
                     self._publish_status("RETRACT", "retracting 3mm along base +Z")
                     retract_start = self._current_tip()
                     trajectory = self._plan_cartesian(
-                        delta_x=0.0, delta_z=self.retract_distance_m
+                        delta_x=0.0,
+                        delta_z=self.retract_distance_m,
+                        speed_mps=self.air_speed_mps,
                     )
                     self._execute_trajectory(trajectory, timeout=6.0)
                     self._wait_for_stable_retract(retract_start)
