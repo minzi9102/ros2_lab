@@ -30,7 +30,6 @@ from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     path_contact_acquire_minimum,
     pen_axis_in_base_and_tilt,
     polyline_tracking,
-    quiet_contact_window_is_stable,
     relative_normal_force,
     retime_passthrough_trajectory,
     retract_distance_is_stable,
@@ -351,27 +350,6 @@ def test_contact_path_force_window_requires_mean_and_coverage():
     )
 
 
-def test_quiet_contact_gate_requires_centered_low_noise_force_window():
-    assert quiet_contact_window_is_stable(
-        [0.76, 0.78, 0.80, 0.82, 0.79] * 20,
-        target_force_n=0.8,
-        steady_min_n=0.5,
-        steady_max_n=1.1,
-    )
-    assert not quiet_contact_window_is_stable(
-        [0.55, 0.95] * 50,
-        target_force_n=0.8,
-        steady_min_n=0.5,
-        steady_max_n=1.1,
-    )
-    assert not quiet_contact_window_is_stable(
-        [0.8] * 94 + [0.3] * 6,
-        target_force_n=0.8,
-        steady_min_n=0.5,
-        steady_max_n=1.1,
-    )
-
-
 def test_contact_motion_profile_preserves_a_steady_tail():
     assert contact_motion_distances(0.010) == pytest.approx(
         (0.0015, 0.0015, 0.003)
@@ -576,18 +554,20 @@ def test_contact_and_air_motion_use_independent_speeds():
     assert "speed_mps=self.air_speed_mps" in cleanup_source
 
 
-def test_contact_writing_uses_quiet_gate_single_goal_entry_and_steady_monitor():
+def test_contact_writing_reuses_acquisition_gate_for_single_goal_entry():
     run_source = inspect.getsource(ZComplianceValidationNode._run_profile)
     path_source = inspect.getsource(ZComplianceValidationNode._run_contact_path)
     write_source = inspect.getsource(ZComplianceValidationNode._write_contact_path)
     execute_source = inspect.getsource(ZComplianceValidationNode._execute_trajectory)
 
-    assert run_source.index("self._confirm_quiet_contact()") < run_source.index(
+    assert run_source.index("self._acquire_contact(start_tip)") < run_source.index(
         "self._write_line()"
     )
-    assert path_source.index("self._confirm_quiet_contact()") < path_source.index(
+    assert path_source.index("self._acquire_contact(") < path_source.index(
         "self._write_contact_path"
     )
+    assert "_confirm_quiet_contact" not in run_source
+    assert "_confirm_quiet_contact" not in path_source
     assert "contact_motion=True" in write_source
     assert "steady_force_start_progress_m=steady_start_m" in write_source
     assert "CONTACT_ENTRY" in write_source
@@ -664,7 +644,6 @@ def test_contact_path_refreshes_air_baseline_before_each_stroke():
     node._acquire_contact = lambda _start, **kwargs: events.append(
         f"contact:{kwargs['minimum_mean_force_n']:.1f}"
     )
-    node._confirm_quiet_contact = lambda: events.append("quiet")
     node._write_contact_path = lambda *_args: events.append("write")
     node._lift_between_contact_strokes = lambda: events.append("pen_up")
 
@@ -677,14 +656,12 @@ def test_contact_path_refreshes_air_baseline_before_each_stroke():
         "baseline",
         "force_start",
         "contact:0.7",
-        "quiet",
         "write",
         "pen_up",
         "air_move",
         "baseline",
         "force_start",
         "contact:0.7",
-        "quiet",
         "write",
     ]
 
@@ -765,7 +742,6 @@ def test_contact_path_stops_entire_character_when_a_stroke_fails():
     node._prepare_force_baseline = lambda: None
     node._start_force_mode = lambda _force: None
     node._acquire_contact = lambda *_args, **_kwargs: None
-    node._confirm_quiet_contact = lambda: None
     node._lift_between_contact_strokes = lambda: None
 
     def write(*_args):

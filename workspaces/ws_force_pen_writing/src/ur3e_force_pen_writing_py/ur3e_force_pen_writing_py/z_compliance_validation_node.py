@@ -59,9 +59,6 @@ PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
 CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
-CONTACT_QUIET_MIN_FORCE_COVERAGE = 0.95
-CONTACT_QUIET_MAX_STDDEV_N = 0.1
-CONTACT_QUIET_MAX_SPAN_N = 0.4
 CONTACT_ENTRY_SPEED_MPS = 0.002
 CONTACT_ENTRY_LENGTH_M = 0.0015
 CONTACT_ENTRY_RAMP_LENGTH_M = 0.0015
@@ -261,26 +258,6 @@ def contact_force_window_is_stable(
         steady_min_n <= force <= steady_max_n for force in samples
     ) / len(samples)
     return statistics.fmean(samples) >= minimum_mean_n and coverage >= minimum_coverage
-
-
-def quiet_contact_window_is_stable(
-    samples: list[float], *, target_force_n: float, steady_min_n: float,
-    steady_max_n: float,
-) -> bool:
-    if not samples:
-        return False
-    coverage = sum(
-        steady_min_n <= force <= steady_max_n for force in samples
-    ) / len(samples)
-    mean_force = statistics.fmean(samples)
-    return (
-        coverage >= CONTACT_QUIET_MIN_FORCE_COVERAGE
-        and max(steady_min_n, target_force_n - 0.1)
-        <= mean_force
-        <= min(steady_max_n, target_force_n + 0.1)
-        and statistics.pstdev(samples) <= CONTACT_QUIET_MAX_STDDEV_N
-        and max(samples) - min(samples) <= CONTACT_QUIET_MAX_SPAN_N
-    )
 
 
 def contact_motion_distances(distance_m: float) -> tuple[float, float, float]:
@@ -951,7 +928,6 @@ class ZComplianceValidationNode(Node):
                             self._hold_contact()
                         else:
                             self._pen_state = "pen_down"
-                            self._confirm_quiet_contact()
                             self._write_line()
             succeeded = True
         except Exception as exc:  # Safety state machine reports the exact failed gate.
@@ -1273,7 +1249,6 @@ class ZComplianceValidationNode(Node):
                 ),
             )
             self._pen_state = "pen_down"
-            self._confirm_quiet_contact()
             self._write_contact_path(stroke, start_orientation)
             if index < len(strokes):
                 self._lift_between_contact_strokes()
@@ -1539,52 +1514,6 @@ class ZComplianceValidationNode(Node):
     def _hold_contact(self) -> None:
         self._publish_status("HOLDING", "holding 0.8N relative contact")
         self._monitor_contact_until(time.monotonic() + self.hold_duration_sec)
-
-    def _confirm_quiet_contact(self) -> None:
-        self._publish_status(
-            "CONTACT_QUIET",
-            f"requiring a quiet {self.contact_settle_sec:g}s force window "
-            "before lateral motion",
-        )
-        samples: list[tuple[float, float]] = []
-        deadline = time.monotonic() + self.contact_settle_sec + 2.0
-        last_forces: list[float] = []
-        while time.monotonic() < deadline:
-            now = time.monotonic()
-            force = self._assert_live_data(check_contact_force=True)
-            self._assert_contact_z_offset()
-            samples.append((now, force))
-            samples = [
-                sample
-                for sample in samples
-                if now - sample[0] <= self.contact_settle_sec
-            ]
-            last_forces = [sample[1] for sample in samples]
-            if (
-                now - samples[0][0] >= self.contact_settle_sec * 0.9
-                and quiet_contact_window_is_stable(
-                    last_forces,
-                    target_force_n=self.target_force_n,
-                    steady_min_n=self.steady_force_min_n,
-                    steady_max_n=self.steady_force_max_n,
-                )
-            ):
-                self._publish_status(
-                    "CONTACT_QUIET",
-                    f"mean={statistics.fmean(last_forces):.3f}N "
-                    f"stddev={statistics.pstdev(last_forces):.3f}N "
-                    f"span={max(last_forces) - min(last_forces):.3f}N",
-                )
-                return
-            time.sleep(0.01)
-        if last_forces:
-            raise RunStopped(
-                "contact did not become quiet before writing: "
-                f"mean={statistics.fmean(last_forces):.3f}N "
-                f"stddev={statistics.pstdev(last_forces):.3f}N "
-                f"span={max(last_forces) - min(last_forces):.3f}N"
-            )
-        raise RunStopped("contact did not become quiet before writing")
 
     def _write_line(self) -> None:
         self._publish_status(
