@@ -397,7 +397,7 @@ def test_air_path_profile_skips_force_mode_and_monitors_live_data():
     assert "self._assert_live_data()" in execute_source
 
 
-def test_contact_path_reuses_one_baseline_and_recontacts_each_stroke():
+def test_contact_path_refreshes_air_baseline_before_each_stroke():
     node = object.__new__(ZComplianceValidationNode)
     strokes = [
         [Point3(0.0, 0.0, 0.003), Point3(0.005, 0.0, 0.003)],
@@ -437,6 +437,7 @@ def test_contact_path_reuses_one_baseline_and_recontacts_each_stroke():
         "write",
         "pen_up",
         "air_move",
+        "baseline",
         "force_start",
         "contact:0.7",
         "write",

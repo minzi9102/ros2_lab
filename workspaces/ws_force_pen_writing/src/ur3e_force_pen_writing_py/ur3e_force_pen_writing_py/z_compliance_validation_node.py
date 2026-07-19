@@ -973,8 +973,7 @@ class ZComplianceValidationNode(Node):
                     "contact path air-transition rotation error exceeded 1deg: "
                     f"{rotation_error:.6f}rad"
                 )
-            if index == 1:
-                self._prepare_force_baseline()
+            self._prepare_force_baseline()
             contact_start = self._current_tip()
             self._start_force_mode(self.target_force_n)
             self._acquire_contact(
