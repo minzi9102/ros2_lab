@@ -59,6 +59,13 @@ PASSTHROUGH_MIN_EXECUTION_RATIO = 0.9
 LINE_REVERSE_TOLERANCE_M = 0.0001
 CONTACT_PATH_MAX_UNDERSHOOT_N = 0.1
 CONTACT_PATH_MIN_FORCE_COVERAGE = 0.9
+CONTACT_QUIET_MIN_FORCE_COVERAGE = 0.95
+CONTACT_QUIET_MAX_STDDEV_N = 0.1
+CONTACT_QUIET_MAX_SPAN_N = 0.4
+CONTACT_ENTRY_SPEED_MPS = 0.002
+CONTACT_ENTRY_LENGTH_M = 0.0015
+CONTACT_ENTRY_RAMP_LENGTH_M = 0.0015
+CONTACT_ENTRY_LOW_FORCE_DURATION_SEC = 0.3
 MAX_BASELINE_ABS_N = 0.3
 MAX_HANDWRITING_DIMENSION_M = 0.03
 MAX_AIR_PATH_LENGTH_M = 0.2
@@ -137,6 +144,9 @@ def duration_seconds(duration) -> float:
 def retime_passthrough_trajectory(
     trajectory, *, distance_m: float, speed_mps: float,
     start_delay_sec: float = PASSTHROUGH_MIN_START_TIME_SEC,
+    entry_speed_mps: float | None = None,
+    entry_distance_m: float = 0.0,
+    entry_ramp_distance_m: float = 0.0,
 ) -> tuple[float, float]:
     if distance_m <= 0.0 or speed_mps <= 0.0:
         raise ValueError("trajectory distance and speed must be positive")
@@ -148,6 +158,56 @@ def retime_passthrough_trajectory(
     )
     if original_duration <= 0.0:
         raise ValueError("trajectory duration must be positive")
+    if entry_speed_mps is not None:
+        if not 0.0 < entry_speed_mps <= speed_mps:
+            raise ValueError("entry speed must be in (0, speed]")
+        if entry_distance_m < 0.0 or entry_ramp_distance_m < 0.0:
+            raise ValueError("entry distances must be nonnegative")
+        original_times = [
+            duration_seconds(point.time_from_start) for point in trajectory.points
+        ]
+        original_intervals = [
+            end - start for start, end in zip(original_times, original_times[1:])
+        ]
+        if any(interval <= 0.0 for interval in original_intervals):
+            raise ValueError("trajectory timestamps must be strictly increasing")
+        segment_distance = distance_m / (len(trajectory.points) - 1)
+        new_intervals = []
+        ramp_end_m = entry_distance_m + entry_ramp_distance_m
+        for index in range(len(trajectory.points) - 1):
+            midpoint_m = (index + 0.5) * segment_distance
+            if midpoint_m <= entry_distance_m:
+                segment_speed = entry_speed_mps
+            elif entry_ramp_distance_m > 0.0 and midpoint_m < ramp_end_m:
+                ratio = (midpoint_m - entry_distance_m) / entry_ramp_distance_m
+                smooth_ratio = ratio * ratio * (3.0 - 2.0 * ratio)
+                segment_speed = entry_speed_mps + smooth_ratio * (
+                    speed_mps - entry_speed_mps
+                )
+            else:
+                segment_speed = speed_mps
+            new_intervals.append(segment_distance / segment_speed)
+        elapsed = start_delay_sec
+        trajectory.points[0].time_from_start = Duration(seconds=elapsed).to_msg()
+        for point, interval in zip(trajectory.points[1:], new_intervals):
+            elapsed += interval
+            point.time_from_start = Duration(seconds=elapsed).to_msg()
+        for index, point in enumerate(trajectory.points):
+            if index == 0:
+                local_scale = new_intervals[0] / original_intervals[0]
+            elif index == len(trajectory.points) - 1:
+                local_scale = new_intervals[-1] / original_intervals[-1]
+            else:
+                local_scale = (
+                    new_intervals[index - 1] + new_intervals[index]
+                ) / (original_intervals[index - 1] + original_intervals[index])
+            if point.velocities:
+                point.velocities = [
+                    velocity / local_scale for velocity in point.velocities
+                ]
+            point.accelerations = []
+        motion_duration = sum(new_intervals)
+        return motion_duration, motion_duration / original_duration
     motion_duration = distance_m / speed_mps
     time_scale = motion_duration / original_duration
     for point in trajectory.points:
@@ -201,6 +261,36 @@ def contact_force_window_is_stable(
         steady_min_n <= force <= steady_max_n for force in samples
     ) / len(samples)
     return statistics.fmean(samples) >= minimum_mean_n and coverage >= minimum_coverage
+
+
+def quiet_contact_window_is_stable(
+    samples: list[float], *, target_force_n: float, steady_min_n: float,
+    steady_max_n: float,
+) -> bool:
+    if not samples:
+        return False
+    coverage = sum(
+        steady_min_n <= force <= steady_max_n for force in samples
+    ) / len(samples)
+    mean_force = statistics.fmean(samples)
+    return (
+        coverage >= CONTACT_QUIET_MIN_FORCE_COVERAGE
+        and max(steady_min_n, target_force_n - 0.1)
+        <= mean_force
+        <= min(steady_max_n, target_force_n + 0.1)
+        and statistics.pstdev(samples) <= CONTACT_QUIET_MAX_STDDEV_N
+        and max(samples) - min(samples) <= CONTACT_QUIET_MAX_SPAN_N
+    )
+
+
+def contact_motion_distances(distance_m: float) -> tuple[float, float, float]:
+    if distance_m <= 0.0:
+        raise ValueError("contact motion distance must be positive")
+    if distance_m <= CONTACT_ENTRY_LENGTH_M + CONTACT_ENTRY_RAMP_LENGTH_M:
+        return distance_m, 0.0, distance_m * 0.5
+    entry_distance = CONTACT_ENTRY_LENGTH_M
+    ramp_distance = CONTACT_ENTRY_RAMP_LENGTH_M
+    return entry_distance, ramp_distance, entry_distance + ramp_distance
 
 
 def validate_contact_strokes(
@@ -860,6 +950,8 @@ class ZComplianceValidationNode(Node):
                         if profile == "contact_hold":
                             self._hold_contact()
                         else:
+                            self._pen_state = "pen_down"
+                            self._confirm_quiet_contact()
                             self._write_line()
             succeeded = True
         except Exception as exc:  # Safety state machine reports the exact failed gate.
@@ -1181,6 +1273,7 @@ class ZComplianceValidationNode(Node):
                 ),
             )
             self._pen_state = "pen_down"
+            self._confirm_quiet_contact()
             self._write_contact_path(stroke, start_orientation)
             if index < len(strokes):
                 self._lift_between_contact_strokes()
@@ -1193,20 +1286,26 @@ class ZComplianceValidationNode(Node):
         ]
         self._path_max_lateral_error_m = 0.0
         self._publish_status(
-            "CONTACT_PATH_WRITING",
-            f"executing stroke {self._active_stroke_index}/{self._stroke_count}",
-        )
-        trajectory = self._plan_tip_targets(
-            self._contact_path[1:],
-            fixed_orientation=orientation,
-            speed_mps=self.line_speed_mps,
+            "CONTACT_ENTRY",
+            f"starting stroke {self._active_stroke_index}/{self._stroke_count} "
+            "with guarded slow entry",
         )
         distance = path_length(
             [[(point.x, point.y) for point in self._contact_path]]
         )
+        _, _, steady_start_m = contact_motion_distances(distance)
+        trajectory = self._plan_tip_targets(
+            self._contact_path[1:],
+            fixed_orientation=orientation,
+            speed_mps=self.line_speed_mps,
+            contact_motion=True,
+        )
         timeout = max(10.0, distance / self.line_speed_mps + 5.0)
         self._execute_trajectory(
-            trajectory, timeout=timeout, monitor_contact=True
+            trajectory,
+            timeout=timeout,
+            monitor_contact=True,
+            steady_force_start_progress_m=steady_start_m,
         )
         current = self._current_tip()
         endpoint = self._contact_path[-1]
@@ -1441,17 +1540,72 @@ class ZComplianceValidationNode(Node):
         self._publish_status("HOLDING", "holding 0.8N relative contact")
         self._monitor_contact_until(time.monotonic() + self.hold_duration_sec)
 
+    def _confirm_quiet_contact(self) -> None:
+        self._publish_status(
+            "CONTACT_QUIET",
+            f"requiring a quiet {self.contact_settle_sec:g}s force window "
+            "before lateral motion",
+        )
+        samples: list[tuple[float, float]] = []
+        deadline = time.monotonic() + self.contact_settle_sec + 2.0
+        last_forces: list[float] = []
+        while time.monotonic() < deadline:
+            now = time.monotonic()
+            force = self._assert_live_data(check_contact_force=True)
+            self._assert_contact_z_offset()
+            samples.append((now, force))
+            samples = [
+                sample
+                for sample in samples
+                if now - sample[0] <= self.contact_settle_sec
+            ]
+            last_forces = [sample[1] for sample in samples]
+            if (
+                now - samples[0][0] >= self.contact_settle_sec * 0.9
+                and quiet_contact_window_is_stable(
+                    last_forces,
+                    target_force_n=self.target_force_n,
+                    steady_min_n=self.steady_force_min_n,
+                    steady_max_n=self.steady_force_max_n,
+                )
+            ):
+                self._publish_status(
+                    "CONTACT_QUIET",
+                    f"mean={statistics.fmean(last_forces):.3f}N "
+                    f"stddev={statistics.pstdev(last_forces):.3f}N "
+                    f"span={max(last_forces) - min(last_forces):.3f}N",
+                )
+                return
+            time.sleep(0.01)
+        if last_forces:
+            raise RunStopped(
+                "contact did not become quiet before writing: "
+                f"mean={statistics.fmean(last_forces):.3f}N "
+                f"stddev={statistics.pstdev(last_forces):.3f}N "
+                f"span={max(last_forces) - min(last_forces):.3f}N"
+            )
+        raise RunStopped("contact did not become quiet before writing")
+
     def _write_line(self) -> None:
-        self._publish_status("WRITING", "planning 10mm +X line")
+        self._publish_status(
+            "CONTACT_ENTRY", "planning 10mm +X line with guarded slow entry"
+        )
         self._line_start_tip = self._current_tip()
         self._line_max_lateral_error_m = 0.0
+        _, _, steady_start_m = contact_motion_distances(self.line_length_m)
         trajectory = self._plan_cartesian(
             delta_x=self.line_length_m,
             delta_z=0.0,
             speed_mps=self.line_speed_mps,
+            contact_motion=True,
         )
         timeout = max(10.0, self.line_length_m / self.line_speed_mps + 5.0)
-        self._execute_trajectory(trajectory, timeout=timeout, monitor_contact=True)
+        self._execute_trajectory(
+            trajectory,
+            timeout=timeout,
+            monitor_contact=True,
+            steady_force_start_progress_m=steady_start_m,
+        )
         current = self._current_tip()
         endpoint_error = math.hypot(
             current.x - (self._line_start_tip.x + self.line_length_m),
@@ -1471,13 +1625,15 @@ class ZComplianceValidationNode(Node):
             )
 
     def _plan_cartesian(
-        self, *, delta_x: float, delta_z: float, speed_mps: float
+        self, *, delta_x: float, delta_z: float, speed_mps: float,
+        contact_motion: bool = False,
     ):
         tip = self._current_tip()
         return self._plan_tip_targets(
             [Point3(tip.x + delta_x, tip.y, tip.z + delta_z)],
             current_tip=tip,
             speed_mps=speed_mps,
+            contact_motion=contact_motion,
         )
 
     def _plan_tip_targets(
@@ -1487,6 +1643,7 @@ class ZComplianceValidationNode(Node):
         fixed_orientation=None,
         current_tip: Point3 | None = None,
         speed_mps: float,
+        contact_motion: bool = False,
     ):
         if not targets:
             raise RunStopped("Cartesian target list must not be empty")
@@ -1522,10 +1679,20 @@ class ZComplianceValidationNode(Node):
             )
         trajectory = result.solution.joint_trajectory
         try:
+            entry_distance = entry_ramp_distance = 0.0
+            entry_speed = None
+            if contact_motion:
+                entry_distance, entry_ramp_distance, _ = contact_motion_distances(
+                    distance
+                )
+                entry_speed = min(CONTACT_ENTRY_SPEED_MPS, speed_mps)
             motion_duration, time_scale = retime_passthrough_trajectory(
                 trajectory,
                 distance_m=distance,
                 speed_mps=speed_mps,
+                entry_speed_mps=entry_speed,
+                entry_distance_m=entry_distance,
+                entry_ramp_distance_m=entry_ramp_distance,
             )
         except ValueError as exc:
             raise RunStopped(str(exc)) from exc
@@ -1550,6 +1717,7 @@ class ZComplianceValidationNode(Node):
     def _execute_trajectory(
         self, trajectory, *, timeout: float, monitor_contact: bool = False,
         monitor_live: bool = False, allow_single_point: bool = False,
+        steady_force_start_progress_m: float = 0.0,
     ) -> None:
         if not allow_single_point:
             error = validate_joint_trajectory(trajectory)
@@ -1569,16 +1737,16 @@ class ZComplianceValidationNode(Node):
         result_future = handle.get_result_async()
         deadline = time.monotonic() + timeout
         below_since = None
+        entry_below_since = None
         in_band = total = 0
         furthest_progress = 0.0
+        steady_phase_started = not monitor_contact or steady_force_start_progress_m <= 0.0
         while not result_future.done():
             if time.monotonic() > deadline:
                 handle.cancel_goal_async()
                 raise RunStopped("passthrough trajectory timed out")
             if monitor_contact:
                 force = self._assert_live_data(check_contact_force=True)
-                total += 1
-                in_band += int(self.steady_force_min_n <= force <= self.steady_force_max_n)
                 lost, below_since = contact_lost(
                     force_n=force,
                     threshold_n=self.lost_contact_force_n,
@@ -1616,6 +1784,33 @@ class ZComplianceValidationNode(Node):
                         f"furthest={furthest_progress:.6f}m"
                     )
                 furthest_progress = max(furthest_progress, progress)
+                if not steady_phase_started:
+                    entry_low, entry_below_since = contact_lost(
+                        force_n=force,
+                        threshold_n=self.steady_force_min_n,
+                        below_since=entry_below_since,
+                        now=time.monotonic(),
+                        duration=CONTACT_ENTRY_LOW_FORCE_DURATION_SEC,
+                    )
+                    if entry_low:
+                        handle.cancel_goal_async()
+                        raise RunStopped(
+                            "contact entry stayed below steady force for 0.3s"
+                        )
+                    if progress >= steady_force_start_progress_m:
+                        steady_phase_started = True
+                        entry_below_since = None
+                        self._publish_status(
+                            "CONTACT_STEADY_WRITE",
+                            f"steady monitoring after {progress * 1000.0:.2f}mm entry",
+                        )
+                if steady_phase_started:
+                    total += 1
+                    in_band += int(
+                        self.steady_force_min_n
+                        <= force
+                        <= self.steady_force_max_n
+                    )
                 self._assert_contact_z_offset()
             elif monitor_live:
                 self._assert_live_data()
@@ -1641,7 +1836,10 @@ class ZComplianceValidationNode(Node):
                     f"elapsed={elapsed:.3f}s commanded_motion={commanded_motion:.3f}s"
                 )
         if monitor_contact and (total == 0 or in_band / total < 0.9):
-            raise RunStopped(f"steady-force coverage below 90%: {in_band}/{total}")
+            raise RunStopped(
+                "steady-force coverage below 90% after entry: "
+                f"{in_band}/{total}"
+            )
 
     def _monitor_contact_until(self, deadline: float) -> None:
         below_since = None
@@ -2040,6 +2238,9 @@ class ZComplianceValidationNode(Node):
                 lateral_error = tracking.lateral_error_m
             except ValueError:
                 pass
+        elif self._profile == "line" and self._line_start_tip is not None:
+            planned_progress = max(0.0, tip.x - self._line_start_tip.x)
+            lateral_error = abs(tip.y - self._line_start_tip.y)
         self._csv_writer.writerow(
             (
                 time.monotonic(), self._state, self._active_target_force_n, raw,
