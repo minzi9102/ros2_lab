@@ -65,6 +65,8 @@ MAX_CONTACT_PATH_LENGTH_M = 0.05
 MAX_CONTACT_TOTAL_LENGTH_M = 0.06
 MAX_CONTACT_WRITING_SEC = 60.0
 PATH_ENDPOINT_TOLERANCE_M = 0.0005
+PATH_ENDPOINT_SETTLE_TIMEOUT_SEC = 0.5
+PATH_ENDPOINT_STABLE_WINDOW_SEC = 0.1
 PATH_LATERAL_TOLERANCE_M = 0.0005
 
 
@@ -1079,13 +1081,41 @@ class ZComplianceValidationNode(Node):
         self._assert_tip_endpoint(targets[-1])
 
     def _assert_tip_endpoint(self, target: Point3) -> None:
-        current = self._current_tip()
-        error = math.dist(
-            (current.x, current.y, current.z),
-            (target.x, target.y, target.z),
-        )
-        if error > PATH_ENDPOINT_TOLERANCE_M:
-            raise RunStopped(f"path endpoint error exceeded: {error:.6f}m")
+        started = time.monotonic()
+        deadline = started + PATH_ENDPOINT_SETTLE_TIMEOUT_SEC
+        stable_since = None
+        initial_error = None
+        error = math.inf
+        while True:
+            self._assert_live_data()
+            now = time.monotonic()
+            current = self._current_tip()
+            error = math.dist(
+                (current.x, current.y, current.z),
+                (target.x, target.y, target.z),
+            )
+            if initial_error is None:
+                initial_error = error
+            if error <= PATH_ENDPOINT_TOLERANCE_M:
+                if stable_since is None:
+                    stable_since = now
+                elif now - stable_since >= PATH_ENDPOINT_STABLE_WINDOW_SEC:
+                    if initial_error > PATH_ENDPOINT_TOLERANCE_M:
+                        self.get_logger().info(
+                            "Air path endpoint settled: "
+                            f"initial_error={initial_error:.6f}m "
+                            f"final_error={error:.6f}m "
+                            f"wait={now - started:.3f}s"
+                        )
+                    return
+            else:
+                stable_since = None
+            if now >= deadline:
+                raise RunStopped(
+                    "path endpoint error exceeded after settling: "
+                    f"{error:.6f}m"
+                )
+            time.sleep(0.01)
 
     def _start_force_mode(self, force_n: float) -> None:
         assert self._paper_point is not None

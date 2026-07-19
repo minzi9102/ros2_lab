@@ -9,6 +9,7 @@ from geometry_msgs.msg import PointStamped, Pose, WrenchStamped
 import pytest
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+import ur3e_force_pen_writing_py.z_compliance_validation_node as validation_module
 from ur3e_force_pen_writing_py.geometry import Point3
 from ur3e_force_pen_writing_py.z_compliance_validation_node import (
     anchored_tip_strokes,
@@ -409,6 +410,49 @@ def test_contact_and_air_motion_use_independent_speeds():
     assert "distance / self.line_speed_mps" in contact_source
     assert "speed_mps=self.air_speed_mps" in lift_source
     assert "speed_mps=self.air_speed_mps" in cleanup_source
+
+
+def test_air_endpoint_waits_for_transient_tracking_lag(monkeypatch):
+    monkeypatch.setattr(validation_module, "PATH_ENDPOINT_SETTLE_TIMEOUT_SEC", 0.08)
+    monkeypatch.setattr(validation_module, "PATH_ENDPOINT_STABLE_WINDOW_SEC", 0.02)
+    node = object.__new__(ZComplianceValidationNode)
+    target = Point3(0.0, 0.0, 0.0)
+    checks = []
+    messages = []
+    samples = iter(
+        [Point3(0.000555, 0.0, 0.0), Point3(0.0, 0.0, 0.0)]
+    )
+    current = Point3(0.0, 0.0, 0.0)
+    node._assert_live_data = lambda: checks.append(True)
+    node._current_tip = lambda: next(samples, current)
+    node.get_logger = lambda: SimpleNamespace(info=messages.append)
+
+    node._assert_tip_endpoint(target)
+
+    assert len(checks) >= 3
+    assert messages and "initial_error=0.000555m" in messages[0]
+
+
+def test_air_endpoint_aborts_when_error_never_settles(monkeypatch):
+    monkeypatch.setattr(validation_module, "PATH_ENDPOINT_SETTLE_TIMEOUT_SEC", 0.03)
+    monkeypatch.setattr(validation_module, "PATH_ENDPOINT_STABLE_WINDOW_SEC", 0.01)
+    node = object.__new__(ZComplianceValidationNode)
+    node._assert_live_data = lambda: None
+    node._current_tip = lambda: Point3(0.000555, 0.0, 0.0)
+
+    with pytest.raises(RunStopped, match="after settling: 0.000555m"):
+        node._assert_tip_endpoint(Point3(0.0, 0.0, 0.0))
+
+
+def test_air_endpoint_settle_wait_propagates_live_safety_failure():
+    node = object.__new__(ZComplianceValidationNode)
+    node._assert_live_data = lambda: (_ for _ in ()).throw(
+        RunStopped("joint state timed out")
+    )
+    node._current_tip = lambda: pytest.fail("endpoint read after safety failure")
+
+    with pytest.raises(RunStopped, match="joint state timed out"):
+        node._assert_tip_endpoint(Point3(0.0, 0.0, 0.0))
 
 
 def test_contact_path_refreshes_air_baseline_before_each_stroke():
