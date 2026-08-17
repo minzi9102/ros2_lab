@@ -7,7 +7,9 @@
 
 #include "geometry_msgs/msg/pose.hpp"
 #include "moveit/move_group_interface/move_group_interface.hpp"
+#include "moveit/robot_state/robot_state.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 // Task 7B 的目标，是把 7A 已经启动好的 MoveIt bringup 用起来，
 // 写出一个“一次性发送目标 -> 规划 -> 可选执行 -> 退出”的最小 C++ 节点。
@@ -28,8 +30,12 @@ public:
     end_effector_link_ = this->declare_parameter<std::string>("end_effector_link", "tool0");
     target_mode_ = this->declare_parameter<std::string>("target_mode", "joint");
     execute_plan_ = this->declare_parameter<bool>("execute_plan", false);
+    cache_plan_ = this->declare_parameter<bool>("cache_plan", false);
     planning_time_sec_ = this->declare_parameter<double>("planning_time_sec", 3.0);
     num_planning_attempts_ = this->declare_parameter<int>("num_planning_attempts", 3);
+    current_state_timeout_sec_ =
+      this->declare_parameter<double>("current_state_timeout_sec", 2.0);
+    ik_timeout_sec_ = this->declare_parameter<double>("ik_timeout_sec", 0.1);
     joint_target_ = this->declare_parameter<std::vector<double>>(
       "joint_target",
       std::vector<double>{0.0, -1.57, 0.0, -1.57, 0.0, 0.0});
@@ -40,11 +46,29 @@ public:
       "pose_orientation_xyzw",
       std::vector<double>{0.7071, 0.0, 0.0, 0.7071});
 
+    planning_callback_group_ = this->create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
+    if (execute_plan_ && cache_plan_) {
+      throw std::runtime_error("execute_plan and cache_plan cannot both be true.");
+    }
+    if (cache_plan_) {
+      execute_cached_plan_service_ = this->create_service<std_srvs::srv::Trigger>(
+        "~/execute_cached_plan",
+        std::bind(
+          &Ur3MoveGroupPlannerNode::execute_cached_plan,
+          this,
+          std::placeholders::_1,
+          std::placeholders::_2),
+        rclcpp::ServicesQoS(),
+        planning_callback_group_);
+    }
+
     // 这里不在构造函数里立刻开始规划，而是延后到定时器回调里做 one-shot 流程。
     // 这样更容易避免节点对象尚未完全就绪时就去创建 MoveGroupInterface。
     start_timer_ = this->create_wall_timer(
       std::chrono::milliseconds(200),
-      std::bind(&Ur3MoveGroupPlannerNode::run_once, this));
+      std::bind(&Ur3MoveGroupPlannerNode::run_once, this),
+      planning_callback_group_);
 
     RCLCPP_INFO(
       this->get_logger(),
@@ -76,6 +100,12 @@ private:
       const bool flow_finished = run_plan_flow();
       if (!flow_finished) {
         request_shutdown("Failed to complete plan flow");
+        return;
+      }
+      if (cached_plan_ready_) {
+        RCLCPP_INFO(
+          this->get_logger(),
+          "Cached plan is ready. Execute the exact plan via ~/execute_cached_plan.");
         return;
       }
       request_shutdown("Plan flow completed successfully");
@@ -149,17 +179,35 @@ private:
       end_effector_link_.c_str(),
       pose_reference_frame_.c_str());
 
-    // pose 模式下，7B 给的是末端执行器期望到达的空间位姿。
-    // 真正的 IK 求解、碰撞检查和路径搜索，仍然发生在后面的 plan() 阶段。
-    // TODO(human): 在这里调用 setPoseTarget(pose, end_effector_link_)。
-      bool bstate = move_group_->setPoseTarget(pose, end_effector_link_);
-    // TODO(human): 你需要判断这个姿态是否可达，以及末端姿态语义是否合理。
-      if (!bstate) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to set pose target.");
-        return false;
-      } else {
-        RCLCPP_INFO(this->get_logger(), "Pose target is set successfully.");
-      }
+    const auto current_state = move_group_->getCurrentState(current_state_timeout_sec_);
+    if (!current_state) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to read current robot state for seeded IK.");
+      return false;
+    }
+    const moveit::core::JointModelGroup * joint_model_group =
+      current_state->getJointModelGroup(planning_group_);
+    if (!joint_model_group) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Joint model group does not exist: %s", planning_group_.c_str());
+      return false;
+    }
+
+    moveit::core::RobotState target_state(*current_state);
+    if (!target_state.setFromIK(
+        joint_model_group, pose, end_effector_link_, ik_timeout_sec_))
+    {
+      RCLCPP_ERROR(this->get_logger(), "Seeded IK failed for the requested pose.");
+      return false;
+    }
+
+    move_group_->setStartState(*current_state);
+    if (!move_group_->setJointValueTarget(target_state)) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to lock the seeded IK joint target.");
+      return false;
+    }
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Pose target is locked to the IK branch seeded by the current robot state.");
     return true;
   }
 
@@ -173,29 +221,55 @@ private:
     // 这里是 7B 的核心：把“已设置好的目标”交给 MoveIt 做路径规划。
     // 注意：plan 成功只代表“找到了轨迹”，还不代表机器人已经运动。
     // TODO(human): 在这里创建 MoveGroupInterface::Plan，并调用 plan()。
-      moveit::planning_interface::MoveGroupInterface::Plan plan;
-      const bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
-      if (!success) {
-        RCLCPP_ERROR(this->get_logger(), "Planning failed.");
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    const bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    if (!success) {
+      RCLCPP_ERROR(this->get_logger(), "Planning failed.");
+      return false;
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Planning succeeded.");
+
+    if (cache_plan_) {
+      cached_plan_ = std::move(plan);
+      cached_plan_ready_ = true;
+      RCLCPP_INFO(this->get_logger(), "Planning succeeded and the exact Plan was cached.");
+      return true;
+    }
+
+    if (execute_plan_) {
+      // 只有在 plan() 成功后，才有资格把已生成的轨迹交给执行层。
+      // 这正是“规划”和“控制/执行”在职责上的分界线。
+      // TODO(human): 在这里调用 execute()。
+      const bool execute_success = (move_group_->execute(plan) ==
+        moveit::core::MoveItErrorCode::SUCCESS);
+      if (!execute_success) {
+        RCLCPP_ERROR(this->get_logger(), "Execution failed.");
         return false;
       }
-  
-      RCLCPP_INFO(this->get_logger(), "Planning succeeded.");
-  
-      if (execute_plan_) {  
-        // 只有在 plan() 成功后，才有资格把已生成的轨迹交给执行层。
-        // 这正是“规划”和“控制/执行”在职责上的分界线。
-        // TODO(human): 在这里调用 execute()。
-        const bool execute_success = (move_group_->execute(plan) == moveit::core::MoveItErrorCode::SUCCESS);
-        if (!execute_success) {
-          RCLCPP_ERROR(this->get_logger(), "Execution failed.");
-          return false;
-        }
-        RCLCPP_INFO(this->get_logger(), "Execution succeeded.");
-      }
+      RCLCPP_INFO(this->get_logger(), "Execution succeeded.");
+    }
     // TODO(human): 你需要自己决定 plan 失败时是直接退出、打印更多上下文，还是做一次保守重试。
-    // TODO(human): 只有在 plan 成功时，才能根据 execute_plan_ 决定是否 execute()。 
+    // TODO(human): 只有在 plan 成功时，才能根据 execute_plan_ 决定是否 execute()。
     return true;
+  }
+
+  void execute_cached_plan(
+    const std_srvs::srv::Trigger::Request::SharedPtr,
+    std_srvs::srv::Trigger::Response::SharedPtr response)
+  {
+    if (!cached_plan_ready_) {
+      response->success = false;
+      response->message = "No cached plan is ready.";
+      return;
+    }
+
+    cached_plan_ready_ = false;
+    const bool success =
+      move_group_->execute(cached_plan_) == moveit::core::MoveItErrorCode::SUCCESS;
+    response->success = success;
+    response->message = success ? "Cached plan execution succeeded." :
+      "Cached plan execution failed.";
   }
 
   void validate_joint_target() const
@@ -246,8 +320,11 @@ private:
   std::string end_effector_link_;
   std::string target_mode_;
   bool execute_plan_{false};
+  bool cache_plan_{false};
   double planning_time_sec_{3.0};
   int num_planning_attempts_{3};
+  double current_state_timeout_sec_{2.0};
+  double ik_timeout_sec_{0.1};
   std::vector<double> joint_target_;
   std::vector<double> pose_position_;
   std::vector<double> pose_orientation_xyzw_;
@@ -255,16 +332,22 @@ private:
   // 运行时状态：保证 one-shot 只跑一遍，并记录是否已发出 shutdown。
   bool started_{false};
   bool shutdown_requested_{false};
+  bool cached_plan_ready_{false};
 
   rclcpp::TimerBase::SharedPtr start_timer_;
+  rclcpp::CallbackGroup::SharedPtr planning_callback_group_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr execute_cached_plan_service_;
   // MoveGroupInterface 是本节点和 move_group 之间的主要桥梁。
   std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
+  moveit::planning_interface::MoveGroupInterface::Plan cached_plan_;
 };
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<Ur3MoveGroupPlannerNode>();
-  rclcpp::spin(node);
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
+  executor.add_node(node);
+  executor.spin();
   return 0;
 }
