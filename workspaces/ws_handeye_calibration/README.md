@@ -19,7 +19,7 @@ source /home/minzi/ros2_lab/workspaces/ws_handeye_calibration/install/setup.bash
 ros2 launch ur3e_handeye_motion handeye_motion.launch.py
 ```
 
-无头模式使用 `launch_rviz:=false`。启动过程会把速度滑块设为 10%；门禁没有就绪时，规划和执行请求都会保持机械臂不动。
+无头模式使用 `launch_rviz:=false`。该流程不会改变示教器速度滑块；8C 门禁仍会只读检查 speed scaling 是否有效且大于零。门禁没有就绪时，规划和执行请求都会保持机械臂不动。
 
 已有 driver、Dashboard 和 MoveIt 时，只启动接口节点：
 

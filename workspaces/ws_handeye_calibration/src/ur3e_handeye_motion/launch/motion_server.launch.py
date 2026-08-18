@@ -31,7 +31,6 @@ def generate_launch_description() -> LaunchDescription:
                         'planning_group': 'ur_manipulator',
                         'base_frame': 'base_link',
                         'end_effector_link': 'tool0',
-                        'speed_slider_fraction': 0.1,
                     },
                     {
                         'robot_description_kinematics': load_yaml(

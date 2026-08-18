@@ -29,7 +29,6 @@
 #include <ur_dashboard_msgs/srv/get_safety_mode.hpp>
 #include <ur_dashboard_msgs/srv/is_in_remote_control.hpp>
 #include <ur_dashboard_msgs/srv/is_program_running.hpp>
-#include <ur_msgs/srv/set_speed_slider_fraction.hpp>
 
 #include "ur3e_handeye_motion/action/execute_plan.hpp"
 #include "ur3e_handeye_motion/motion_safety.hpp"
@@ -62,7 +61,6 @@ public:
     position_tolerance_m_ = declare_parameter<double>("position_tolerance_m", 0.001);
     orientation_tolerance_rad_ = declare_parameter<double>(
       "orientation_tolerance_rad", M_PI / 180.0);
-    speed_slider_fraction_ = declare_parameter<double>("speed_slider_fraction", 0.1);
     service_timeout_sec_ = declare_parameter<double>("service_timeout_sec", 1.0);
     joint_state_stale_sec_ = declare_parameter<double>("joint_state_stale_sec", 0.25);
     speed_scaling_stale_sec_ = declare_parameter<double>("speed_scaling_stale_sec", 1.0);
@@ -89,8 +87,6 @@ public:
       "/dashboard_client/is_in_remote_control");
     controller_client_ = make_client<controller_manager_msgs::srv::ListControllers>(
       "/controller_manager/list_controllers");
-    speed_slider_client_ = make_client<ur_msgs::srv::SetSpeedSliderFraction>(
-      "/io_and_status_controller/set_speed_slider");
 
     const auto display_qos = rclcpp::QoS(1).transient_local().reliable();
     display_publisher_ = create_publisher<moveit_msgs::msg::DisplayTrajectory>(
@@ -127,8 +123,8 @@ public:
       200ms, std::bind(&HandeyeMotionNode::monitor_execution, this), callback_group_);
     RCLCPP_INFO(
       get_logger(),
-      "Hand-eye motion API ready: frame=%s link=%s slider=%.0f%%",
-      base_frame_.c_str(), end_effector_link_.c_str(), speed_slider_fraction_ * 100.0);
+      "Hand-eye motion API ready: frame=%s link=%s",
+      base_frame_.c_str(), end_effector_link_.c_str());
   }
 
 private:
@@ -185,18 +181,6 @@ private:
     std::lock_guard<std::mutex> lock(state_mutex_);
     speed_scaling_ = msg->data;
     last_speed_scaling_time_ = std::chrono::steady_clock::now();
-  }
-
-  bool set_speed_slider(std::string & reason)
-  {
-    auto request = std::make_shared<ur_msgs::srv::SetSpeedSliderFraction::Request>();
-    request->speed_slider_fraction = speed_slider_fraction_;
-    const auto response = call<ur_msgs::srv::SetSpeedSliderFraction>(speed_slider_client_, request);
-    if (!response || !response->success) {
-      reason = "failed to set teach-pendant speed slider to 10%";
-      return false;
-    }
-    return true;
   }
 
   GateReport check_gate(const bool nonblocking = false)
@@ -303,11 +287,6 @@ private:
       readiness_timer_->cancel();
       return;
     }
-    std::string reason;
-    if (!set_speed_slider(reason)) {
-      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "%s", reason.c_str());
-      return;
-    }
     const auto gate = check_gate(true);
     if (gate.blocked || gate.summary.empty()) {
       RCLCPP_INFO_THROTTLE(
@@ -331,7 +310,7 @@ private:
       return;
     }
     if (!ready_.load()) {
-      response->message = "startup speed-slider and 8C gate are not ready";
+      response->message = "startup 8C gate is not ready";
       return;
     }
 
@@ -505,12 +484,6 @@ private:
       };
 
     publish_stage(goal_handle, "PRECHECK");
-    std::string slider_reason;
-    if (!set_speed_slider(slider_reason)) {
-      result->message = slider_reason;
-      abort();
-      return;
-    }
     const auto gate = check_gate();
     if (gate.blocked) {
       result->message = "8C gate blocked execution: " + gate.summary;
@@ -655,7 +628,6 @@ private:
   double start_tolerance_rad_{0.01};
   double position_tolerance_m_{0.001};
   double orientation_tolerance_rad_{M_PI / 180.0};
-  double speed_slider_fraction_{0.1};
   double service_timeout_sec_{1.0};
   double joint_state_stale_sec_{0.25};
   double speed_scaling_stale_sec_{1.0};
@@ -677,7 +649,6 @@ private:
   rclcpp::Client<ur_dashboard_msgs::srv::IsProgramRunning>::SharedPtr program_running_client_;
   rclcpp::Client<ur_dashboard_msgs::srv::IsInRemoteControl>::SharedPtr remote_control_client_;
   rclcpp::Client<controller_manager_msgs::srv::ListControllers>::SharedPtr controller_client_;
-  rclcpp::Client<ur_msgs::srv::SetSpeedSliderFraction>::SharedPtr speed_slider_client_;
 
   std::mutex operation_mutex_;
   std::mutex cache_mutex_;

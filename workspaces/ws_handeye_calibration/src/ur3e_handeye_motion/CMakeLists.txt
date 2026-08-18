@@ -21,7 +21,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(ur_dashboard_msgs REQUIRED)
-find_package(ur_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlanPose.srv"
@@ -42,7 +41,6 @@ ament_target_dependencies(handeye_motion_node
   std_msgs
   tf2_ros
   ur_dashboard_msgs
-  ur_msgs
 )
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
 target_link_libraries(handeye_motion_node "${cpp_typesupport_target}")
