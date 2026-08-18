@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import signal
+import socket
 import sys
 import time
 from typing import Any
@@ -21,6 +22,9 @@ class ExternalControlManager(Node):
         self.declare_parameter('require_remote_control', True)
         self.declare_parameter('startup_timeout_sec', 20.0)
         self.declare_parameter('stop_on_shutdown', True)
+        self.declare_parameter('robot_ip', '')
+        self.declare_parameter('dashboard_port', 29999)
+        self.declare_parameter('direct_stop_timeout_sec', 2.0)
         self.declare_parameter(
             'remote_control_service', '/dashboard_client/is_in_remote_control'
         )
@@ -109,18 +113,55 @@ class ExternalControlManager(Node):
             return
 
         self.get_logger().warn('Stopping External Control program owned by this bringup.')
-        if not self._stop_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error('Stop service unavailable during shutdown.')
-            return
-
-        response = self._call(self._stop_client, Trigger.Request(), timeout_sec=3.0)
-        if response is None:
-            self.get_logger().error('Timed out calling stop service during shutdown.')
-            return
-        if response.success:
-            self.get_logger().info(f'External Control stop succeeded: {response.message}')
+        if self._stop_client.wait_for_service(timeout_sec=2.0):
+            response = self._call(self._stop_client, Trigger.Request(), timeout_sec=3.0)
+            if response is not None and response.success:
+                running = self._query_program_running()
+                if running is False:
+                    self.get_logger().info(
+                        f'External Control stop succeeded: {response.message}'
+                    )
+                    return
+                self.get_logger().warn(
+                    'Dashboard stop service returned success but stopped state was not confirmed.'
+                )
+            else:
+                message = 'no response' if response is None else response.message
+                self.get_logger().warn(f'Dashboard stop service failed: {message}')
         else:
-            self.get_logger().error(f'External Control stop failed: {response.message}')
+            self.get_logger().warn('Stop service unavailable during shutdown.')
+
+        if self._direct_dashboard_stop():
+            self.get_logger().info('External Control stopped through Dashboard TCP fallback.')
+        else:
+            self.get_logger().error('Failed to stop External Control through both shutdown paths.')
+
+    def _direct_dashboard_stop(self) -> bool:
+        robot_ip = self.get_parameter('robot_ip').get_parameter_value().string_value
+        if not robot_ip:
+            self.get_logger().error('robot_ip is empty; Dashboard TCP fallback is unavailable.')
+            return False
+        port = self.get_parameter('dashboard_port').get_parameter_value().integer_value
+        timeout = self.get_parameter(
+            'direct_stop_timeout_sec'
+        ).get_parameter_value().double_value
+        try:
+            with socket.create_connection((robot_ip, port), timeout=timeout) as connection:
+                connection.settimeout(timeout)
+                connection.recv(4096)
+                stop_answer = self._dashboard_command(connection, 'stop')
+                running_answer = self._dashboard_command(connection, 'running')
+        except (OSError, TimeoutError) as error:
+            self.get_logger().error(f'Dashboard TCP fallback failed: {error}')
+            return False
+        self.get_logger().info(f'Dashboard TCP stop answer: {stop_answer}')
+        self.get_logger().info(f'Dashboard TCP running answer: {running_answer}')
+        return 'false' in running_answer.lower()
+
+    @staticmethod
+    def _dashboard_command(connection: socket.socket, command: str) -> str:
+        connection.sendall(f'{command}\n'.encode('ascii'))
+        return connection.recv(4096).decode('utf-8', errors='replace').strip()
 
     def _wait_for_dashboard_services(self, deadline: float) -> bool:
         clients = [

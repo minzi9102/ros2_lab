@@ -1,0 +1,10 @@
+geometry_msgs/PoseStamped target
+---
+bool planned
+uint64 plan_id
+moveit_msgs/RobotTrajectory trajectory
+sensor_msgs/JointState start_state
+sensor_msgs/JointState goal_state
+float64[] joint_delta_rad
+builtin_interfaces/Duration nominal_duration
+string message

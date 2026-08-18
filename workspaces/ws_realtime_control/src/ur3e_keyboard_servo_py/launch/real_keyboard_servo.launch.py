@@ -273,6 +273,7 @@ def launch_setup(context: LaunchContext, *_args, **_kwargs):
         output='both',
         parameters=[
             {
+                'robot_ip': LaunchConfiguration('robot_ip'),
                 'program_path': LaunchConfiguration('external_control_program'),
                 'require_remote_control': True,
                 'startup_timeout_sec': ParameterValue(

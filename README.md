@@ -39,7 +39,8 @@ ros2_lab/
     ├── ws_tutorials/         # 阶段 1：ROS 2 基础与最小控制链路
     ├── ws_stage2/            # 阶段 2：UR driver、fake hardware、URSim
     ├── ws_stage3/            # 阶段 3：MoveIt 2 与 MoveIt Servo
-    └── ws_stage4/            # 阶段 4：UR3e 真机接入与状态门闩
+    ├── ws_stage4/            # 阶段 4：UR3e 真机接入与状态门闩
+    └── ws_handeye_calibration/ # 手眼标定专用真机运动接口
 ```
 
 `build/`、`install/`、`log/`、`logs/` 多为 colcon 构建或实验运行产物，可能随本机实验状态变化。阅读源码时优先看各工作区的 `src/` 与 `notes/`。
@@ -105,6 +106,13 @@ kinematics_params_file:=/home/minzi/ros2_lab/workspaces/ws_stage4/src/ur3_real_b
 ```
 
 注意：当前官方 `ur_control.launch.py` 在本机版本中不直接透传 `kinematics_params_file`；进入 8D 前应通过自定义 description launch/wrapper 接入该文件，而不是继续依赖默认 kinematics。
+
+### `workspaces/ws_handeye_calibration`
+
+手眼标定专用的真机运动底座，提供带 8C 门禁的两阶段位姿规划与执行接口。规划固定使用当前关节状态作为 IK 种子，执行只接受对应的缓存 `plan_id`，并在结束后通过 TF 验收；当前不包含相机采样或手眼矩阵求解。
+
+- 使用说明：[手眼标定运动工作区](workspaces/ws_handeye_calibration/README.md)
+- 主要包：`ur3e_handeye_motion`
 
 ## 文档入口
 

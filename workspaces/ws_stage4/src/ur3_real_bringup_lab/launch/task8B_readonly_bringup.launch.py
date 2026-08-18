@@ -145,6 +145,7 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("manage_external_control")),
         parameters=[
             {
+                "robot_ip": LaunchConfiguration("robot_ip"),
                 "program_path": LaunchConfiguration("external_control_program"),
                 "require_remote_control": LaunchConfiguration(
                     "require_remote_control_for_external_control"

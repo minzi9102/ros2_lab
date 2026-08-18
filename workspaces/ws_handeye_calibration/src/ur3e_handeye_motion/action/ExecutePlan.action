@@ -1,0 +1,10 @@
+uint64 plan_id
+---
+bool executed
+bool within_tolerance
+geometry_msgs/PoseStamped actual_pose
+float64 position_error_m
+float64 orientation_error_rad
+string message
+---
+string stage
